@@ -79,6 +79,13 @@ def main() -> int:
     args = parse_args()
     strict_flag = ["--strict"] if args.strict else []
 
+    if args.strict and not args.compare_manifest and not args.allow_missing_compare:
+        print(
+            "[FAIL] Strict mode requires --compare-manifest, or explicitly set --allow-missing-compare for bootstrap.",
+            file=sys.stderr,
+        )
+        return 2
+
     request_path = Path(args.request).expanduser().resolve()
     if not request_path.exists():
         print(f"[FAIL] Request file not found: {request_path}", file=sys.stderr)
@@ -143,6 +150,19 @@ def main() -> int:
         return finalize(args, reports, steps, success=False)
 
     try:
+        claim_tier_target = str(normalized["claim_tier_target"])
+    except Exception as exc:
+        print(f"[FAIL] Missing required normalized request fields: {exc}", file=sys.stderr)
+        return finalize(args, reports, steps, success=False)
+
+    if claim_tier_target != "publication-grade":
+        print(
+            f"[FAIL] run_strict_pipeline.py only supports publication-grade requests (got: {claim_tier_target}).",
+            file=sys.stderr,
+        )
+        return finalize(args, reports, steps, success=False)
+
+    try:
         train = str(split_paths["train"])
         test = str(split_paths["test"])
         valid = split_paths.get("valid")
@@ -163,7 +183,7 @@ def main() -> int:
         alpha = float(thresholds.get("alpha", 0.01))
         min_delta = float(thresholds.get("min_delta", 0.03))
     except Exception as exc:
-        print(f"[FAIL] Missing required normalized request fields: {exc}", file=sys.stderr)
+        print(f"[FAIL] Missing required publication-grade fields: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
     split_args: List[str] = ["--train", train, "--test", test]

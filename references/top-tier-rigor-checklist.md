@@ -40,6 +40,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Report class imbalance handling and prevalence context.
 - [ ] Extract primary metric from evaluation report artifact (no manual metric injection).
 - [ ] Pin explicit metric path and confirm no conflicting duplicate metric values in the artifact.
+- [ ] Ensure metric-path leaf is consistent with declared primary metric name.
 - [ ] Reject non-finite metric values (`NaN`, `Inf`) in all evidence files.
 
 ## G. Robustness and Falsification

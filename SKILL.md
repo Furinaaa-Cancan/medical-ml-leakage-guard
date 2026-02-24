@@ -36,6 +36,7 @@ Publication-grade required fields:
 - `evaluation_metric_path`
 - `permutation_null_metrics_file`
 - `actual_primary_metric`
+- `evaluation_metric_path` terminal token must match `primary_metric` (after normalization).
 
 Path semantics:
 - All relative paths in request JSON are resolved relative to the request file directory.
@@ -112,6 +113,7 @@ python3 scripts/run_strict_pipeline.py \
 For first-run baseline bootstrap, you may omit `--compare-manifest` only with:
 - `--allow-missing-compare`
 - In strict mode this downgrades only `manifest_not_comparable` to non-blocking warning; other warnings still block.
+- `run_strict_pipeline.py` is publication-grade only; non-publication claim tiers are rejected.
 
 ## Manual Strict Execution Order
 If orchestration is unavailable, run in this exact order:

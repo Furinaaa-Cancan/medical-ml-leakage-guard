@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,6 +44,10 @@ def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Di
 
 def is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def canonical_metric_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
 def get_by_dot_path(payload: Dict[str, Any], path: str) -> Tuple[Optional[Any], str]:
@@ -143,6 +148,21 @@ def main() -> int:
             {"tolerance": args.tolerance},
         )
         return finish(args, failures, warnings, actual_metric=None, metric_source_path=None)
+
+    if args.metric_path:
+        leaf = args.metric_path.split(".")[-1].strip()
+        if canonical_metric_token(leaf) != canonical_metric_token(args.metric_name):
+            add_issue(
+                failures,
+                "metric_path_metric_mismatch",
+                "Metric path leaf must match metric-name.",
+                {
+                    "metric_name": args.metric_name,
+                    "metric_path": args.metric_path,
+                    "metric_leaf": leaf,
+                },
+            )
+            return finish(args, failures, warnings, actual_metric=None, metric_source_path=None)
 
     report_path = Path(args.evaluation_report).expanduser().resolve()
     if not report_path.exists():

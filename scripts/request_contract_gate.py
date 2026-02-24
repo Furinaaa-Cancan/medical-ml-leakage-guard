@@ -145,6 +145,10 @@ def is_valid_dot_path(path: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", path))
 
 
+def canonical_metric_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
 def validate_optional_path(
     request: Dict[str, Any],
     key: str,
@@ -348,6 +352,19 @@ def main() -> int:
                 {"field": "evaluation_metric_path", "value": metric_path_clean},
             )
         else:
+            metric_leaf = metric_path_clean.split(".")[-1]
+            primary_metric = str(normalized.get("primary_metric", "")).strip()
+            if primary_metric and canonical_metric_token(metric_leaf) != canonical_metric_token(primary_metric):
+                add_issue(
+                    failures,
+                    "metric_path_metric_mismatch",
+                    "evaluation_metric_path leaf must match primary_metric.",
+                    {
+                        "primary_metric": primary_metric,
+                        "evaluation_metric_path": metric_path_clean,
+                        "metric_leaf": metric_leaf,
+                    },
+                )
             normalized["evaluation_metric_path"] = metric_path_clean
     else:
         add_issue(
