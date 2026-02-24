@@ -25,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--valid", help="Path to valid CSV.")
     parser.add_argument("--test", required=True, help="Path to test CSV.")
     parser.add_argument("--target-col", default="y", help="Target/label column name.")
+    parser.add_argument(
+        "--ignore-cols",
+        default="",
+        help="Comma-separated columns to exclude from feature-level missingness checks (for example id/time columns).",
+    )
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
@@ -36,6 +41,15 @@ def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Di
 
 def is_missing(value: str) -> bool:
     return value.strip().lower() in MISSING_TOKENS
+
+
+def parse_ignore_cols(raw: str, target_col: str) -> Set[str]:
+    ignore: Set[str] = {target_col}
+    for token in raw.split(","):
+        cleaned = token.strip()
+        if cleaned:
+            ignore.add(cleaned)
+    return ignore
 
 
 def require_str(spec: Dict[str, Any], key: str, failures: List[Dict[str, Any]]) -> Optional[str]:
@@ -186,6 +200,7 @@ def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
+    ignored_cols = parse_ignore_cols(args.ignore_cols, args.target_col)
 
     policy_path = Path(args.policy_spec).expanduser().resolve()
     if not policy_path.exists():
@@ -350,7 +365,16 @@ def main() -> int:
     if train_stats:
         train_rows = int(train_stats["row_count"])
         train_cols = int(train_stats["col_count"])
-        feature_count = max(train_cols - 1, 0)
+        feature_headers = [col for col in train_stats["headers"] if col not in ignored_cols]
+        feature_count = len(feature_headers)
+
+        if train_cols > 0 and feature_count <= 0:
+            add_issue(
+                failures,
+                "no_features_after_exclusions",
+                "No usable feature columns remain after ignored column exclusions.",
+                {"ignored_cols": sorted(ignored_cols), "train_headers": train_stats["headers"]},
+            )
 
         if strategy and strategy.lower() in large_data_restricted_methods:
             if (
@@ -389,20 +413,18 @@ def main() -> int:
                 )
 
         if strategy == "none":
-            total_missing = int(train_stats["total_missing"])
+            total_missing = sum(int(train_stats["missing_by_col"].get(col, 0)) for col in feature_headers)
             if total_missing > 0 and not complete_case_analysis:
                 add_issue(
                     failures,
                     "missingness_unhandled",
                     "Missing values exist but strategy is 'none' without complete-case analysis.",
-                    {"train_total_missing": total_missing},
+                    {"train_total_feature_missing": total_missing},
                 )
 
         missing_by_col = train_stats["missing_by_col"]
         ratio_by_col = train_stats["missing_ratio_by_col"]
-        for col in train_stats["headers"]:
-            if col == args.target_col:
-                continue
+        for col in feature_headers:
             ratio = ratio_by_col.get(col)
             if ratio is None:
                 continue
@@ -465,10 +487,8 @@ def main() -> int:
             other_rows = int(other["row_count"])
             if min(train_rows, other_rows) < 50:
                 continue
-            shared_cols = set(train["headers"]) & set(other["headers"])
+            shared_cols = (set(train["headers"]) & set(other["headers"])) - ignored_cols
             for col in shared_cols:
-                if col == args.target_col:
-                    continue
                 train_ratio = train["missing_ratio_by_col"].get(col)
                 other_ratio = other["missing_ratio_by_col"].get(col)
                 if train_ratio is None or other_ratio is None:
@@ -499,6 +519,7 @@ def finish(
     splits: Dict[str, Dict[str, Any]],
 ) -> int:
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    ignored_cols = parse_ignore_cols(args.ignore_cols, args.target_col)
 
     split_summary: Dict[str, Any] = {}
     for split_name, stats in splits.items():
@@ -517,7 +538,7 @@ def finish(
                         "missing_ratio": stats["missing_ratio_by_col"].get(col),
                     }
                     for col in stats.get("headers", [])
-                    if col != args.target_col
+                    if col not in ignored_cols
                 ),
                 key=lambda item: (item.get("missing_ratio") or 0.0),
                 reverse=True,
@@ -535,6 +556,7 @@ def finish(
         "warnings": warnings,
         "summary": {
             "policy_fields_present": sorted(policy.keys()) if isinstance(policy, dict) else [],
+            "ignored_columns": sorted(ignored_cols),
             "splits": split_summary,
         },
     }

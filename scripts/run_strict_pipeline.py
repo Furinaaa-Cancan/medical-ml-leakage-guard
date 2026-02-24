@@ -77,6 +77,12 @@ def ensure_number(value: Any, name: str) -> float:
 
 def main() -> int:
     args = parse_args()
+    if not args.strict:
+        print(
+            "[FAIL] run_strict_pipeline.py enforces publication-grade strict mode. Re-run with --strict.",
+            file=sys.stderr,
+        )
+        return 2
     strict_flag = ["--strict"] if args.strict else []
 
     if args.strict and not args.compare_manifest and not args.allow_missing_compare:
@@ -350,6 +356,8 @@ def main() -> int:
             *split_args,
             "--target-col",
             label_col,
+            "--ignore-cols",
+            f"{id_col},{time_col}",
             "--report",
             str(reports["missingness_report"]),
             *strict_flag,

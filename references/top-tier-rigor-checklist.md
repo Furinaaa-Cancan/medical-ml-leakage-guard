@@ -34,6 +34,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Tune hyperparameters using inner CV or validation only.
 - [ ] Select architecture without peeking at final test labels.
 - [ ] Select threshold/calibration without final test outcomes.
+- [ ] Restrict threshold/calibration split to validation or inner-CV scopes (never train/test).
 - [ ] Keep tuning protocol spec and prove all `test_used_*` flags are false.
 - [ ] Keep final test unopened until design freeze.
 

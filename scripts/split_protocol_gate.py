@@ -360,9 +360,9 @@ def main() -> int:
             )
         if stats["missing_id_rows"] > 0:
             add_issue(
-                warnings,
+                failures,
                 "missing_entity_ids",
-                "Rows with missing entity IDs were observed.",
+                "Rows with missing entity IDs prevent reliable overlap leakage audit.",
                 {"split": split_name, "missing_id_rows": stats["missing_id_rows"]},
             )
 

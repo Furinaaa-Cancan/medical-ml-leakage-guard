@@ -5,7 +5,7 @@
   "threshold_selection_split": "valid",
   "calibration_split": "valid",
   "resampling_applied_to": [
-    "train"
+    "none"
   ],
   "imbalance_alert_ratio": 5.0,
   "minimum_minority_cases": 20,

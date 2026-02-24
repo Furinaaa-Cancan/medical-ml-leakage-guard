@@ -165,6 +165,32 @@ def require_number(
     return parsed
 
 
+def normalize_scope_list(raw: Any, field: str, failures: List[Dict[str, Any]]) -> Optional[List[str]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        add_issue(
+            failures,
+            "invalid_policy_field",
+            "Policy field must be list of non-empty strings.",
+            {"field": field, "actual_type": type(raw).__name__},
+        )
+        return None
+
+    out: List[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            add_issue(
+                failures,
+                "invalid_policy_field",
+                "Policy list items must be non-empty strings.",
+                {"field": field},
+            )
+            return None
+        out.append(item.strip().lower())
+    return sorted(set(out))
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -235,37 +261,61 @@ def main() -> int:
             {},
         )
 
+    allowed_postprocessing_splits = {"valid", "cv_inner", "nested_cv", "none", "not_applicable", "na"}
     for field_name, split_name in (
         ("threshold_selection_split", threshold_selection_split),
         ("calibration_split", calibration_split),
     ):
-        if split_name and split_name.lower() == "test":
+        if not split_name:
+            continue
+        split_token = split_name.lower()
+        if split_token not in allowed_postprocessing_splits:
+            add_issue(
+                failures,
+                "invalid_postprocessing_split",
+                "Post-processing split must be one of the approved non-test scopes.",
+                {"field": field_name, "split": split_name, "allowed": sorted(allowed_postprocessing_splits)},
+            )
+        if split_token == "test":
             add_issue(
                 failures,
                 "test_split_used_for_postprocessing",
                 "Test split must not be used for threshold/calibration selection.",
                 {"field": field_name, "split": split_name},
             )
+        if split_token == "train":
+            add_issue(
+                failures,
+                "train_split_used_for_postprocessing",
+                "Train split must not be reused for threshold/calibration selection.",
+                {"field": field_name, "split": split_name},
+            )
 
     resampling_required = strategy in {"oversample_train_only", "undersample_train_only", "smote_train_only"}
     raw_resampling = spec.get("resampling_applied_to")
+    normalized_scope = normalize_scope_list(raw_resampling, "resampling_applied_to", failures)
     if resampling_required:
-        if not isinstance(raw_resampling, list) or not raw_resampling:
+        if normalized_scope is None or not normalized_scope:
             add_issue(
                 failures,
                 "missing_resampling_scope",
                 "Resampling strategy requires resampling_applied_to list.",
                 {"strategy": strategy},
             )
-        else:
-            normalized_scope = sorted({str(x).strip().lower() for x in raw_resampling if str(x).strip()})
-            if normalized_scope != ["train"]:
-                add_issue(
-                    failures,
-                    "resampling_scope_leakage",
-                    "Resampling must be applied only to train split.",
-                    {"resampling_applied_to": normalized_scope},
-                )
+        elif normalized_scope != ["train"]:
+            add_issue(
+                failures,
+                "resampling_scope_leakage",
+                "Resampling must be applied only to train split.",
+                {"resampling_applied_to": normalized_scope},
+            )
+    elif normalized_scope not in (None, [], ["none"]):
+        add_issue(
+            failures,
+            "unexpected_resampling_scope",
+            "Non-resampling strategy must not declare active resampling scopes.",
+            {"strategy": strategy, "resampling_applied_to": normalized_scope},
+        )
 
     splits: Dict[str, Dict[str, Any]] = {}
     split_paths = {"train": args.train, "test": args.test}
