@@ -99,6 +99,33 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Set assurance_policy.require_independent_log_authority=true in spec.",
     )
+    parser.add_argument(
+        "--require-witness-quorum",
+        action="store_true",
+        help="Set assurance_policy.require_witness_quorum=true in spec.",
+    )
+    parser.add_argument(
+        "--min-witness-count",
+        type=int,
+        default=2,
+        help="Minimum required witness signatures when quorum is required (default: 2).",
+    )
+    parser.add_argument(
+        "--require-independent-witness-keys",
+        action="store_true",
+        help="Set assurance_policy.require_independent_witness_keys=true in spec.",
+    )
+    parser.add_argument(
+        "--require-witness-independence-from-signing",
+        action="store_true",
+        help="Set assurance_policy.require_witness_independence_from_signing=true in spec.",
+    )
+    parser.add_argument(
+        "--witness",
+        action="append",
+        default=[],
+        help="Witness tuple AUTHORITY_ID|PUBLIC_KEY_FILE|PRIVATE_KEY_FILE. Repeat for multiple witnesses.",
+    )
 
     parser.add_argument(
         "--skip-execution-log-attestation",
@@ -194,6 +221,24 @@ def parse_artifact(raw: str) -> Tuple[str, Path]:
     if not name_clean or not path_clean:
         raise ValueError(f"Invalid --artifact '{raw}'. NAME and PATH must be non-empty.")
     return name_clean, Path(path_clean).expanduser().resolve()
+
+
+def parse_witness(raw: str) -> Tuple[str, Path, Path]:
+    parts = [x.strip() for x in raw.split("|")]
+    if len(parts) != 3:
+        raise ValueError(
+            f"Invalid --witness '{raw}'. Expected AUTHORITY_ID|PUBLIC_KEY_FILE|PRIVATE_KEY_FILE."
+        )
+    authority_id, pub_raw, priv_raw = parts
+    if not authority_id or not pub_raw or not priv_raw:
+        raise ValueError(
+            f"Invalid --witness '{raw}'. AUTHORITY_ID, PUBLIC_KEY_FILE and PRIVATE_KEY_FILE must be non-empty."
+        )
+    return (
+        authority_id,
+        Path(pub_raw).expanduser().resolve(),
+        Path(priv_raw).expanduser().resolve(),
+    )
 
 
 def default_executor() -> str:
@@ -343,6 +388,63 @@ def main() -> int:
     if missing_required:
         print(f"[FAIL] Missing required artifact names in --artifact list: {missing_required}", file=sys.stderr)
         return 2
+
+    if args.min_witness_count < 1:
+        print("[FAIL] --min-witness-count must be >= 1.", file=sys.stderr)
+        return 2
+
+    parsed_witnesses: List[Tuple[str, Path, Path]] = []
+    try:
+        for raw in args.witness:
+            authority_id, pub_path, priv_path = parse_witness(raw)
+            ensure_file(pub_path, f"witness public key ({authority_id})")
+            if not args.skip_sign:
+                ensure_file(priv_path, f"witness private key ({authority_id})")
+            parsed_witnesses.append((authority_id, pub_path, priv_path))
+    except Exception as exc:
+        print(f"[FAIL] {exc}", file=sys.stderr)
+        return 2
+
+    require_witness_quorum = bool(args.require_witness_quorum or len(parsed_witnesses) > 0)
+    require_independent_witness_keys = bool(args.require_independent_witness_keys or require_witness_quorum)
+    require_witness_independence_from_signing = bool(
+        args.require_witness_independence_from_signing or require_witness_quorum
+    )
+    if require_witness_quorum and not parsed_witnesses:
+        print("[FAIL] Witness quorum required but no --witness entries provided.", file=sys.stderr)
+        return 2
+    if require_witness_quorum and args.min_witness_count > len(parsed_witnesses):
+        print(
+            f"[FAIL] min-witness-count ({args.min_witness_count}) exceeds provided witnesses ({len(parsed_witnesses)}).",
+            file=sys.stderr,
+        )
+        return 2
+    if require_witness_quorum and require_independent_witness_keys:
+        seen_authorities: set[str] = set()
+        seen_witness_fps: set[str] = set()
+        for authority_id, witness_pub, _ in parsed_witnesses:
+            authority_norm = authority_id.strip()
+            if authority_norm in seen_authorities:
+                print(
+                    f"[FAIL] Duplicate witness authority_id detected under independent-witness policy: {authority_norm}",
+                    file=sys.stderr,
+                )
+                return 2
+            seen_authorities.add(authority_norm)
+
+            try:
+                witness_fp = public_key_fingerprint_sha256(witness_pub).lower()
+            except Exception as exc:
+                print(f"[FAIL] Unable to compute witness public key fingerprint: {exc}", file=sys.stderr)
+                return 2
+
+            if witness_fp in seen_witness_fps:
+                print(
+                    "[FAIL] Duplicate witness public key detected under independent-witness policy.",
+                    file=sys.stderr,
+                )
+                return 2
+            seen_witness_fps.add(witness_fp)
 
     execution_log_artifact_name = (
         args.execution_log_artifact_name.strip()
@@ -778,6 +880,57 @@ def main() -> int:
             "signature": str(execution_log_sig_out),
         }
 
+    witness_quorum_block = None
+    witness_outputs: List[Dict[str, str]] = []
+    if require_witness_quorum:
+        witness_records: List[Dict[str, str]] = []
+        for idx, (authority_id, witness_pub, witness_priv) in enumerate(parsed_witnesses, start=1):
+            record_out = (payload_out.parent / f"attestation_witness_record_{idx}.json").resolve()
+            sig_out = (payload_out.parent / f"attestation_witness_record_{idx}.sig").resolve()
+            witness_record = {
+                "schema_version": "1.0",
+                "authority_id": authority_id,
+                "payload_sha256": payload_sha256,
+                "study_id": args.study_id.strip(),
+                "run_id": args.run_id.strip(),
+                "attested_at_utc": issued_at,
+                "statement": "witnessed execution payload hash",
+            }
+            write_json(record_out, witness_record)
+
+            if args.skip_sign:
+                if sig_out.exists():
+                    sig_out.unlink()
+            else:
+                ensure_parent(sig_out)
+                try:
+                    openssl_sign_file(private_key=witness_priv, input_file=record_out, output_sig=sig_out)
+                except Exception as exc:
+                    print(f"[FAIL] {exc}", file=sys.stderr)
+                    return 2
+
+            try:
+                witness_fp = public_key_fingerprint_sha256(witness_pub)
+            except Exception as exc:
+                print(f"[FAIL] Unable to compute witness public key fingerprint: {exc}", file=sys.stderr)
+                return 2
+
+            witness_records.append(
+                {
+                    "authority_id": authority_id,
+                    "record_file": resolve_for_output(spec_base, record_out),
+                    "signature_file": resolve_for_output(spec_base, sig_out),
+                    "public_key_file": resolve_for_output(spec_base, witness_pub),
+                    "public_key_fingerprint_sha256": witness_fp,
+                }
+            )
+            witness_outputs.append({"authority_id": authority_id, "record": str(record_out), "signature": str(sig_out)})
+
+        witness_quorum_block = {
+            "min_witness_count": int(args.min_witness_count),
+            "records": witness_records,
+        }
+
     assurance_policy = {
         "min_signing_key_bits": int(args.min_signing_key_bits),
         "max_signing_key_age_days": int(args.max_signing_key_age_days),
@@ -790,6 +943,10 @@ def main() -> int:
         "require_independent_timestamp_authority": bool(args.require_independent_timestamp_authority),
         "require_independent_execution_authority": bool(args.require_independent_execution_authority),
         "require_independent_log_authority": bool(args.require_independent_log_authority),
+        "require_witness_quorum": bool(require_witness_quorum),
+        "min_witness_count": int(args.min_witness_count) if require_witness_quorum else 0,
+        "require_independent_witness_keys": bool(require_independent_witness_keys),
+        "require_witness_independence_from_signing": bool(require_witness_independence_from_signing),
     }
 
     spec: Dict[str, Any] = {
@@ -821,6 +978,8 @@ def main() -> int:
         spec["execution_receipt"] = execution_receipt_block
     if execution_log_block is not None:
         spec["execution_log_attestation"] = execution_log_block
+    if witness_quorum_block is not None:
+        spec["witness_quorum"] = witness_quorum_block
 
     write_json(spec_out, spec)
 
@@ -840,6 +999,9 @@ def main() -> int:
     if execution_log_outputs:
         print(f"Execution log record: {execution_log_outputs['record']}")
         print(f"Execution log signature: {execution_log_outputs['signature']}")
+    for witness in witness_outputs:
+        print(f"Witness ({witness['authority_id']}) record: {witness['record']}")
+        print(f"Witness ({witness['authority_id']}) signature: {witness['signature']}")
     print(f"Artifacts hashed: {len(payload_artifacts)}")
     print(f"Required artifact names: {required_artifacts}")
     return 0

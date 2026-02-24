@@ -71,7 +71,10 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Verify trusted timestamp record binds to signed payload hash and run identity.
 - [ ] Verify transparency-log record binds to signed payload hash and run identity.
 - [ ] Verify signed execution-log attestation binds to the `training_log` artifact hash and run identity.
+- [ ] Verify witness-quorum records bind to signed payload hash and run identity.
+- [ ] Enforce minimum validated witness count with independent witness authorities/keys.
 - [ ] Require independent key custody for payload signer, execution receipt, and execution-log authorities.
+- [ ] Require witness keys to be independent from the payload signing key.
 - [ ] Compare current manifest against a locked baseline manifest and require exact match before publication-grade claim.
 - [ ] Ensure end-to-end rerun reproduces results within tolerance.
 

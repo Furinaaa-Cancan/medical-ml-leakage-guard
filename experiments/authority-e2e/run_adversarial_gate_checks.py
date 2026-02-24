@@ -94,6 +94,24 @@ def absolutize_attestation_paths(spec: Dict[str, Any], spec_dir: Path) -> Dict[s
             else:
                 p = p.resolve()
             block[key] = str(p)
+
+    witness_block = cloned.get("witness_quorum")
+    if isinstance(witness_block, dict):
+        records = witness_block.get("records")
+        if isinstance(records, list):
+            for entry in records:
+                if not isinstance(entry, dict):
+                    continue
+                for key in ("record_file", "signature_file", "public_key_file"):
+                    raw = entry.get(key)
+                    if not isinstance(raw, str) or not raw.strip():
+                        continue
+                    p = Path(raw).expanduser()
+                    if not p.is_absolute():
+                        p = (spec_dir / p).resolve()
+                    else:
+                        p = p.resolve()
+                    entry[key] = str(p)
     return cloned
 
 
@@ -490,6 +508,119 @@ def main() -> int:
             ["signature_verification_failed", "execution_log_artifact_hash_mismatch"],
             cmd11,
             report11,
+        )
+    )
+
+    # 12) Witness quorum tampering.
+    attestation_spec_witness = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_witness = absolutize_attestation_paths(attestation_spec_witness, cfg_dir)
+    witness_block = attestation_abs_witness.get("witness_quorum")
+    if not isinstance(witness_block, dict):
+        raise RuntimeError("witness_quorum block missing in attestation spec.")
+    witness_records = witness_block.get("records")
+    if not isinstance(witness_records, list) or not witness_records or not isinstance(witness_records[0], dict):
+        raise RuntimeError("witness_quorum.records missing in attestation spec.")
+    witness_record_file = Path(str(witness_records[0]["record_file"]))
+    tampered_witness_record = tmp_root / "attestation_witness_record_1.tampered.json"
+    tampered_witness_payload = load_json(witness_record_file)
+    tampered_witness_payload["payload_sha256"] = "1" * 64
+    write_json(tampered_witness_record, tampered_witness_payload)
+    witness_records[0]["record_file"] = str(tampered_witness_record)
+    attestation_witness_bad = tmp_root / "execution_attestation.witness.bad.json"
+    write_json(attestation_witness_bad, attestation_abs_witness)
+    report12 = tmp_root / "execution_attestation.witness.bad.report.json"
+    cmd12 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_witness_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report12),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "witness_quorum_tamper",
+            ["signature_verification_failed", "witness_quorum_not_met"],
+            cmd12,
+            report12,
+        )
+    )
+
+    # 13) Witness quorum policy disabled while quorum block exists.
+    attestation_spec_witness_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_witness_policy = absolutize_attestation_paths(attestation_spec_witness_policy, cfg_dir)
+    assurance_policy = attestation_abs_witness_policy.get("assurance_policy")
+    if not isinstance(assurance_policy, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy["require_witness_quorum"] = False
+    attestation_witness_policy_bad = tmp_root / "execution_attestation.witness.policy.bad.json"
+    write_json(attestation_witness_policy_bad, attestation_abs_witness_policy)
+    report13 = tmp_root / "execution_attestation.witness.policy.bad.report.json"
+    cmd13 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_witness_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report13),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "witness_quorum_policy_disabled",
+            ["witness_quorum_policy_disabled"],
+            cmd13,
+            report13,
+        )
+    )
+
+    # 14) Witness min-count mismatch between policy and quorum block.
+    attestation_spec_witness_min = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_witness_min = absolutize_attestation_paths(attestation_spec_witness_min, cfg_dir)
+    assurance_policy_min = attestation_abs_witness_min.get("assurance_policy")
+    witness_block_min = attestation_abs_witness_min.get("witness_quorum")
+    if not isinstance(assurance_policy_min, dict) or not isinstance(witness_block_min, dict):
+        raise RuntimeError("witness quorum/policy blocks missing in attestation spec.")
+    assurance_policy_min["require_witness_quorum"] = True
+    assurance_policy_min["min_witness_count"] = 2
+    witness_block_min["min_witness_count"] = 1
+    attestation_witness_min_bad = tmp_root / "execution_attestation.witness.min.bad.json"
+    write_json(attestation_witness_min_bad, attestation_abs_witness_min)
+    report14 = tmp_root / "execution_attestation.witness.min.bad.report.json"
+    cmd14 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_witness_min_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report14),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "witness_quorum_min_count_mismatch",
+            ["witness_min_count_mismatch"],
+            cmd14,
+            report14,
         )
     )
 

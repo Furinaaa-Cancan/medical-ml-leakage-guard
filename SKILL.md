@@ -66,6 +66,8 @@ Template:
 - `references/attestation-timestamp-record.example.json`
 - `references/attestation-transparency-record.example.json`
 - `references/attestation-execution-receipt-record.example.json`
+- `references/attestation-execution-log-record.example.json`
+- `references/attestation-witness-record.example.json`
 - `references/evaluation-report.example.json`
 
 Validate request first:
@@ -98,7 +100,7 @@ Use this internal sequence in order:
 17. Run self-critique scoring gate (`self_critique_gate.py`).
 18. Emit final report only if all strict gates pass.
 
-Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
+Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt/execution-log/witness-quorum), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
 ## Output Contract (Machine-Parseable)
 Produce these deterministic artifacts:
@@ -167,6 +169,10 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/execution
 openssl pkey -in keys/execution_priv.pem -pubout -out keys/execution_pub.pem
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/execution_log_priv.pem
 openssl pkey -in keys/execution_log_priv.pem -pubout -out keys/execution_log_pub.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/witness_a_priv.pem
+openssl pkey -in keys/witness_a_priv.pem -pubout -out keys/witness_a_pub.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/witness_b_priv.pem
+openssl pkey -in keys/witness_b_priv.pem -pubout -out keys/witness_b_pub.pem
 ```
 
 Generate payload + signature + spec in one command:
@@ -189,6 +195,12 @@ python3 scripts/generate_execution_attestation.py \
   --require-independent-timestamp-authority \
   --require-independent-execution-authority \
   --require-independent-log-authority \
+  --require-witness-quorum \
+  --min-witness-count 2 \
+  --require-independent-witness-keys \
+  --require-witness-independence-from-signing \
+  --witness "witness-a|keys/witness_a_pub.pem|keys/witness_a_priv.pem" \
+  --witness "witness-b|keys/witness_b_pub.pem|keys/witness_b_priv.pem" \
   --command "python train.py --config configs/train_config.json --seed 42" \
   --artifact training_log=evidence/train.log \
   --artifact training_config=configs/train_config.json \
@@ -202,6 +214,8 @@ This command also creates:
 - `evidence/attestation_transparency_record.json` + `.sig`
 - `evidence/attestation_execution_receipt_record.json` + `.sig`
 - `evidence/attestation_execution_log_record.json` + `.sig`
+- `evidence/attestation_witness_record_1.json` + `.sig`
+- `evidence/attestation_witness_record_2.json` + `.sig`
 
 ## Manual Strict Execution Order
 If orchestration is unavailable, run in this exact order:
@@ -238,6 +252,7 @@ If any step returns non-zero, stop and block claim release.
 - Never omit trusted timestamp or transparency-log records for publication-grade claims.
 - Never omit signed execution-receipt proof (with exit code and timing consistency) for publication-grade claims.
 - Never omit signed execution-log attestation binding `training_log` to payload hash for publication-grade claims.
+- Never omit witness-quorum evidence with independent witness keys and minimum validated witness count for publication-grade claims.
 - Never claim publication-grade if TRIPOD+AI/PROBAST+AI checklist has unmet required items.
 - Never accept publication-grade primary metrics from non-test evaluation splits; evaluation report must explicitly declare `split=test`.
 - Never claim publication-grade without valid primary-metric confidence interval and explicit baseline comparison in the evaluation artifact.
@@ -254,7 +269,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/request_contract_gate.py`: request schema and path validation.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
-- `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt/execution-log generator for personal users.
+- `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt/execution-log/witness-quorum generator for personal users.
 - `scripts/reporting_bias_gate.py`: TRIPOD+AI / PROBAST+AI / STARD-AI checklist hard gate.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
 - `scripts/split_protocol_gate.py`: enforce split protocol consistency and temporal/group safeguards.
@@ -285,6 +300,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/attestation-transparency-record.example.json`: transparency log record template.
 - `references/attestation-execution-receipt-record.example.json`: execution receipt record template.
 - `references/attestation-execution-log-record.example.json`: execution-log attestation record template.
+- `references/attestation-witness-record.example.json`: witness attestation record template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.

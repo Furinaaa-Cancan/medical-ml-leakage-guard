@@ -84,6 +84,8 @@
 - Transparency-log record + signature (`attestation_transparency_record.json`, `attestation_transparency_record.sig`):
 - Execution-receipt record + signature (`attestation_execution_receipt_record.json`, `attestation_execution_receipt_record.sig`):
 - Execution-log attestation record + signature (`attestation_execution_log_record.json`, `attestation_execution_log_record.sig`):
+- Witness-quorum records + signatures (`attestation_witness_record_1.json/.sig`, `attestation_witness_record_2.json/.sig`, ...):
+- Witness minimum count and key-independence policy outcome (`execution_attestation_report.json -> summary.witness_quorum`):
 - Re-run reproducibility check:
 - Baseline manifest comparison result (`manifest.comparison.matched`):
 - Evidence manifest (`manifest.json`):

@@ -10,6 +10,10 @@
   - [TRIPOD+AI (PubMed)](https://pubmed.ncbi.nlm.nih.gov/38754780/)
   - [PROBAST+AI (PubMed)](https://pubmed.ncbi.nlm.nih.gov/40411595/)
   - [STARD-AI (PubMed)](https://pubmed.ncbi.nlm.nih.gov/39898396/)
+- Attestation and supply-chain integrity standards:
+  - [SLSA requirements](https://slsa.dev/spec/v1.0/requirements)
+  - [in-toto getting started](https://in-toto.io/docs/getting-started/)
+  - [Sigstore Rekor overview](https://docs.sigstore.dev/logging/overview/)
 
 ## Where This Skill Was Already Strong
 - Strict fail-closed gating for leakage, split protocol, definition-variable leakage, transitive lineage leakage, imbalance, missingness/imputation, tuning isolation, metric source consistency, permutation falsification, reproducibility lock, and self-critique.
@@ -43,6 +47,31 @@
 - Added signed execution-log attestation verification (`execution_log_attestation`) that binds `training_log` hash to signed payload hash and run identity.
 - Added independent-authority policy enforcement for execution-log attestation.
 
+## Implemented Improvement (Witness Quorum)
+- Added `witness_quorum` support in execution attestation spec and strict gate.
+- Added signed witness-record generation in `scripts/generate_execution_attestation.py`.
+- Added fail-closed quorum checks in `scripts/execution_attestation_gate.py`:
+  - minimum validated witness count
+  - witness signature verification
+  - witness payload/study/run binding checks
+  - independent witness key/authority checks
+  - witness key independence from payload signing key
+- Added manifest lock coverage for witness quorum files in `scripts/run_strict_pipeline.py`.
+- Added adversarial scenario coverage for witness quorum tampering in `experiments/authority-e2e/run_adversarial_gate_checks.py`.
+
+## Comparison vs SLSA / in-toto / Sigstore (Current Position)
+- Current skill already provides:
+  - Detached-signature verification for execution payload and authority records.
+  - Explicit multi-authority evidence (timestamp, transparency, execution receipt, execution log, witness quorum).
+  - Threshold witness validation with identity/hash/time binding checks.
+  - Fail-closed adversarial scenarios for tampering and policy downgrade attempts.
+- Still weaker than full external attestation ecosystems on:
+  - Publicly auditable transparency inclusion proofs (Sigstore/Rekor style monitorable log ecosystem).
+  - Platform-trust-boundary guarantees where provenance is generated outside tenant control (SLSA L3-style control-plane guarantees).
+  - Standardized interop attestation envelope compatibility (in-toto statement/provenance interchange).
+
 ## Remaining Recommended Upgrades (Next Iteration)
 - Add machine-checkable TRIPOD+AI / PROBAST+AI compliance gate (reporting + risk-of-bias checklist JSON).
 - Add external-validation-specific gate for site/time transport checks when multi-center data are available.
+- Add optional Sigstore/cosign verification mode for attestation artifacts with Rekor inclusion checks.
+- Add optional in-toto/SLSA provenance ingestion + verification mode for execution evidence interchange.

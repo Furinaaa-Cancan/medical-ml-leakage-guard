@@ -616,6 +616,30 @@ def validate_key_assurance(
         "assurance_policy",
         default=False,
     )
+    require_witness_quorum = require_bool(
+        policy, "require_witness_quorum", failures, "assurance_policy", default=False
+    )
+    min_witness_count = require_number(
+        policy,
+        "min_witness_count",
+        failures,
+        "assurance_policy",
+        default=2.0 if require_witness_quorum else 0.0,
+    )
+    require_independent_witness_keys = require_bool(
+        policy,
+        "require_independent_witness_keys",
+        failures,
+        "assurance_policy",
+        default=True if require_witness_quorum else False,
+    )
+    require_witness_independence_from_signing = require_bool(
+        policy,
+        "require_witness_independence_from_signing",
+        failures,
+        "assurance_policy",
+        default=True if require_witness_quorum else False,
+    )
 
     key_id = require_str(signing, "key_id", failures, "attestation_spec.signing")
     key_created_at_raw = require_str(signing, "key_created_at_utc", failures, "attestation_spec.signing")
@@ -773,6 +797,10 @@ def validate_key_assurance(
             "require_independent_timestamp_authority": bool(require_independent_timestamp_authority),
             "require_independent_execution_authority": bool(require_independent_execution_authority),
             "require_independent_log_authority": bool(require_independent_log_authority),
+            "require_witness_quorum": bool(require_witness_quorum),
+            "min_witness_count": min_witness_count,
+            "require_independent_witness_keys": bool(require_independent_witness_keys),
+            "require_witness_independence_from_signing": bool(require_witness_independence_from_signing),
         },
         "key_id": key_id,
         "public_key_file": str(public_key_file) if public_key_file is not None else None,
@@ -1658,6 +1686,294 @@ def validate_execution_log_attestation(
     }
 
 
+def validate_witness_quorum(
+    spec_base: Path,
+    spec: Dict[str, Any],
+    payload_sha256: Optional[str],
+    payload_study_id: Optional[str],
+    payload_run_id: Optional[str],
+    finished_ts: Optional[dt.datetime],
+    issued_at_ts: Optional[dt.datetime],
+    signing_fp: Optional[str],
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = spec.get("assurance_policy", {})
+    require_witness_quorum = False
+    min_witness_count = 0
+    policy_min_witness_count = 0
+    require_independent_witness_keys = False
+    require_witness_independence_from_signing = False
+    if isinstance(policy, dict):
+        require_witness_quorum = bool(policy.get("require_witness_quorum", False))
+        raw_min = policy.get("min_witness_count", 2 if require_witness_quorum else 0)
+        if isinstance(raw_min, bool):
+            raw_min = None
+        if isinstance(raw_min, int):
+            min_witness_count = int(raw_min)
+        elif isinstance(raw_min, float) and math.isfinite(raw_min) and float(raw_min).is_integer():
+            min_witness_count = int(raw_min)
+        else:
+            add_issue(
+                failures,
+                "invalid_witness_min_count",
+                "assurance_policy.min_witness_count must be an integer.",
+                {"value": raw_min},
+            )
+            min_witness_count = 0
+        policy_min_witness_count = int(min_witness_count)
+        require_independent_witness_keys = bool(policy.get("require_independent_witness_keys", require_witness_quorum))
+        require_witness_independence_from_signing = bool(
+            policy.get("require_witness_independence_from_signing", require_witness_quorum)
+        )
+
+    if require_witness_quorum and min_witness_count < 1:
+        add_issue(
+            failures,
+            "invalid_witness_min_count",
+            "assurance_policy.min_witness_count must be >= 1 when witness quorum is required.",
+            {"min_witness_count": min_witness_count},
+        )
+
+    block = spec.get("witness_quorum")
+    if block is None:
+        if require_witness_quorum:
+            add_issue(
+                failures,
+                "missing_witness_quorum",
+                "assurance_policy requires witness_quorum block.",
+                {},
+            )
+        return {"present": False, "required": bool(require_witness_quorum), "min_witness_count": min_witness_count}
+    if not require_witness_quorum:
+        add_issue(
+            failures,
+            "witness_quorum_policy_disabled",
+            "witness_quorum block present but assurance_policy.require_witness_quorum is false.",
+            {},
+        )
+    if not isinstance(block, dict):
+        add_issue(
+            failures,
+            "invalid_witness_quorum",
+            "witness_quorum must be an object.",
+            {"actual_type": type(block).__name__},
+        )
+        return {"present": True, "required": bool(require_witness_quorum), "min_witness_count": min_witness_count}
+
+    block_min_raw = block.get("min_witness_count")
+    if block_min_raw is not None:
+        if isinstance(block_min_raw, bool):
+            block_min_raw = None
+        if isinstance(block_min_raw, int):
+            min_witness_count = int(block_min_raw)
+        elif isinstance(block_min_raw, float) and math.isfinite(block_min_raw) and float(block_min_raw).is_integer():
+            min_witness_count = int(block_min_raw)
+        else:
+            add_issue(
+                failures,
+                "invalid_witness_min_count",
+                "witness_quorum.min_witness_count must be an integer when provided.",
+                {"value": block_min_raw},
+            )
+    if require_witness_quorum and block_min_raw is not None and min_witness_count != policy_min_witness_count:
+        add_issue(
+            failures,
+            "witness_min_count_mismatch",
+            "witness_quorum.min_witness_count must match assurance_policy.min_witness_count.",
+            {"policy_min_witness_count": policy_min_witness_count, "block_min_witness_count": min_witness_count},
+        )
+
+    records = block.get("records")
+    if not isinstance(records, list) or not records:
+        add_issue(
+            failures,
+            "missing_witness_records",
+            "witness_quorum.records must be a non-empty list.",
+            {"actual_type": type(records).__name__ if records is not None else None},
+        )
+        return {"present": True, "required": bool(require_witness_quorum), "min_witness_count": min_witness_count, "validated_witnesses": 0}
+
+    validated: List[Dict[str, Any]] = []
+    valid_fps: List[str] = []
+    valid_authorities: List[str] = []
+    effective_quorum_required = bool(require_witness_quorum or block_min_raw is not None)
+    if effective_quorum_required and min_witness_count < 1:
+        add_issue(
+            failures,
+            "invalid_witness_min_count",
+            "Effective witness quorum requires min_witness_count >= 1.",
+            {"min_witness_count": min_witness_count},
+        )
+
+    for idx, item in enumerate(records):
+        if not isinstance(item, dict):
+            add_issue(
+                failures,
+                "invalid_witness_record_spec",
+                "witness_quorum.records items must be objects.",
+                {"index": idx, "actual_type": type(item).__name__},
+            )
+            continue
+
+        start_failures = len(failures)
+        scope = f"attestation_spec.witness_quorum.records[{idx}]"
+        authority_id = require_str(item, "authority_id", failures, scope)
+        record_file = collect_required_path(spec_base, item, "record_file", failures, scope)
+        signature_file = collect_required_path(spec_base, item, "signature_file", failures, scope)
+        public_key_file = collect_required_path(spec_base, item, "public_key_file", failures, scope)
+        expected_fp = require_str(item, "public_key_fingerprint_sha256", failures, scope)
+
+        observed_fp = None
+        verify_result: Dict[str, Any] = {}
+        if public_key_file is not None:
+            observed_fp = public_key_fingerprint_sha256(public_key_file, failures)
+            if expected_fp and not SHA256_RE.fullmatch(expected_fp):
+                add_issue(
+                    failures,
+                    "invalid_witness_public_key_fingerprint",
+                    "witness_quorum public_key_fingerprint_sha256 must be 64-char hex.",
+                    {"index": idx, "value": expected_fp},
+                )
+            elif expected_fp and observed_fp and expected_fp.lower() != observed_fp.lower():
+                add_issue(
+                    failures,
+                    "witness_public_key_fingerprint_mismatch",
+                    "Witness public key fingerprint mismatch.",
+                    {"index": idx, "expected": expected_fp.lower(), "observed": observed_fp.lower()},
+                )
+
+        if record_file and signature_file and public_key_file:
+            verify_result = verify_detached_signature(
+                data_file=record_file,
+                signature_file=signature_file,
+                public_key_file=public_key_file,
+                method="openssl-dgst-sha256",
+                failures=failures,
+                scope=f"witness_record_{idx}",
+            )
+
+        record = load_json_obj(record_file, failures, f"witness_record_{idx}") if record_file else None
+        if record is not None:
+            rec_authority = require_str(record, "authority_id", failures, f"witness_record_{idx}")
+            rec_payload_sha = require_str(record, "payload_sha256", failures, f"witness_record_{idx}")
+            rec_study = require_str(record, "study_id", failures, f"witness_record_{idx}")
+            rec_run = require_str(record, "run_id", failures, f"witness_record_{idx}")
+            rec_attested = require_str(record, "attested_at_utc", failures, f"witness_record_{idx}")
+
+            if authority_id and rec_authority and authority_id != rec_authority:
+                add_issue(
+                    failures,
+                    "witness_authority_mismatch",
+                    "Witness record authority_id mismatch.",
+                    {"index": idx, "spec_authority_id": authority_id, "record_authority_id": rec_authority},
+                )
+            if payload_sha256 and rec_payload_sha and payload_sha256.lower() != rec_payload_sha.lower():
+                add_issue(
+                    failures,
+                    "witness_payload_hash_mismatch",
+                    "Witness record payload_sha256 does not match signed payload.",
+                    {"index": idx, "payload_sha256": payload_sha256.lower(), "record_payload_sha256": rec_payload_sha.lower()},
+                )
+            if payload_study_id and rec_study and payload_study_id != rec_study:
+                add_issue(
+                    failures,
+                    "witness_study_id_mismatch",
+                    "Witness record study_id mismatch.",
+                    {"index": idx, "payload_study_id": payload_study_id, "record_study_id": rec_study},
+                )
+            if payload_run_id and rec_run and payload_run_id != rec_run:
+                add_issue(
+                    failures,
+                    "witness_run_id_mismatch",
+                    "Witness record run_id mismatch.",
+                    {"index": idx, "payload_run_id": payload_run_id, "record_run_id": rec_run},
+                )
+
+            attested_ts = parse_iso_ts(rec_attested) if rec_attested else None
+            if rec_attested and attested_ts is None:
+                add_issue(
+                    failures,
+                    "invalid_witness_attested_time",
+                    "Witness record attested_at_utc must be ISO-8601 timestamp.",
+                    {"index": idx, "attested_at_utc": rec_attested},
+                )
+            if finished_ts and attested_ts and attested_ts < finished_ts:
+                add_issue(
+                    failures,
+                    "witness_before_execution_finished",
+                    "Witness attested_at_utc must be >= execution finished_at_utc.",
+                    {"index": idx, "attested_at_utc": attested_ts.isoformat(), "finished_at_utc": finished_ts.isoformat()},
+                )
+            if issued_at_ts and attested_ts and attested_ts > issued_at_ts:
+                add_issue(
+                    failures,
+                    "witness_after_attestation_issue",
+                    "Witness attested_at_utc must not exceed attestation issued_at_utc.",
+                    {"index": idx, "attested_at_utc": attested_ts.isoformat(), "issued_at_utc": issued_at_ts.isoformat()},
+                )
+
+        is_valid = len(failures) == start_failures and bool(verify_result.get("verified"))
+        if is_valid:
+            valid_authorities.append(str(authority_id))
+            if isinstance(observed_fp, str):
+                valid_fps.append(observed_fp.lower())
+        validated.append(
+            {
+                "index": idx,
+                "authority_id": authority_id,
+                "record_file": str(record_file) if record_file else None,
+                "signature_file": str(signature_file) if signature_file else None,
+                "public_key_file": str(public_key_file) if public_key_file else None,
+                "public_key_fingerprint_observed_sha256": observed_fp,
+                "signature_verification": verify_result,
+                "validated": bool(is_valid),
+            }
+        )
+
+    unique_fps = set(valid_fps)
+    unique_authorities = {a for a in valid_authorities if a}
+    validated_count = sum(1 for item in validated if item.get("validated"))
+
+    if effective_quorum_required and validated_count < min_witness_count:
+        add_issue(
+            failures,
+            "witness_quorum_not_met",
+            "Validated witness count is below required minimum.",
+            {"validated_count": validated_count, "min_witness_count": min_witness_count},
+        )
+    if require_independent_witness_keys and len(unique_fps) != len(valid_fps):
+        add_issue(
+            failures,
+            "witness_keys_not_independent",
+            "Witness signatures must use distinct public keys.",
+            {"validated_witnesses": validated_count, "unique_key_count": len(unique_fps)},
+        )
+    if require_independent_witness_keys and len(unique_authorities) != len(valid_authorities):
+        add_issue(
+            failures,
+            "witness_authorities_not_distinct",
+            "Witness signatures must use distinct authority IDs.",
+            {"validated_witnesses": validated_count, "unique_authority_count": len(unique_authorities)},
+        )
+    if require_witness_independence_from_signing and signing_fp:
+        if any(fp == signing_fp.lower() for fp in unique_fps):
+            add_issue(
+                failures,
+                "witness_key_matches_signing_key",
+                "Witness keys must be independent from payload signing key.",
+                {"signing_key_fingerprint": signing_fp.lower()},
+            )
+
+    return {
+        "present": True,
+        "required": bool(effective_quorum_required),
+        "min_witness_count": int(min_witness_count),
+        "validated_witnesses": validated_count,
+        "witnesses": validated,
+    }
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -1924,6 +2240,18 @@ def main() -> int:
         failures=failures,
         warnings=warnings,
     )
+    witness_quorum_summary = validate_witness_quorum(
+        spec_base=spec_base,
+        spec=spec,
+        payload_sha256=payload_digest_actual,
+        payload_study_id=payload_study_id,
+        payload_run_id=payload_run_id,
+        finished_ts=finished_ts,
+        issued_at_ts=issued_at_ts,
+        signing_fp=signing_fp,
+        failures=failures,
+        warnings=warnings,
+    )
 
     summary = {
         "attestation_spec": str(spec_path),
@@ -1940,6 +2268,7 @@ def main() -> int:
         "transparency_log": transparency_summary,
         "execution_receipt": execution_receipt_summary,
         "execution_log_attestation": execution_log_summary,
+        "witness_quorum": witness_quorum_summary,
     }
 
     return finish(

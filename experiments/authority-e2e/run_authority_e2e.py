@@ -359,7 +359,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     copy_reference("reporting-bias-checklist.example.json", cfg_dir / "reporting_bias_checklist.json")
 
     key_pairs: Dict[str, Tuple[Path, Path]] = {}
-    for role in ("attestation", "timestamp", "transparency", "execution", "execution_log"):
+    for role in ("attestation", "timestamp", "transparency", "execution", "execution_log", "witness_a", "witness_b"):
         priv_key = key_dir / f"{role}_priv.pem"
         pub_key = key_dir / f"{role}_pub.pem"
         run_cmd(
@@ -416,6 +416,15 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "--require-independent-timestamp-authority",
             "--require-independent-execution-authority",
             "--require-independent-log-authority",
+            "--require-witness-quorum",
+            "--min-witness-count",
+            "2",
+            "--require-independent-witness-keys",
+            "--require-witness-independence-from-signing",
+            "--witness",
+            f"witness-a|{key_pairs['witness_a'][1]}|{key_pairs['witness_a'][0]}",
+            "--witness",
+            f"witness-b|{key_pairs['witness_b'][1]}|{key_pairs['witness_b'][0]}",
             "--command",
             f"python train_model.py --case {case.case_id}",
             "--artifact",
