@@ -11,6 +11,7 @@
   "feature_lineage_spec": "feature_lineage.json",
   "split_protocol_spec": "split_protocol.json",
   "imbalance_policy_spec": "imbalance_policy.json",
+  "missingness_policy_spec": "missingness_policy.json",
   "tuning_protocol_spec": "tuning_protocol.json",
   "split_paths": {
     "train": "../data/train.csv",

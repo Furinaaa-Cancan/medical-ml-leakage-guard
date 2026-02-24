@@ -34,6 +34,7 @@ Publication-grade required fields:
 - `feature_lineage_spec`
 - `split_protocol_spec`
 - `imbalance_policy_spec`
+- `missingness_policy_spec`
 - `tuning_protocol_spec`
 - `evaluation_report_file`
 - `evaluation_metric_path`
@@ -49,6 +50,7 @@ Template:
 - `references/feature-lineage.example.json`
 - `references/split-protocol.example.json`
 - `references/imbalance-policy.example.json`
+- `references/missingness-policy.example.json`
 - `references/tuning-protocol.example.json`
 - `references/evaluation-report.example.json`
 
@@ -70,14 +72,15 @@ Use this internal sequence in order:
 5. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
 6. Run lineage leakage gate (`feature_lineage_gate.py`).
 7. Run imbalance policy gate (`imbalance_policy_gate.py`).
-8. Run tuning leakage gate (`tuning_leakage_gate.py`).
-9. Run metric consistency gate (`metric_consistency_gate.py`).
-10. Run permutation falsification gate (`permutation_significance_gate.py`).
-11. Aggregate publication gate (`publication_gate.py`).
-12. Run self-critique scoring gate (`self_critique_gate.py`).
-13. Emit final report only if all strict gates pass.
+8. Run missingness policy gate (`missingness_policy_gate.py`).
+9. Run tuning leakage gate (`tuning_leakage_gate.py`).
+10. Run metric consistency gate (`metric_consistency_gate.py`).
+11. Run permutation falsification gate (`permutation_significance_gate.py`).
+12. Aggregate publication gate (`publication_gate.py`).
+13. Run self-critique scoring gate (`self_critique_gate.py`).
+14. Emit final report only if all strict gates pass.
 
-Treat disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, class-imbalance misuse, and tuning/test leakage as critical failures in strict mode.
+Treat disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
 ## Output Contract (Machine-Parseable)
 Produce these deterministic artifacts:
@@ -88,12 +91,13 @@ Produce these deterministic artifacts:
 5. `evidence/definition_guard_report.json`
 6. `evidence/lineage_report.json`
 7. `evidence/imbalance_policy_report.json`
-8. `evidence/tuning_leakage_report.json`
-9. `evidence/metric_consistency_report.json`
-10. `evidence/permutation_report.json`
-11. `evidence/publication_gate_report.json`
-12. `evidence/self_critique_report.json`
-13. `evidence/strict_pipeline_report.json`
+8. `evidence/missingness_policy_report.json`
+9. `evidence/tuning_leakage_report.json`
+10. `evidence/metric_consistency_report.json`
+11. `evidence/permutation_report.json`
+12. `evidence/publication_gate_report.json`
+13. `evidence/self_critique_report.json`
+14. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -136,11 +140,12 @@ If orchestration is unavailable, run in this exact order:
 5. `definition_variable_guard.py`
 6. `feature_lineage_gate.py`
 7. `imbalance_policy_gate.py`
-8. `tuning_leakage_gate.py`
-9. `metric_consistency_gate.py`
-10. `permutation_significance_gate.py`
-11. `publication_gate.py`
-12. `self_critique_gate.py`
+8. `missingness_policy_gate.py`
+9. `tuning_leakage_gate.py`
+10. `metric_consistency_gate.py`
+11. `permutation_significance_gate.py`
+12. `publication_gate.py`
+13. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -149,6 +154,8 @@ If any step returns non-zero, stop and block claim release.
 - Never fit preprocessors on combined train+validation+test.
 - Never apply resampling/SMOTE on validation or test splits.
 - Never select thresholds or calibrate probabilities on test split.
+- Never fit imputers on validation/test distributions.
+- Never use target/outcome information for feature imputation.
 - Never include variables used to define the disease label as model predictors.
 - Never include derived features whose lineage contains disease-defining variables.
 - Never include post-index features for pre-index prediction tasks.
@@ -166,6 +173,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/definition_variable_guard.py`: hard gate against disease-definition variable leakage.
 - `scripts/feature_lineage_gate.py`: hard gate against lineage-derived leakage.
 - `scripts/imbalance_policy_gate.py`: validate class-imbalance strategy and train-only resampling policy.
+- `scripts/missingness_policy_gate.py`: validate missing-data strategy, large-scale method suitability, and imputer isolation policy.
 - `scripts/tuning_leakage_gate.py`: validate hyperparameter tuning/test-isolation protocol.
 - `scripts/metric_consistency_gate.py`: extract and validate metric from evaluation report.
 - `scripts/permutation_significance_gate.py`: falsification significance gate.
@@ -177,6 +185,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/feature-lineage.example.json`: lineage map template.
 - `references/split-protocol.example.json`: split protocol template.
 - `references/imbalance-policy.example.json`: class-imbalance policy template.
+- `references/missingness-policy.example.json`: missing-data/imputation policy template.
 - `references/tuning-protocol.example.json`: hyperparameter tuning protocol template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.

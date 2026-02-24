@@ -69,6 +69,20 @@ Mitigation:
 - Fit transforms only on training partition per fold.
 - Wrap preprocessing and model into a single pipeline object.
 
+## 5b. Missingness/Imputation Leakage
+Definition:
+Use validation/test/target information while fitting imputation logic.
+
+Red flags:
+- Imputer fit on full dataset before split.
+- Imputation model consumes target or outcome-adjacent variables.
+- Heavy iterative imputers (for example MICE) used on very large/high-dimensional data without scale controls.
+
+Mitigation:
+- Fit imputers on train folds only and forward-apply to valid/test.
+- Exclude target/outcome from imputation features.
+- For very large tables, prefer scalable train-fitted simple imputers plus missing indicators.
+
 ## 6. Hyperparameter and Model Selection Leakage
 Definition:
 Use test set repeatedly during tuning or architecture selection.

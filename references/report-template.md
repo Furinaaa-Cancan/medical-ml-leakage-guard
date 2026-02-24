@@ -34,6 +34,8 @@
 - Leakage risk register summary:
 - Feature timestamp legality process:
 - Preprocessing isolation strategy:
+- Missing-data mechanism assessment (MCAR/MAR/MNAR assumptions):
+- Imputation strategy and fit scope:
 - Hyperparameter tuning isolation strategy:
 - Final test access policy:
 
@@ -43,6 +45,7 @@
 - Hyperparameter optimization procedure:
 - Calibration and threshold selection protocol:
 - Class-imbalance strategy and train-only scope proof (`imbalance_policy_report.json`):
+- Missingness policy and large-data method suitability proof (`missingness_policy_report.json`):
 - Tuning leakage isolation proof (`tuning_leakage_report.json`):
 
 ## 7. Evaluation Plan
@@ -75,6 +78,7 @@
 - Evidence manifest (`manifest.json`):
 - Split protocol gate artifact (`split_protocol_report.json`):
 - Imbalance policy gate artifact (`imbalance_policy_report.json`):
+- Missingness policy gate artifact (`missingness_policy_report.json`):
 - Tuning leakage gate artifact (`tuning_leakage_report.json`):
 - Metric consistency artifact (`metric_consistency_report.json`):
 - Publication gate artifact (`publication_gate_report.json`):

@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--definition-report", required=True, help="Path to definition guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
     parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy report JSON.")
+    parser.add_argument("--missingness-report", required=True, help="Path to missingness policy report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
@@ -95,6 +96,7 @@ def main() -> int:
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
         "imbalance_report": args.imbalance_report,
+        "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
         "metric_report": args.metric_report,
         "permutation_report": args.permutation_report,
@@ -152,6 +154,7 @@ def main() -> int:
         "definition_report",
         "lineage_report",
         "imbalance_report",
+        "missingness_report",
         "tuning_report",
         "metric_report",
         "permutation_report",
@@ -213,6 +216,7 @@ def main() -> int:
         "definition_report": 13.0,
         "lineage_report": 11.0,
         "imbalance_report": 8.0,
+        "missingness_report": 8.0,
         "tuning_report": 8.0,
         "metric_report": 7.0,
         "permutation_report": 7.0,

@@ -1,4 +1,4 @@
 interface:
   display_name: "Medical ML Leakage Guard"
   short_description: "Strict medical prediction leakage and lineage guard"
-  default_prompt: "Run a publication-grade medical prediction review with strict request contract validation, split-protocol verification, class-imbalance policy checks, hyperparameter-tuning leakage isolation, phenotype-definition and transitive lineage leakage checks, pinned metric-path consistency validation, permutation falsification, reproducibility comparison, and fail-closed evidence outputs."
+  default_prompt: "Run a publication-grade medical prediction review with strict request contract validation, split-protocol verification, class-imbalance policy checks, missing-data/imputation policy checks (including large-scale MICE suitability), hyperparameter-tuning leakage isolation, phenotype-definition and transitive lineage leakage checks, pinned metric-path consistency validation, permutation falsification, reproducibility comparison, and fail-closed evidence outputs."

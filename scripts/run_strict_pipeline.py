@@ -104,6 +104,7 @@ def main() -> int:
         "definition_report": evidence_dir / "definition_guard_report.json",
         "lineage_report": evidence_dir / "lineage_report.json",
         "imbalance_report": evidence_dir / "imbalance_policy_report.json",
+        "missingness_report": evidence_dir / "missingness_policy_report.json",
         "tuning_report": evidence_dir / "tuning_leakage_report.json",
         "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
@@ -178,6 +179,7 @@ def main() -> int:
         lineage_spec = str(normalized["feature_lineage_spec"])
         split_protocol_spec = str(normalized["split_protocol_spec"])
         imbalance_policy_spec = str(normalized["imbalance_policy_spec"])
+        missingness_policy_spec = str(normalized["missingness_policy_spec"])
         tuning_protocol_spec = str(normalized["tuning_protocol_spec"])
         evaluation_report_file = str(normalized["evaluation_report_file"])
         evaluation_metric_path = normalized.get("evaluation_metric_path")
@@ -210,6 +212,7 @@ def main() -> int:
             lineage_spec,
             split_protocol_spec,
             imbalance_policy_spec,
+            missingness_policy_spec,
             tuning_protocol_spec,
             str(request_path),
         ]
@@ -336,7 +339,25 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 8: tuning leakage gate
+    # Step 8: missingness policy gate
+    if not execute(
+        "missingness_policy_gate",
+        [
+            args.python,
+            str(scripts_dir / "missingness_policy_gate.py"),
+            "--policy-spec",
+            missingness_policy_spec,
+            *split_args,
+            "--target-col",
+            label_col,
+            "--report",
+            str(reports["missingness_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 9: tuning leakage gate
     if not execute(
         "tuning_leakage_gate",
         [
@@ -353,7 +374,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 9: metric consistency gate
+    # Step 10: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -385,7 +406,7 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 10: permutation significance gate
+    # Step 11: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -408,7 +429,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 11: publication gate
+    # Step 12: publication gate
     if not execute(
         "publication_gate",
         [
@@ -428,6 +449,8 @@ def main() -> int:
             str(reports["lineage_report"]),
             "--imbalance-report",
             str(reports["imbalance_report"]),
+            "--missingness-report",
+            str(reports["missingness_report"]),
             "--tuning-report",
             str(reports["tuning_report"]),
             "--metric-report",
@@ -441,7 +464,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 12: self critique
+    # Step 13: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -461,6 +484,8 @@ def main() -> int:
             str(reports["lineage_report"]),
             "--imbalance-report",
             str(reports["imbalance_report"]),
+            "--missingness-report",
+            str(reports["missingness_report"]),
             "--tuning-report",
             str(reports["tuning_report"]),
             "--metric-report",

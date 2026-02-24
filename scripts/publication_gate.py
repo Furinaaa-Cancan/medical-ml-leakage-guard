@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--definition-report", required=True, help="Path to definition-variable guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
     parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy gate report JSON.")
+    parser.add_argument("--missingness-report", required=True, help="Path to missingness policy gate report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage gate report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
@@ -103,6 +104,7 @@ def main() -> int:
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
         "imbalance_report": args.imbalance_report,
+        "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
         "metric_report": args.metric_report,
         "permutation_report": args.permutation_report,
@@ -167,6 +169,7 @@ def main() -> int:
         "definition_report",
         "lineage_report",
         "imbalance_report",
+        "missingness_report",
         "tuning_report",
         "metric_report",
         "permutation_report",

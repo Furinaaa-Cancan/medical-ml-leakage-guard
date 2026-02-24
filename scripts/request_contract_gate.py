@@ -353,6 +353,15 @@ def main() -> int:
 
     validate_optional_path(
         request=request,
+        key="missingness_policy_spec",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
         key="evaluation_report_file",
         base=request_base,
         failures=failures,

@@ -26,6 +26,8 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Keep preprocessing + model in one fold-aware pipeline.
 - [ ] Run feature selection inside CV loops only.
 - [ ] Apply any resampling/SMOTE only on train folds (never valid/test).
+- [ ] Fit imputers only on train folds and apply transform forward to valid/test.
+- [ ] Do not use target/outcome values in feature imputation.
 - [ ] Avoid manual transformations that touch validation/test outcomes.
 
 ## E. Model Selection and Tuning
