@@ -106,6 +106,55 @@ def collect_candidate_metrics(payload: Dict[str, Any], metric_name: str) -> List
     return hits
 
 
+def collect_metric_leaf_hits(payload: Any, metric_name: str) -> List[Dict[str, Any]]:
+    target_token = canonical_metric_token(metric_name)
+    hits: List[Dict[str, Any]] = []
+
+    def walk(node: Any, path: str = "", leaf_key: Optional[str] = None) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if not isinstance(key, str):
+                    continue
+                next_path = f"{path}.{key}" if path else key
+                walk(value, next_path, key)
+            return
+        if isinstance(node, list):
+            for idx, value in enumerate(node):
+                next_path = f"{path}[{idx}]"
+                walk(value, next_path, leaf_key)
+            return
+
+        if leaf_key is None:
+            return
+        if canonical_metric_token(leaf_key) != target_token:
+            return
+        numeric = to_float(node)
+        if numeric is None:
+            return
+        hits.append({"path": path, "value": numeric, "raw": node})
+
+    walk(payload)
+    dedup: Dict[Tuple[str, float], Dict[str, Any]] = {}
+    for hit in hits:
+        dedup[(str(hit["path"]), float(hit["value"]))] = hit
+    return sorted(dedup.values(), key=lambda item: str(item["path"]))
+
+
+def has_conflicting_values(hits: List[Dict[str, Any]], tolerance: float = 1e-12) -> bool:
+    observed: List[float] = []
+    for hit in hits:
+        value = hit.get("value")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        v = float(value)
+        if not observed:
+            observed.append(v)
+            continue
+        if all(abs(v - ref) > tolerance for ref in observed):
+            return True
+    return False
+
+
 def normalize_split_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
@@ -216,6 +265,7 @@ def main() -> int:
         return finish(args, failures, warnings, actual_metric=None, metric_source_path=None)
 
     actual, source_path, raw_value, candidates, ambiguous = extract_metric(payload, args.metric_name, args.metric_path)
+    leaf_metric_hits = collect_metric_leaf_hits(payload, args.metric_name)
 
     if args.required_evaluation_split:
         split_key, declared_split = extract_declared_split(payload)
@@ -265,6 +315,13 @@ def main() -> int:
             "Multiple metric sources found with inconsistent values; provide --metric-path.",
             {"metric_name": args.metric_name, "candidates": candidates},
         )
+    elif has_conflicting_values(leaf_metric_hits):
+        add_issue(
+            failures,
+            "ambiguous_metric_sources",
+            "Metric appears in multiple locations with inconsistent numeric values.",
+            {"metric_name": args.metric_name, "leaf_metric_hits": leaf_metric_hits},
+        )
 
     if args.expected is not None:
         diff = abs(actual - args.expected)
@@ -297,6 +354,7 @@ def main() -> int:
         metric_source_path=source_path,
         raw_value=raw_value,
         candidate_metrics=candidates,
+        leaf_metric_hits=leaf_metric_hits,
     )
 
 
@@ -308,6 +366,7 @@ def finish(
     metric_source_path: Optional[str],
     raw_value: Any = None,
     candidate_metrics: Optional[List[Dict[str, Any]]] = None,
+    leaf_metric_hits: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
     should_fail = bool(failures) or (args.strict and bool(warnings))
     report = {
@@ -317,6 +376,7 @@ def finish(
         "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve()),
         "metric_source_path": metric_source_path,
         "candidate_metrics": candidate_metrics or [],
+        "leaf_metric_hits": leaf_metric_hits or [],
         "actual_metric": actual_metric,
         "raw_metric_value": raw_value,
         "expected_metric": args.expected,

@@ -186,6 +186,13 @@ def validate_optional_path(
             "Path field points to a missing file.",
             {"field": key, "path": str(resolved)},
         )
+    elif not resolved.is_file():
+        add_issue(
+            failures,
+            "path_not_file",
+            "Path field must point to a file.",
+            {"field": key, "path": str(resolved)},
+        )
 
 
 def main() -> int:
@@ -272,6 +279,13 @@ def main() -> int:
                     "Split file path does not exist.",
                     {"split": key, "path": str(resolved)},
                 )
+            elif not resolved.is_file():
+                add_issue(
+                    failures,
+                    "split_path_not_file",
+                    "Split path must point to a file.",
+                    {"split": key, "path": str(resolved)},
+                )
 
         valid_val = split_paths.get("valid")
         if valid_val is not None:
@@ -292,6 +306,13 @@ def main() -> int:
                         "Split file path does not exist.",
                         {"split": "valid", "path": str(resolved)},
                     )
+                elif not resolved.is_file():
+                    add_issue(
+                        failures,
+                        "split_path_not_file",
+                        "Split path must point to a file.",
+                        {"split": "valid", "path": str(resolved)},
+                    )
         elif args.strict:
             add_issue(
                 warnings,
@@ -299,6 +320,19 @@ def main() -> int:
                 "valid split is absent; strict workflows usually require train/valid/test.",
                 {},
             )
+
+        seen_paths: Dict[str, str] = {}
+        for split_name, split_path in normalized_splits.items():
+            prev_split = seen_paths.get(split_path)
+            if prev_split is not None:
+                add_issue(
+                    failures,
+                    "duplicate_split_path",
+                    "Different splits must not point to the same file path.",
+                    {"split_a": prev_split, "split_b": split_name, "path": split_path},
+                )
+            else:
+                seen_paths[split_path] = split_name
         normalized["split_paths"] = normalized_splits
 
     phenotype_path = normalized.get("phenotype_definition_spec")

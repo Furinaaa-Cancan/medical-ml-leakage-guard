@@ -169,7 +169,7 @@ If any step returns non-zero, stop and block claim release.
 ### scripts/
 - `scripts/run_strict_pipeline.py`: single-entry strict orchestrator.
 - `scripts/request_contract_gate.py`: request schema and path validation.
-- `scripts/manifest_lock.py`: dataset/protocol fingerprint and baseline comparison.
+- `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
 - `scripts/split_protocol_gate.py`: enforce split protocol consistency and temporal/group safeguards.
 - `scripts/definition_variable_guard.py`: hard gate against disease-definition variable leakage.

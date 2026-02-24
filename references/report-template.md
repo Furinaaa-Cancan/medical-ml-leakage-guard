@@ -78,6 +78,7 @@
 - Re-run reproducibility check:
 - Baseline manifest comparison result (`manifest.comparison.matched`):
 - Evidence manifest (`manifest.json`):
+- Gate script fingerprint lock (all strict gate scripts included in manifest):
 - Split protocol gate artifact (`split_protocol_report.json`):
 - Imbalance policy gate artifact (`imbalance_policy_report.json`):
 - Missingness policy gate artifact (`missingness_policy_report.json`):

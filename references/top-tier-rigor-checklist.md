@@ -12,6 +12,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Keep machine-readable split protocol spec and gate report.
 - [ ] Use out-of-time test for temporal settings.
 - [ ] Enforce patient-level disjointness for repeated entities.
+- [ ] Ensure train/valid/test split files are distinct physical datasets (no path reuse).
 - [ ] Document sample counts and event rates per split.
 - [ ] Audit row overlap and entity overlap across splits.
 

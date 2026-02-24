@@ -211,6 +211,24 @@ def main() -> int:
     manifest_inputs = [train]
     if isinstance(valid, str) and valid:
         manifest_inputs.append(valid)
+
+    gate_script_inputs = [
+        str(scripts_dir / "run_strict_pipeline.py"),
+        str(scripts_dir / "request_contract_gate.py"),
+        str(scripts_dir / "manifest_lock.py"),
+        str(scripts_dir / "leakage_gate.py"),
+        str(scripts_dir / "split_protocol_gate.py"),
+        str(scripts_dir / "definition_variable_guard.py"),
+        str(scripts_dir / "feature_lineage_gate.py"),
+        str(scripts_dir / "imbalance_policy_gate.py"),
+        str(scripts_dir / "missingness_policy_gate.py"),
+        str(scripts_dir / "tuning_leakage_gate.py"),
+        str(scripts_dir / "metric_consistency_gate.py"),
+        str(scripts_dir / "permutation_significance_gate.py"),
+        str(scripts_dir / "publication_gate.py"),
+        str(scripts_dir / "self_critique_gate.py"),
+    ]
+
     manifest_inputs.extend(
         [
             test,
@@ -220,7 +238,10 @@ def main() -> int:
             imbalance_policy_spec,
             missingness_policy_spec,
             tuning_protocol_spec,
+            evaluation_report_file,
+            null_metrics_file,
             str(request_path),
+            *gate_script_inputs,
         ]
     )
 
