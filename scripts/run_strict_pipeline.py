@@ -217,19 +217,41 @@ def main() -> int:
     if isinstance(valid, str) and valid:
         manifest_inputs.append(valid)
 
-    attestation_extra_inputs: List[str] = [execution_attestation_spec]
+    attestation_spec_path = resolve_path(cwd, execution_attestation_spec)
+    attestation_extra_inputs: List[str] = [str(attestation_spec_path)]
     try:
-        attestation_spec_payload = load_json(resolve_path(cwd, execution_attestation_spec))
+        attestation_spec_payload = load_json(attestation_spec_path)
+        signing_base = attestation_spec_path.parent
+
+        def append_attestation_path(raw_value: Any) -> None:
+            if isinstance(raw_value, str) and raw_value.strip():
+                attestation_extra_inputs.append(str(resolve_path(signing_base, raw_value.strip())))
+
         signing_block = attestation_spec_payload.get("signing")
         if isinstance(signing_block, dict):
-            signing_base = resolve_path(cwd, execution_attestation_spec).parent
-            for key in ("signed_payload_file", "signature_file", "public_key_file"):
-                raw = signing_block.get(key)
-                if isinstance(raw, str) and raw.strip():
-                    attestation_extra_inputs.append(str(resolve_path(signing_base, raw.strip())))
+            for key in (
+                "signed_payload_file",
+                "signature_file",
+                "public_key_file",
+                "revocation_list_file",
+            ):
+                append_attestation_path(signing_block.get(key))
+
+        timestamp_block = attestation_spec_payload.get("timestamp_trust")
+        if isinstance(timestamp_block, dict):
+            for key in ("record_file", "signature_file", "public_key_file"):
+                append_attestation_path(timestamp_block.get(key))
+
+        transparency_block = attestation_spec_payload.get("transparency_log")
+        if isinstance(transparency_block, dict):
+            for key in ("record_file", "signature_file", "public_key_file"):
+                append_attestation_path(transparency_block.get(key))
     except Exception as exc:
         print(f"[FAIL] Failed to parse execution_attestation_spec for manifest lock: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
+
+    # Keep deterministic order while deduplicating.
+    attestation_extra_inputs = list(dict.fromkeys(attestation_extra_inputs))
 
     gate_script_inputs = [
         str(scripts_dir / "run_strict_pipeline.py"),

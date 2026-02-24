@@ -67,6 +67,9 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Save full training/evaluation config files.
 - [ ] Require signed execution attestation (detached signature + public-key verification).
 - [ ] Ensure signed payload covers training command, start/finish timestamps, and critical artifact hashes.
+- [ ] Enforce key-rotation/expiry policy and check revocation list for signing key ID and fingerprint.
+- [ ] Verify trusted timestamp record binds to signed payload hash and run identity.
+- [ ] Verify transparency-log record binds to signed payload hash and run identity.
 - [ ] Compare current manifest against a locked baseline manifest and require exact match before publication-grade claim.
 - [ ] Ensure end-to-end rerun reproduces results within tolerance.
 

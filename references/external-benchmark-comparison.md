@@ -38,6 +38,8 @@
 - Added strict artifact: `evidence/execution_attestation_report.json`.
 - Integrated attestation gate into strict pipeline + publication/self-critique aggregate gates.
 - Updated request contract to require `run_id` + `execution_attestation_spec` for publication-grade claims.
+- Added key assurance controls: fingerprint pinning, minimum key bits, key age/expiry checks, and revocation-list enforcement.
+- Added trusted timestamp record verification and transparency-log record verification.
 
 ## Remaining Recommended Upgrades (Next Iteration)
 - Add machine-checkable TRIPOD+AI / PROBAST+AI compliance gate (reporting + risk-of-bias checklist JSON).

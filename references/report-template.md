@@ -79,6 +79,9 @@
 - Config files and random seeds:
 - Signed execution attestation spec (`execution_attestation.json`):
 - Signed payload (`attestation_payload.json`) and detached signature (`attestation.sig`):
+- Revocation list evidence (`key_revocations.json`) and signing key lifecycle evidence:
+- Trusted timestamp record + signature (`attestation_timestamp_record.json`, `attestation_timestamp_record.sig`):
+- Transparency-log record + signature (`attestation_transparency_record.json`, `attestation_transparency_record.sig`):
 - Re-run reproducibility check:
 - Baseline manifest comparison result (`manifest.comparison.matched`):
 - Evidence manifest (`manifest.json`):

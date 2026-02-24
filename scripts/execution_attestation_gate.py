@@ -2,10 +2,13 @@
 """
 Fail-closed execution attestation gate for publication-grade medical prediction.
 
-This gate verifies non-repudiation evidence by checking:
+This gate verifies high-assurance non-repudiation evidence by checking:
 1. Signed attestation payload integrity (detached signature verification).
-2. Hash integrity of execution artifacts (logs/config/model/evaluation).
-3. Study/run identity consistency between request, spec, and signed payload.
+2. Artifact hash integrity (logs/config/model/evaluation).
+3. Study/run identity consistency between request, spec, payload, and records.
+4. Key assurance policy (fingerprint, key length, age, expiry, revocation list).
+5. Trusted timestamp record verification.
+6. Transparency-log record verification.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -25,6 +29,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 ALLOWED_SIGNING_METHODS = {"openssl-dgst-sha256"}
 SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
 GIT_COMMIT_RE = re.compile(r"^[a-fA-F0-9]{7,40}$")
+PUBLIC_KEY_BITS_RE = re.compile(r"Public-Key:\s*\((\d+)\s*bit\)", re.IGNORECASE)
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,12 +83,7 @@ def require_str(obj: Dict[str, Any], key: str, failures: List[Dict[str, Any]], w
     return None
 
 
-def require_str_list(
-    obj: Dict[str, Any],
-    key: str,
-    failures: List[Dict[str, Any]],
-    where: str,
-) -> List[str]:
+def require_str_list(obj: Dict[str, Any], key: str, failures: List[Dict[str, Any]], where: str) -> List[str]:
     value = obj.get(key)
     if not isinstance(value, list):
         add_issue(
@@ -106,6 +106,52 @@ def require_str_list(
             )
             return []
     return out
+
+
+def require_bool(
+    obj: Dict[str, Any], key: str, failures: List[Dict[str, Any]], where: str, default: Optional[bool] = None
+) -> Optional[bool]:
+    if key not in obj:
+        return default
+    value = obj.get(key)
+    if isinstance(value, bool):
+        return value
+    add_issue(
+        failures,
+        "invalid_field",
+        "Field must be boolean.",
+        {"where": where, "field": key, "actual_type": type(value).__name__ if value is not None else None},
+    )
+    return default
+
+
+def require_number(
+    obj: Dict[str, Any], key: str, failures: List[Dict[str, Any]], where: str, default: Optional[float] = None
+) -> Optional[float]:
+    if key not in obj:
+        return default
+    value = obj.get(key)
+    if isinstance(value, bool):
+        value = None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        add_issue(
+            failures,
+            "invalid_field",
+            "Field must be finite number.",
+            {"where": where, "field": key, "actual_type": type(value).__name__ if value is not None else None},
+        )
+        return default
+    if not math.isfinite(parsed):
+        add_issue(
+            failures,
+            "invalid_field",
+            "Field must be finite number.",
+            {"where": where, "field": key, "value": value},
+        )
+        return default
+    return parsed
 
 
 def load_json_obj(path: Path, failures: List[Dict[str, Any]], code_prefix: str) -> Optional[Dict[str, Any]]:
@@ -158,16 +204,40 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def verify_signature(
-    payload_file: Path,
+def run_openssl(cmd: List[str], failures: List[Dict[str, Any]], code: str, message: str) -> Optional[subprocess.CompletedProcess]:
+    try:
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+    except FileNotFoundError:
+        add_issue(
+            failures,
+            "openssl_not_available",
+            "openssl command is required but not available in PATH.",
+            {},
+        )
+        return None
+    except Exception as exc:
+        add_issue(
+            failures,
+            code,
+            message,
+            {"error": str(exc)},
+        )
+        return None
+    return proc
+
+
+def verify_detached_signature(
+    data_file: Path,
     signature_file: Path,
     public_key_file: Path,
     method: str,
     failures: List[Dict[str, Any]],
+    scope: str,
 ) -> Dict[str, Any]:
     out = {
+        "scope": scope,
         "method": method,
-        "payload_file": str(payload_file),
+        "data_file": str(data_file),
         "signature_file": str(signature_file),
         "public_key_file": str(public_key_file),
         "verified": False,
@@ -180,8 +250,8 @@ def verify_signature(
         add_issue(
             failures,
             "unsupported_signing_method",
-            "Unsupported attestation signing method.",
-            {"method": method, "allowed": sorted(ALLOWED_SIGNING_METHODS)},
+            "Unsupported signing method.",
+            {"scope": scope, "method": method, "allowed": sorted(ALLOWED_SIGNING_METHODS)},
         )
         return out
 
@@ -193,26 +263,16 @@ def verify_signature(
         str(public_key_file),
         "-signature",
         str(signature_file),
-        str(payload_file),
+        str(data_file),
     ]
     out["command"] = " ".join(cmd)
-    try:
-        proc = subprocess.run(cmd, text=True, capture_output=True)
-    except FileNotFoundError:
-        add_issue(
-            failures,
-            "openssl_not_available",
-            "openssl command is required for signature verification but was not found.",
-            {},
-        )
-        return out
-    except Exception as exc:
-        add_issue(
-            failures,
-            "signature_verification_error",
-            "Signature verification process failed.",
-            {"error": str(exc)},
-        )
+    proc = run_openssl(
+        cmd,
+        failures=failures,
+        code="signature_verification_error",
+        message="Detached signature verification process failed.",
+    )
+    if proc is None:
         return out
 
     out["stdout"] = (proc.stdout or "").strip()
@@ -222,12 +282,117 @@ def verify_signature(
             failures,
             "signature_verification_failed",
             "Detached signature verification failed.",
-            {"return_code": proc.returncode, "stdout": out["stdout"], "stderr": out["stderr"]},
+            {"scope": scope, "return_code": proc.returncode, "stdout": out["stdout"], "stderr": out["stderr"]},
         )
         return out
 
     out["verified"] = True
     return out
+
+
+def public_key_der_bytes(public_key_file: Path, failures: List[Dict[str, Any]]) -> Optional[bytes]:
+    cmd = ["openssl", "pkey", "-pubin", "-in", str(public_key_file), "-outform", "DER"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=False)
+    except FileNotFoundError:
+        add_issue(
+            failures,
+            "openssl_not_available",
+            "openssl command is required but not available in PATH.",
+            {},
+        )
+        return None
+    except Exception as exc:
+        add_issue(
+            failures,
+            "public_key_parse_error",
+            "Failed to parse public key for fingerprint.",
+            {"error": str(exc)},
+        )
+        return None
+    if proc.returncode != 0:
+        add_issue(
+            failures,
+            "public_key_parse_error",
+            "Failed to parse public key for fingerprint.",
+            {"stderr": (proc.stderr or b"").decode("utf-8", errors="ignore").strip()},
+        )
+        return None
+    return proc.stdout
+
+
+def public_key_fingerprint_sha256(public_key_file: Path, failures: List[Dict[str, Any]]) -> Optional[str]:
+    der = public_key_der_bytes(public_key_file, failures)
+    if der is None:
+        return None
+    return hashlib.sha256(der).hexdigest()
+
+
+def public_key_bits(public_key_file: Path, failures: List[Dict[str, Any]]) -> Optional[int]:
+    cmd = ["openssl", "pkey", "-pubin", "-in", str(public_key_file), "-text", "-noout"]
+    proc = run_openssl(
+        cmd,
+        failures=failures,
+        code="public_key_parse_error",
+        message="Failed to inspect public key metadata.",
+    )
+    if proc is None:
+        return None
+    if proc.returncode != 0:
+        add_issue(
+            failures,
+            "public_key_parse_error",
+            "Failed to inspect public key metadata.",
+            {"stderr": (proc.stderr or "").strip()},
+        )
+        return None
+
+    text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    match = PUBLIC_KEY_BITS_RE.search(text)
+    if not match:
+        add_issue(
+            failures,
+            "public_key_bits_not_found",
+            "Unable to determine public key bit length from openssl output.",
+            {},
+        )
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        add_issue(
+            failures,
+            "public_key_bits_not_found",
+            "Unable to parse public key bit length.",
+            {"matched": match.group(1)},
+        )
+        return None
+
+
+def collect_required_path(
+    spec_base: Path, parent: Dict[str, Any], key: str, failures: List[Dict[str, Any]], where: str
+) -> Optional[Path]:
+    value = require_str(parent, key, failures, where)
+    if value is None:
+        return None
+    path = resolve_path(spec_base, value)
+    if not path.exists():
+        add_issue(
+            failures,
+            "required_file_missing",
+            "Required file is missing.",
+            {"where": where, "field": key, "path": str(path)},
+        )
+        return None
+    if not path.is_file():
+        add_issue(
+            failures,
+            "required_path_not_file",
+            "Required path must point to file.",
+            {"where": where, "field": key, "path": str(path)},
+        )
+        return None
+    return path
 
 
 def parse_artifacts(
@@ -278,7 +443,6 @@ def parse_artifacts(
             )
             continue
         seen_names.add(name_clean)
-
         if name_clean in required_names:
             found_required.add(name_clean)
 
@@ -383,6 +547,539 @@ def parse_artifacts(
     }
 
 
+def validate_key_assurance(
+    spec_base: Path,
+    spec: Dict[str, Any],
+    signing: Dict[str, Any],
+    issued_at_ts: Optional[dt.datetime],
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = spec.get("assurance_policy", {})
+    if policy is None:
+        policy = {}
+    if not isinstance(policy, dict):
+        add_issue(
+            failures,
+            "invalid_assurance_policy",
+            "assurance_policy must be an object.",
+            {"actual_type": type(policy).__name__},
+        )
+        policy = {}
+
+    min_key_bits = require_number(policy, "min_signing_key_bits", failures, "assurance_policy", default=3072.0)
+    max_key_age_days = require_number(policy, "max_signing_key_age_days", failures, "assurance_policy", default=180.0)
+    require_revocation_list = require_bool(
+        policy, "require_revocation_list", failures, "assurance_policy", default=True
+    )
+    require_timestamp_trust = require_bool(
+        policy, "require_timestamp_trust", failures, "assurance_policy", default=True
+    )
+    require_transparency_log = require_bool(
+        policy, "require_transparency_log", failures, "assurance_policy", default=True
+    )
+    require_transparency_log_signature = require_bool(
+        policy, "require_transparency_log_signature", failures, "assurance_policy", default=True
+    )
+    require_independent_timestamp_authority = require_bool(
+        policy, "require_independent_timestamp_authority", failures, "assurance_policy", default=False
+    )
+
+    key_id = require_str(signing, "key_id", failures, "attestation_spec.signing")
+    key_created_at_raw = require_str(signing, "key_created_at_utc", failures, "attestation_spec.signing")
+    key_not_after_raw = require_str(signing, "key_not_after_utc", failures, "attestation_spec.signing")
+    expected_fp = require_str(signing, "public_key_fingerprint_sha256", failures, "attestation_spec.signing")
+    public_key_file = collect_required_path(
+        spec_base, signing, "public_key_file", failures, "attestation_spec.signing"
+    )
+
+    key_created_at = parse_iso_ts(key_created_at_raw) if key_created_at_raw else None
+    key_not_after = parse_iso_ts(key_not_after_raw) if key_not_after_raw else None
+
+    if key_created_at_raw and key_created_at is None:
+        add_issue(
+            failures,
+            "invalid_key_created_timestamp",
+            "key_created_at_utc must be ISO-8601 timestamp.",
+            {"key_created_at_utc": key_created_at_raw},
+        )
+    if key_not_after_raw and key_not_after is None:
+        add_issue(
+            failures,
+            "invalid_key_expiry_timestamp",
+            "key_not_after_utc must be ISO-8601 timestamp.",
+            {"key_not_after_utc": key_not_after_raw},
+        )
+    if key_created_at and key_not_after and key_created_at > key_not_after:
+        add_issue(
+            failures,
+            "invalid_key_validity_window",
+            "key_created_at_utc must be <= key_not_after_utc.",
+            {"key_created_at_utc": key_created_at_raw, "key_not_after_utc": key_not_after_raw},
+        )
+
+    observed_fp: Optional[str] = None
+    observed_bits: Optional[int] = None
+    if public_key_file is not None:
+        observed_fp = public_key_fingerprint_sha256(public_key_file, failures)
+        observed_bits = public_key_bits(public_key_file, failures)
+
+    if expected_fp and not SHA256_RE.fullmatch(expected_fp):
+        add_issue(
+            failures,
+            "invalid_public_key_fingerprint",
+            "public_key_fingerprint_sha256 must be 64-char hex string.",
+            {"public_key_fingerprint_sha256": expected_fp},
+        )
+    elif expected_fp and observed_fp and expected_fp.lower() != observed_fp.lower():
+        add_issue(
+            failures,
+            "public_key_fingerprint_mismatch",
+            "Public key fingerprint does not match attestation spec.",
+            {"expected": expected_fp.lower(), "observed": observed_fp.lower()},
+        )
+
+    if observed_bits is not None and min_key_bits is not None and observed_bits < int(min_key_bits):
+        add_issue(
+            failures,
+            "signing_key_too_weak",
+            "Signing key bit length is below required threshold.",
+            {"observed_bits": observed_bits, "required_min_bits": int(min_key_bits)},
+        )
+
+    if issued_at_ts and key_not_after and issued_at_ts > key_not_after:
+        add_issue(
+            failures,
+            "signing_key_expired",
+            "Attestation issued after key expiry.",
+            {"issued_at_utc": issued_at_ts.isoformat(), "key_not_after_utc": key_not_after.isoformat()},
+        )
+    if issued_at_ts and key_created_at and issued_at_ts < key_created_at:
+        add_issue(
+            failures,
+            "attestation_before_key_creation",
+            "Attestation issued before signing key creation time.",
+            {"issued_at_utc": issued_at_ts.isoformat(), "key_created_at_utc": key_created_at.isoformat()},
+        )
+    if (
+        issued_at_ts
+        and key_created_at
+        and max_key_age_days is not None
+        and (issued_at_ts - key_created_at).total_seconds() > float(max_key_age_days) * 86400.0
+    ):
+        add_issue(
+            failures,
+            "signing_key_rotation_overdue",
+            "Signing key age exceeds configured max_signing_key_age_days.",
+            {
+                "max_signing_key_age_days": max_key_age_days,
+                "key_created_at_utc": key_created_at.isoformat(),
+                "issued_at_utc": issued_at_ts.isoformat(),
+            },
+        )
+
+    revocation_list_path = None
+    revocation_list_raw = signing.get("revocation_list_file")
+    if isinstance(revocation_list_raw, str) and revocation_list_raw.strip():
+        revocation_list_path = resolve_path(spec_base, revocation_list_raw.strip())
+        revocation = load_json_obj(revocation_list_path, failures, "revocation_list")
+        if revocation is not None:
+            revoked_ids = revocation.get("revoked_key_ids", [])
+            revoked_fps = revocation.get("revoked_public_key_fingerprints_sha256", [])
+            if not isinstance(revoked_ids, list):
+                add_issue(
+                    failures,
+                    "invalid_revocation_list",
+                    "revoked_key_ids must be list.",
+                    {"path": str(revocation_list_path)},
+                )
+                revoked_ids = []
+            if not isinstance(revoked_fps, list):
+                add_issue(
+                    failures,
+                    "invalid_revocation_list",
+                    "revoked_public_key_fingerprints_sha256 must be list.",
+                    {"path": str(revocation_list_path)},
+                )
+                revoked_fps = []
+
+            revoked_ids_clean = {str(x).strip() for x in revoked_ids if isinstance(x, str) and str(x).strip()}
+            revoked_fps_clean = {str(x).strip().lower() for x in revoked_fps if isinstance(x, str)}
+
+            if key_id and key_id in revoked_ids_clean:
+                add_issue(
+                    failures,
+                    "signing_key_revoked",
+                    "Signing key_id is revoked.",
+                    {"key_id": key_id, "revocation_list": str(revocation_list_path)},
+                )
+            if observed_fp and observed_fp.lower() in revoked_fps_clean:
+                add_issue(
+                    failures,
+                    "signing_key_revoked",
+                    "Signing public key fingerprint is revoked.",
+                    {"public_key_fingerprint_sha256": observed_fp.lower(), "revocation_list": str(revocation_list_path)},
+                )
+    elif require_revocation_list:
+        add_issue(
+            failures,
+            "missing_revocation_list",
+            "assurance_policy requires signing revocation list file.",
+            {},
+        )
+
+    return {
+        "policy": {
+            "min_signing_key_bits": min_key_bits,
+            "max_signing_key_age_days": max_key_age_days,
+            "require_revocation_list": bool(require_revocation_list),
+            "require_timestamp_trust": bool(require_timestamp_trust),
+            "require_transparency_log": bool(require_transparency_log),
+            "require_transparency_log_signature": bool(require_transparency_log_signature),
+            "require_independent_timestamp_authority": bool(require_independent_timestamp_authority),
+        },
+        "key_id": key_id,
+        "public_key_file": str(public_key_file) if public_key_file is not None else None,
+        "public_key_fingerprint_observed_sha256": observed_fp,
+        "public_key_bits_observed": observed_bits,
+        "revocation_list_file": str(revocation_list_path) if revocation_list_path is not None else None,
+    }
+
+
+def validate_timestamp_trust(
+    spec_base: Path,
+    spec: Dict[str, Any],
+    payload_sha256: Optional[str],
+    payload_study_id: Optional[str],
+    payload_run_id: Optional[str],
+    finished_ts: Optional[dt.datetime],
+    issued_at_ts: Optional[dt.datetime],
+    signing_fp: Optional[str],
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = spec.get("assurance_policy", {})
+    require_timestamp_trust = True
+    require_independent_timestamp_authority = False
+    if isinstance(policy, dict):
+        require_timestamp_trust = bool(policy.get("require_timestamp_trust", True))
+        require_independent_timestamp_authority = bool(policy.get("require_independent_timestamp_authority", False))
+
+    block = spec.get("timestamp_trust")
+    if block is None:
+        if require_timestamp_trust:
+            add_issue(
+                failures,
+                "missing_timestamp_trust",
+                "assurance_policy requires timestamp_trust block.",
+                {},
+            )
+        return {"present": False}
+    if not isinstance(block, dict):
+        add_issue(
+            failures,
+            "invalid_timestamp_trust",
+            "timestamp_trust must be an object.",
+            {"actual_type": type(block).__name__},
+        )
+        return {"present": True}
+
+    mode = require_str(block, "mode", failures, "attestation_spec.timestamp_trust")
+    if mode and mode != "signed_record":
+        add_issue(
+            failures,
+            "unsupported_timestamp_mode",
+            "Only 'signed_record' timestamp mode is currently supported.",
+            {"mode": mode},
+        )
+
+    authority_id = require_str(block, "authority_id", failures, "attestation_spec.timestamp_trust")
+    record_file = collect_required_path(
+        spec_base, block, "record_file", failures, "attestation_spec.timestamp_trust"
+    )
+    signature_file = collect_required_path(
+        spec_base, block, "signature_file", failures, "attestation_spec.timestamp_trust"
+    )
+    public_key_file = collect_required_path(
+        spec_base, block, "public_key_file", failures, "attestation_spec.timestamp_trust"
+    )
+    expected_fp = require_str(block, "public_key_fingerprint_sha256", failures, "attestation_spec.timestamp_trust")
+
+    verify_result = {}
+    observed_fp = None
+    if public_key_file is not None:
+        observed_fp = public_key_fingerprint_sha256(public_key_file, failures)
+        if expected_fp and not SHA256_RE.fullmatch(expected_fp):
+            add_issue(
+                failures,
+                "invalid_timestamp_public_key_fingerprint",
+                "timestamp_trust.public_key_fingerprint_sha256 must be 64-char hex.",
+                {"value": expected_fp},
+            )
+        elif expected_fp and observed_fp and expected_fp.lower() != observed_fp.lower():
+            add_issue(
+                failures,
+                "timestamp_public_key_fingerprint_mismatch",
+                "Timestamp trust public key fingerprint mismatch.",
+                {"expected": expected_fp.lower(), "observed": observed_fp.lower()},
+            )
+
+    if record_file and signature_file and public_key_file:
+        verify_result = verify_detached_signature(
+            data_file=record_file,
+            signature_file=signature_file,
+            public_key_file=public_key_file,
+            method="openssl-dgst-sha256",
+            failures=failures,
+            scope="timestamp_trust_record",
+        )
+
+    record = load_json_obj(record_file, failures, "timestamp_record") if record_file else None
+    if record is not None:
+        record_authority = require_str(record, "authority_id", failures, "timestamp_record")
+        record_payload_sha = require_str(record, "payload_sha256", failures, "timestamp_record")
+        record_ts_raw = require_str(record, "timestamp_utc", failures, "timestamp_record")
+        record_study = require_str(record, "study_id", failures, "timestamp_record")
+        record_run = require_str(record, "run_id", failures, "timestamp_record")
+
+        if authority_id and record_authority and authority_id != record_authority:
+            add_issue(
+                failures,
+                "timestamp_authority_mismatch",
+                "timestamp record authority_id does not match attestation spec.",
+                {"spec_authority_id": authority_id, "record_authority_id": record_authority},
+            )
+        if payload_sha256 and record_payload_sha and payload_sha256.lower() != record_payload_sha.lower():
+            add_issue(
+                failures,
+                "timestamp_payload_hash_mismatch",
+                "timestamp record payload_sha256 does not match signed payload.",
+                {"payload_sha256": payload_sha256.lower(), "record_payload_sha256": record_payload_sha.lower()},
+            )
+        if payload_study_id and record_study and payload_study_id != record_study:
+            add_issue(
+                failures,
+                "timestamp_study_id_mismatch",
+                "timestamp record study_id mismatch.",
+                {"payload_study_id": payload_study_id, "record_study_id": record_study},
+            )
+        if payload_run_id and record_run and payload_run_id != record_run:
+            add_issue(
+                failures,
+                "timestamp_run_id_mismatch",
+                "timestamp record run_id mismatch.",
+                {"payload_run_id": payload_run_id, "record_run_id": record_run},
+            )
+
+        record_ts = parse_iso_ts(record_ts_raw) if record_ts_raw else None
+        if record_ts_raw and record_ts is None:
+            add_issue(
+                failures,
+                "invalid_timestamp_record_time",
+                "timestamp_record.timestamp_utc must be ISO-8601 timestamp.",
+                {"timestamp_utc": record_ts_raw},
+            )
+        if record_ts and finished_ts and record_ts < finished_ts:
+            add_issue(
+                failures,
+                "timestamp_before_run_finished",
+                "timestamp trust record precedes run finish time.",
+                {"timestamp_utc": record_ts.isoformat(), "finished_at_utc": finished_ts.isoformat()},
+            )
+        if record_ts and issued_at_ts and record_ts > issued_at_ts:
+            add_issue(
+                failures,
+                "timestamp_after_attestation_issue",
+                "timestamp trust record occurs after issued_at_utc.",
+                {"timestamp_utc": record_ts.isoformat(), "issued_at_utc": issued_at_ts.isoformat()},
+            )
+
+    if (
+        require_independent_timestamp_authority
+        and signing_fp
+        and observed_fp
+        and signing_fp.lower() == observed_fp.lower()
+    ):
+        add_issue(
+            failures,
+            "timestamp_authority_not_independent",
+            "assurance_policy requires independent timestamp authority key.",
+            {"signing_key_fingerprint": signing_fp.lower(), "timestamp_key_fingerprint": observed_fp.lower()},
+        )
+    return {
+        "present": True,
+        "mode": mode,
+        "authority_id": authority_id,
+        "record_file": str(record_file) if record_file else None,
+        "signature_file": str(signature_file) if signature_file else None,
+        "public_key_file": str(public_key_file) if public_key_file else None,
+        "public_key_fingerprint_observed_sha256": observed_fp,
+        "signature_verification": verify_result,
+    }
+
+
+def validate_transparency_log(
+    spec_base: Path,
+    spec: Dict[str, Any],
+    payload_sha256: Optional[str],
+    payload_study_id: Optional[str],
+    payload_run_id: Optional[str],
+    finished_ts: Optional[dt.datetime],
+    issued_at_ts: Optional[dt.datetime],
+    failures: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = spec.get("assurance_policy", {})
+    require_transparency_log = True
+    require_transparency_log_signature = True
+    if isinstance(policy, dict):
+        require_transparency_log = bool(policy.get("require_transparency_log", True))
+        require_transparency_log_signature = bool(policy.get("require_transparency_log_signature", True))
+
+    block = spec.get("transparency_log")
+    if block is None:
+        if require_transparency_log:
+            add_issue(
+                failures,
+                "missing_transparency_log",
+                "assurance_policy requires transparency_log block.",
+                {},
+            )
+        return {"present": False}
+    if not isinstance(block, dict):
+        add_issue(
+            failures,
+            "invalid_transparency_log",
+            "transparency_log must be an object.",
+            {"actual_type": type(block).__name__},
+        )
+        return {"present": True}
+
+    log_id = require_str(block, "log_id", failures, "attestation_spec.transparency_log")
+    record_file = collect_required_path(
+        spec_base, block, "record_file", failures, "attestation_spec.transparency_log"
+    )
+    signature_file = None
+    public_key_file = None
+    expected_fp = None
+    if require_transparency_log_signature:
+        signature_file = collect_required_path(
+            spec_base, block, "signature_file", failures, "attestation_spec.transparency_log"
+        )
+        public_key_file = collect_required_path(
+            spec_base, block, "public_key_file", failures, "attestation_spec.transparency_log"
+        )
+        expected_fp = require_str(
+            block, "public_key_fingerprint_sha256", failures, "attestation_spec.transparency_log"
+        )
+
+    observed_fp = None
+    verify_result = {}
+    if public_key_file is not None:
+        observed_fp = public_key_fingerprint_sha256(public_key_file, failures)
+        if expected_fp and not SHA256_RE.fullmatch(expected_fp):
+            add_issue(
+                failures,
+                "invalid_transparency_public_key_fingerprint",
+                "transparency_log.public_key_fingerprint_sha256 must be 64-char hex.",
+                {"value": expected_fp},
+            )
+        elif expected_fp and observed_fp and expected_fp.lower() != observed_fp.lower():
+            add_issue(
+                failures,
+                "transparency_public_key_fingerprint_mismatch",
+                "Transparency log public key fingerprint mismatch.",
+                {"expected": expected_fp.lower(), "observed": observed_fp.lower()},
+            )
+
+    if record_file and signature_file and public_key_file and require_transparency_log_signature:
+        verify_result = verify_detached_signature(
+            data_file=record_file,
+            signature_file=signature_file,
+            public_key_file=public_key_file,
+            method="openssl-dgst-sha256",
+            failures=failures,
+            scope="transparency_log_record",
+        )
+
+    record = load_json_obj(record_file, failures, "transparency_record") if record_file else None
+    if record is not None:
+        record_log_id = require_str(record, "log_id", failures, "transparency_record")
+        entry_id = require_str(record, "entry_id", failures, "transparency_record")
+        record_payload_sha = require_str(record, "payload_sha256", failures, "transparency_record")
+        recorded_at_raw = require_str(record, "recorded_at_utc", failures, "transparency_record")
+        record_study = require_str(record, "study_id", failures, "transparency_record")
+        record_run = require_str(record, "run_id", failures, "transparency_record")
+
+        if log_id and record_log_id and log_id != record_log_id:
+            add_issue(
+                failures,
+                "transparency_log_id_mismatch",
+                "Transparency record log_id does not match attestation spec.",
+                {"spec_log_id": log_id, "record_log_id": record_log_id},
+            )
+        if payload_sha256 and record_payload_sha and payload_sha256.lower() != record_payload_sha.lower():
+            add_issue(
+                failures,
+                "transparency_payload_hash_mismatch",
+                "Transparency record payload_sha256 does not match signed payload.",
+                {"payload_sha256": payload_sha256.lower(), "record_payload_sha256": record_payload_sha.lower()},
+            )
+        if payload_study_id and record_study and payload_study_id != record_study:
+            add_issue(
+                failures,
+                "transparency_study_id_mismatch",
+                "Transparency record study_id mismatch.",
+                {"payload_study_id": payload_study_id, "record_study_id": record_study},
+            )
+        if payload_run_id and record_run and payload_run_id != record_run:
+            add_issue(
+                failures,
+                "transparency_run_id_mismatch",
+                "Transparency record run_id mismatch.",
+                {"payload_run_id": payload_run_id, "record_run_id": record_run},
+            )
+        if entry_id is not None and len(entry_id.strip()) < 3:
+            add_issue(
+                failures,
+                "invalid_transparency_entry_id",
+                "Transparency entry_id must be at least 3 characters.",
+                {"entry_id": entry_id},
+            )
+
+        recorded_at = parse_iso_ts(recorded_at_raw) if recorded_at_raw else None
+        if recorded_at_raw and recorded_at is None:
+            add_issue(
+                failures,
+                "invalid_transparency_record_time",
+                "transparency_record.recorded_at_utc must be ISO-8601 timestamp.",
+                {"recorded_at_utc": recorded_at_raw},
+            )
+        if recorded_at and finished_ts and recorded_at < finished_ts:
+            add_issue(
+                failures,
+                "transparency_before_run_finished",
+                "Transparency log record precedes run finish time.",
+                {"recorded_at_utc": recorded_at.isoformat(), "finished_at_utc": finished_ts.isoformat()},
+            )
+        if recorded_at and issued_at_ts and recorded_at > issued_at_ts:
+            add_issue(
+                failures,
+                "transparency_after_attestation_issue",
+                "Transparency log record occurs after issued_at_utc.",
+                {"recorded_at_utc": recorded_at.isoformat(), "issued_at_utc": issued_at_ts.isoformat()},
+            )
+
+    return {
+        "present": True,
+        "log_id": log_id,
+        "record_file": str(record_file) if record_file else None,
+        "signature_file": str(signature_file) if signature_file else None,
+        "public_key_file": str(public_key_file) if public_key_file else None,
+        "public_key_fingerprint_observed_sha256": observed_fp,
+        "signature_verification": verify_result,
+    }
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -390,6 +1087,7 @@ def main() -> int:
 
     spec_path = Path(args.attestation_spec).expanduser().resolve()
     eval_report = Path(args.evaluation_report).expanduser().resolve()
+    spec_base = spec_path.parent
 
     if not eval_report.exists():
         add_issue(
@@ -412,19 +1110,17 @@ def main() -> int:
 
     spec_study_id = require_str(spec, "study_id", failures, "attestation_spec")
     spec_run_id = require_str(spec, "run_id", failures, "attestation_spec")
-    issued_at = require_str(spec, "issued_at_utc", failures, "attestation_spec")
+    issued_at_raw = require_str(spec, "issued_at_utc", failures, "attestation_spec")
     required_names = require_str_list(spec, "required_artifact_names", failures, "attestation_spec")
 
-    issued_at_ts = None
-    if issued_at is not None:
-        issued_at_ts = parse_iso_ts(issued_at)
-        if issued_at_ts is None:
-            add_issue(
-                failures,
-                "invalid_issued_timestamp",
-                "issued_at_utc must be ISO-8601 timestamp.",
-                {"issued_at_utc": issued_at},
-            )
+    issued_at_ts = parse_iso_ts(issued_at_raw) if issued_at_raw else None
+    if issued_at_raw and issued_at_ts is None:
+        add_issue(
+            failures,
+            "invalid_issued_timestamp",
+            "issued_at_utc must be ISO-8601 timestamp.",
+            {"issued_at_utc": issued_at_raw},
+        )
 
     signing = spec.get("signing")
     if not isinstance(signing, dict):
@@ -436,74 +1132,43 @@ def main() -> int:
         )
         return finish(args, failures, warnings, {}, {})
 
-    method = require_str(signing, "method", failures, "attestation_spec.signing")
-    signature_file_raw = require_str(signing, "signature_file", failures, "attestation_spec.signing")
-    public_key_file_raw = require_str(signing, "public_key_file", failures, "attestation_spec.signing")
-    payload_file_raw = require_str(signing, "signed_payload_file", failures, "attestation_spec.signing")
+    signing_method = require_str(signing, "method", failures, "attestation_spec.signing")
+    payload_file = collect_required_path(spec_base, signing, "signed_payload_file", failures, "attestation_spec.signing")
+    signature_file = collect_required_path(spec_base, signing, "signature_file", failures, "attestation_spec.signing")
+    public_key_file = collect_required_path(spec_base, signing, "public_key_file", failures, "attestation_spec.signing")
 
-    spec_base = spec_path.parent
-    signature_file = resolve_path(spec_base, signature_file_raw) if signature_file_raw else None
-    public_key_file = resolve_path(spec_base, public_key_file_raw) if public_key_file_raw else None
-    payload_file = resolve_path(spec_base, payload_file_raw) if payload_file_raw else None
-
-    for label, path in (
-        ("signature_file", signature_file),
-        ("public_key_file", public_key_file),
-        ("signed_payload_file", payload_file),
-    ):
-        if path is None:
-            continue
-        if not path.exists():
-            add_issue(
-                failures,
-                "signing_file_missing",
-                "Signing material file is missing.",
-                {"field": label, "path": str(path)},
-            )
-        elif not path.is_file():
-            add_issue(
-                failures,
-                "signing_path_not_file",
-                "Signing material path must point to a file.",
-                {"field": label, "path": str(path)},
-            )
-
-    verification: Dict[str, Any] = {}
-    if (
-        method is not None
-        and payload_file is not None
-        and signature_file is not None
-        and public_key_file is not None
-        and not failures
-    ):
-        verification = verify_signature(
-            payload_file=payload_file,
+    signature_verification: Dict[str, Any] = {}
+    if payload_file and signature_file and public_key_file and signing_method:
+        signature_verification = verify_detached_signature(
+            data_file=payload_file,
             signature_file=signature_file,
             public_key_file=public_key_file,
-            method=method,
+            method=signing_method,
             failures=failures,
+            scope="attestation_payload",
         )
 
-    payload = load_json_obj(payload_file, failures, "signed_payload") if payload_file is not None else None
+    payload = load_json_obj(payload_file, failures, "signed_payload") if payload_file else None
     if payload is None:
-        return finish(args, failures, warnings, {}, {"signature_verification": verification})
+        return finish(args, failures, warnings, {"signature_verification": signature_verification}, {})
 
     payload_study_id = require_str(payload, "study_id", failures, "signed_payload")
     payload_run_id = require_str(payload, "run_id", failures, "signed_payload")
     payload_command = require_str(payload, "command", failures, "signed_payload")
-    started_at = require_str(payload, "started_at_utc", failures, "signed_payload")
-    finished_at = require_str(payload, "finished_at_utc", failures, "signed_payload")
+    started_at_raw = require_str(payload, "started_at_utc", failures, "signed_payload")
+    finished_at_raw = require_str(payload, "finished_at_utc", failures, "signed_payload")
     executor = require_str(payload, "executor", failures, "signed_payload")
 
     git_commit = payload.get("git_commit")
-    if git_commit is not None:
-        if not isinstance(git_commit, str) or not GIT_COMMIT_RE.fullmatch(git_commit.strip()):
-            add_issue(
-                warnings,
-                "suspicious_git_commit_format",
-                "git_commit is present but not formatted as 7-40 hex characters.",
-                {"git_commit": git_commit},
-            )
+    if git_commit is not None and (
+        not isinstance(git_commit, str) or not GIT_COMMIT_RE.fullmatch(git_commit.strip())
+    ):
+        add_issue(
+            warnings,
+            "suspicious_git_commit_format",
+            "git_commit is present but not formatted as 7-40 hex characters.",
+            {"git_commit": git_commit},
+        )
 
     if spec_study_id and payload_study_id and spec_study_id != payload_study_id:
         add_issue(
@@ -534,52 +1199,59 @@ def main() -> int:
             {"expected_run_id": args.run_id.strip(), "payload_run_id": payload_run_id},
         )
 
-    started_ts = parse_iso_ts(started_at) if started_at else None
-    finished_ts = parse_iso_ts(finished_at) if finished_at else None
-    if started_at and started_ts is None:
+    started_ts = parse_iso_ts(started_at_raw) if started_at_raw else None
+    finished_ts = parse_iso_ts(finished_at_raw) if finished_at_raw else None
+    if started_at_raw and started_ts is None:
         add_issue(
             failures,
             "invalid_started_timestamp",
             "started_at_utc must be ISO-8601 timestamp.",
-            {"started_at_utc": started_at},
+            {"started_at_utc": started_at_raw},
         )
-    if finished_at and finished_ts is None:
+    if finished_at_raw and finished_ts is None:
         add_issue(
             failures,
             "invalid_finished_timestamp",
             "finished_at_utc must be ISO-8601 timestamp.",
-            {"finished_at_utc": finished_at},
+            {"finished_at_utc": finished_at_raw},
         )
     if started_ts and finished_ts and started_ts > finished_ts:
         add_issue(
             failures,
             "invalid_execution_time_window",
             "started_at_utc must be <= finished_at_utc.",
-            {"started_at_utc": started_at, "finished_at_utc": finished_at},
+            {"started_at_utc": started_at_raw, "finished_at_utc": finished_at_raw},
         )
     if finished_ts and issued_at_ts and finished_ts > issued_at_ts:
         add_issue(
             failures,
             "invalid_attestation_issue_time",
             "issued_at_utc must be at or after finished_at_utc.",
-            {"issued_at_utc": issued_at, "finished_at_utc": finished_at},
+            {"issued_at_utc": issued_at_raw, "finished_at_utc": finished_at_raw},
         )
 
     payload_digest_declared = spec.get("signed_payload_sha256")
-    if payload_file is not None and isinstance(payload_digest_declared, str):
-        payload_digest_actual = sha256_file(payload_file)
-        if not SHA256_RE.fullmatch(payload_digest_declared.strip()):
+    payload_digest_actual = sha256_file(payload_file) if payload_file else None
+    if payload_file is not None:
+        if not isinstance(payload_digest_declared, str):
+            add_issue(
+                failures,
+                "missing_signed_payload_sha256",
+                "attestation_spec must include signed_payload_sha256.",
+                {},
+            )
+        elif not SHA256_RE.fullmatch(payload_digest_declared.strip()):
             add_issue(
                 failures,
                 "invalid_signed_payload_sha256",
                 "signed_payload_sha256 must be 64-char hex string.",
                 {"signed_payload_sha256": payload_digest_declared},
             )
-        elif payload_digest_actual.lower() != payload_digest_declared.strip().lower():
+        elif payload_digest_actual and payload_digest_actual.lower() != payload_digest_declared.strip().lower():
             add_issue(
                 failures,
                 "signed_payload_hash_mismatch",
-                "signed_payload_sha256 does not match the payload file.",
+                "signed_payload_sha256 does not match payload file.",
                 {
                     "declared_sha256": payload_digest_declared.strip().lower(),
                     "actual_sha256": payload_digest_actual.lower(),
@@ -595,6 +1267,42 @@ def main() -> int:
         warnings=warnings,
     )
 
+    key_assurance = validate_key_assurance(
+        spec_base=spec_base,
+        spec=spec,
+        signing=signing,
+        issued_at_ts=issued_at_ts,
+        failures=failures,
+        warnings=warnings,
+    )
+    signing_fp = key_assurance.get("public_key_fingerprint_observed_sha256")
+    if signing_fp is not None and not isinstance(signing_fp, str):
+        signing_fp = None
+
+    timestamp_summary = validate_timestamp_trust(
+        spec_base=spec_base,
+        spec=spec,
+        payload_sha256=payload_digest_actual,
+        payload_study_id=payload_study_id,
+        payload_run_id=payload_run_id,
+        finished_ts=finished_ts,
+        issued_at_ts=issued_at_ts,
+        signing_fp=signing_fp,
+        failures=failures,
+        warnings=warnings,
+    )
+
+    transparency_summary = validate_transparency_log(
+        spec_base=spec_base,
+        spec=spec,
+        payload_sha256=payload_digest_actual,
+        payload_study_id=payload_study_id,
+        payload_run_id=payload_run_id,
+        finished_ts=finished_ts,
+        issued_at_ts=issued_at_ts,
+        failures=failures,
+    )
+
     summary = {
         "attestation_spec": str(spec_path),
         "evaluation_report": str(eval_report),
@@ -602,15 +1310,24 @@ def main() -> int:
         "run_id": payload_run_id,
         "executor": executor,
         "command_present": payload_command is not None,
-        "signature_verification": verification,
+        "signature_verification": signature_verification,
         "artifacts": artifacts_summary,
+        "key_assurance": key_assurance,
+        "timestamp_trust": timestamp_summary,
+        "transparency_log": transparency_summary,
     }
 
-    return finish(args, failures, warnings, summary, payload_metadata={
-        "started_at_utc": started_at,
-        "finished_at_utc": finished_at,
-        "issued_at_utc": issued_at,
-    })
+    return finish(
+        args,
+        failures,
+        warnings,
+        summary,
+        payload_metadata={
+            "started_at_utc": started_at_raw,
+            "finished_at_utc": finished_at_raw,
+            "issued_at_utc": issued_at_raw,
+        },
+    )
 
 
 def finish(

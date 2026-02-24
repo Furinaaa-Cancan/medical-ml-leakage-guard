@@ -1,10 +1,11 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "study_id": "sepsis-risk-icu-v1",
   "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
   "command": "python train.py --config configs/train_config.json --seed 42",
   "executor": "researcher@example-host",
   "git_commit": "d34db33f1234567890abcd1234567890abcd1234",
+  "signing_key_id": "attestation-key-2026q1",
   "started_at_utc": "2026-02-24T10:00:00Z",
   "finished_at_utc": "2026-02-24T11:45:10Z",
   "artifacts": [
