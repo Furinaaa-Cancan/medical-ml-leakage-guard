@@ -1,0 +1,27 @@
+{
+  "study_id": "sepsis-risk-icu-v1",
+  "target_name": "sepsis",
+  "prediction_unit": "patient-episode",
+  "index_time_col": "event_time",
+  "label_col": "y",
+  "patient_id_col": "patient_id",
+  "primary_metric": "roc_auc",
+  "claim_tier_target": "publication-grade",
+  "phenotype_definition_spec": "phenotype_definitions.json",
+  "feature_lineage_spec": "feature_lineage.json",
+  "split_paths": {
+    "train": "../data/train.csv",
+    "valid": "../data/valid.csv",
+    "test": "../data/test.csv"
+  },
+  "permutation_null_metrics_file": "../evidence/permutation_null_auc.txt",
+  "actual_primary_metric": 0.79,
+  "thresholds": {
+    "alpha": 0.01,
+    "min_delta": 0.03
+  },
+  "context": {
+    "hospital_system": "example-health",
+    "notes": "No disease-defining variables are allowed in predictors."
+  }
+}

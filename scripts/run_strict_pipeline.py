@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""
+Single-entry strict pipeline runner for medical leakage-safe prediction review.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the full strict publication-grade gate pipeline.")
+    parser.add_argument("--request", required=True, help="Path to request JSON.")
+    parser.add_argument(
+        "--evidence-dir",
+        default="evidence",
+        help="Directory for gate artifacts and reports (default: evidence).",
+    )
+    parser.add_argument(
+        "--compare-manifest",
+        help="Optional baseline manifest JSON path for reproducibility comparison.",
+    )
+    parser.add_argument(
+        "--python",
+        default=sys.executable,
+        help="Python executable for running gate scripts.",
+    )
+    parser.add_argument("--report", help="Optional pipeline summary report JSON path.")
+    parser.add_argument("--strict", action="store_true", help="Run all gates in strict mode.")
+    return parser.parse_args()
+
+
+def run_step(name: str, cmd: List[str]) -> Tuple[int, str, str]:
+    print(f"\n== Step: {name} ==")
+    print(f"$ {shlex.join(cmd)}")
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, file=sys.stderr, end="")
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON root must be object: {path}")
+    return payload
+
+
+def resolve_path(base: Path, value: str) -> Path:
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = (base / p).resolve()
+    else:
+        p = p.resolve()
+    return p
+
+
+def ensure_number(value: Any, name: str) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    raise ValueError(f"Missing or invalid numeric field: {name}")
+
+
+def main() -> int:
+    args = parse_args()
+    strict_flag = ["--strict"] if args.strict else []
+
+    request_path = Path(args.request).expanduser().resolve()
+    if not request_path.exists():
+        print(f"[FAIL] Request file not found: {request_path}", file=sys.stderr)
+        return 2
+
+    cwd = Path.cwd()
+    evidence_dir = resolve_path(cwd, args.evidence_dir)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    scripts_dir = Path(__file__).resolve().parent
+    reports = {
+        "request_report": evidence_dir / "request_contract_report.json",
+        "manifest": evidence_dir / "manifest.json",
+        "leakage_report": evidence_dir / "leakage_report.json",
+        "definition_report": evidence_dir / "definition_guard_report.json",
+        "lineage_report": evidence_dir / "lineage_report.json",
+        "permutation_report": evidence_dir / "permutation_report.json",
+        "publication_report": evidence_dir / "publication_gate_report.json",
+        "self_critique_report": evidence_dir / "self_critique_report.json",
+    }
+
+    steps: List[Dict[str, Any]] = []
+
+    def execute(name: str, cmd: List[str]) -> bool:
+        code, stdout, stderr = run_step(name, cmd)
+        steps.append(
+            {
+                "name": name,
+                "command": shlex.join(cmd),
+                "exit_code": code,
+                "stdout_tail": stdout[-4000:],
+                "stderr_tail": stderr[-4000:],
+            }
+        )
+        return code == 0
+
+    # Step 1: request contract
+    if not execute(
+        "request_contract_gate",
+        [
+            args.python,
+            str(scripts_dir / "request_contract_gate.py"),
+            "--request",
+            str(request_path),
+            "--report",
+            str(reports["request_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    request_report = load_json(reports["request_report"])
+    normalized = request_report.get("normalized_request", {})
+    if not isinstance(normalized, dict):
+        print("[FAIL] request_contract_report missing normalized_request.", file=sys.stderr)
+        return finalize(args, reports, steps, success=False)
+
+    split_paths = normalized.get("split_paths", {})
+    if not isinstance(split_paths, dict):
+        print("[FAIL] normalized_request.split_paths missing.", file=sys.stderr)
+        return finalize(args, reports, steps, success=False)
+
+    try:
+        train = str(split_paths["train"])
+        test = str(split_paths["test"])
+        valid = split_paths.get("valid")
+        target_name = str(normalized["target_name"])
+        id_col = str(normalized["patient_id_col"])
+        time_col = str(normalized["index_time_col"])
+        label_col = str(normalized["label_col"])
+        metric_name = str(normalized["primary_metric"])
+        phenotype_spec = str(normalized["phenotype_definition_spec"])
+        lineage_spec = str(normalized["feature_lineage_spec"])
+        null_metrics_file = str(normalized["permutation_null_metrics_file"])
+        actual_metric = ensure_number(normalized.get("actual_primary_metric"), "actual_primary_metric")
+        thresholds = normalized.get("thresholds", {})
+        if not isinstance(thresholds, dict):
+            thresholds = {}
+        alpha = float(thresholds.get("alpha", 0.01))
+        min_delta = float(thresholds.get("min_delta", 0.03))
+    except Exception as exc:
+        print(f"[FAIL] Missing required normalized request fields: {exc}", file=sys.stderr)
+        return finalize(args, reports, steps, success=False)
+
+    split_args: List[str] = ["--train", train, "--test", test]
+    if isinstance(valid, str) and valid:
+        split_args += ["--valid", valid]
+
+    compare_args: List[str] = []
+    if args.compare_manifest:
+        compare_args = ["--compare-with", str(resolve_path(cwd, args.compare_manifest))]
+
+    manifest_inputs = [train]
+    if isinstance(valid, str) and valid:
+        manifest_inputs.append(valid)
+    manifest_inputs.extend([test, phenotype_spec, lineage_spec, str(request_path)])
+
+    # Step 2: manifest lock
+    if not execute(
+        "manifest_lock",
+        [
+            args.python,
+            str(scripts_dir / "manifest_lock.py"),
+            "--inputs",
+            *manifest_inputs,
+            "--output",
+            str(reports["manifest"]),
+            *compare_args,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 3: leakage gate
+    if not execute(
+        "leakage_gate",
+        [
+            args.python,
+            str(scripts_dir / "leakage_gate.py"),
+            *split_args,
+            "--id-cols",
+            id_col,
+            "--time-col",
+            time_col,
+            "--target-col",
+            label_col,
+            "--report",
+            str(reports["leakage_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 4: definition variable guard
+    if not execute(
+        "definition_variable_guard",
+        [
+            args.python,
+            str(scripts_dir / "definition_variable_guard.py"),
+            "--target",
+            target_name,
+            "--definition-spec",
+            phenotype_spec,
+            *split_args,
+            "--target-col",
+            label_col,
+            "--ignore-cols",
+            f"{id_col},{time_col}",
+            "--report",
+            str(reports["definition_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 5: lineage gate
+    if not execute(
+        "feature_lineage_gate",
+        [
+            args.python,
+            str(scripts_dir / "feature_lineage_gate.py"),
+            "--target",
+            target_name,
+            "--definition-spec",
+            phenotype_spec,
+            "--lineage-spec",
+            lineage_spec,
+            *split_args,
+            "--target-col",
+            label_col,
+            "--ignore-cols",
+            f"{id_col},{time_col}",
+            "--report",
+            str(reports["lineage_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 6: permutation significance gate
+    if not execute(
+        "permutation_significance_gate",
+        [
+            args.python,
+            str(scripts_dir / "permutation_significance_gate.py"),
+            "--metric-name",
+            metric_name,
+            "--actual",
+            str(actual_metric),
+            "--null-metrics-file",
+            null_metrics_file,
+            "--alpha",
+            str(alpha),
+            "--min-delta",
+            str(min_delta),
+            "--report",
+            str(reports["permutation_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 7: publication gate
+    if not execute(
+        "publication_gate",
+        [
+            args.python,
+            str(scripts_dir / "publication_gate.py"),
+            "--request-report",
+            str(reports["request_report"]),
+            "--manifest",
+            str(reports["manifest"]),
+            "--leakage-report",
+            str(reports["leakage_report"]),
+            "--definition-report",
+            str(reports["definition_report"]),
+            "--lineage-report",
+            str(reports["lineage_report"]),
+            "--permutation-report",
+            str(reports["permutation_report"]),
+            "--report",
+            str(reports["publication_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 8: self critique
+    if not execute(
+        "self_critique_gate",
+        [
+            args.python,
+            str(scripts_dir / "self_critique_gate.py"),
+            "--request-report",
+            str(reports["request_report"]),
+            "--manifest",
+            str(reports["manifest"]),
+            "--leakage-report",
+            str(reports["leakage_report"]),
+            "--definition-report",
+            str(reports["definition_report"]),
+            "--lineage-report",
+            str(reports["lineage_report"]),
+            "--permutation-report",
+            str(reports["permutation_report"]),
+            "--publication-report",
+            str(reports["publication_report"]),
+            "--min-score",
+            "95",
+            "--report",
+            str(reports["self_critique_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    return finalize(args, reports, steps, success=True)
+
+
+def finalize(
+    args: argparse.Namespace,
+    reports: Dict[str, Path],
+    steps: List[Dict[str, Any]],
+    success: bool,
+) -> int:
+    summary = {
+        "status": "pass" if success else "fail",
+        "strict_mode": bool(args.strict),
+        "failure_count": sum(1 for s in steps if s.get("exit_code") != 0),
+        "steps": steps,
+        "artifacts": {k: str(v) for k, v in reports.items()},
+    }
+
+    out_path = Path(args.report).expanduser().resolve() if args.report else reports["self_critique_report"].parent / "strict_pipeline_report.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, ensure_ascii=True, indent=2)
+
+    print(f"\nPipeline status: {summary['status']}")
+    print(f"Pipeline report: {out_path}")
+    return 0 if success else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

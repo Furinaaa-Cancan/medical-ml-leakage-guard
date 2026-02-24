@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""
+Fail-closed lineage gate to detect derived leakage from disease-definition variables.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Detect lineage-level leakage from disease-definition variables."
+    )
+    parser.add_argument("--target", required=True, help="Target name in definition spec.")
+    parser.add_argument("--definition-spec", required=True, help="Path to phenotype definition JSON.")
+    parser.add_argument("--lineage-spec", required=True, help="Path to feature lineage JSON.")
+    parser.add_argument("--train", required=True, help="Training CSV path.")
+    parser.add_argument("--valid", help="Validation CSV path.")
+    parser.add_argument("--test", help="Test CSV path.")
+    parser.add_argument("--target-col", default="y", help="Target column name.")
+    parser.add_argument("--ignore-cols", default="", help="Comma-separated non-feature columns.")
+    parser.add_argument(
+        "--allow-missing-lineage",
+        action="store_true",
+        help="Allow features without lineage entry in strict mode.",
+    )
+    parser.add_argument("--report", help="Optional output JSON report path.")
+    parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
+    return parser.parse_args()
+
+
+def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
+    bucket.append({"code": code, "message": message, "details": details})
+
+
+def parse_comma_set(raw: str) -> Set[str]:
+    return {x.strip() for x in raw.split(",") if x.strip()}
+
+
+def norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
+def read_csv_header(path: str) -> List[str]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File not found: {path}")
+    with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, None)
+    if header is None:
+        raise ValueError(f"Missing header row: {path}")
+    return [h.strip() for h in header]
+
+
+def resolve_target_block(spec: Dict[str, Any], target: str) -> Optional[Dict[str, Any]]:
+    targets = spec.get("targets")
+    if not isinstance(targets, dict):
+        return None
+    if target in targets and isinstance(targets[target], dict):
+        return targets[target]
+    lowered = target.lower()
+    for key, value in targets.items():
+        if isinstance(key, str) and key.lower() == lowered and isinstance(value, dict):
+            return value
+    return None
+
+
+def list_from(obj: Dict[str, Any], key: str) -> List[str]:
+    raw = obj.get(key, [])
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Field '{key}' must be a list.")
+    out: List[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+    return out
+
+
+def compile_patterns(patterns: Iterable[str]) -> Tuple[List[re.Pattern[str]], List[str]]:
+    compiled: List[re.Pattern[str]] = []
+    errors: List[str] = []
+    for pattern in patterns:
+        try:
+            compiled.append(re.compile(pattern))
+        except re.error as exc:
+            errors.append(f"Invalid regex '{pattern}': {exc}")
+    return compiled, errors
+
+
+def normalize_lineage_payload(raw: Dict[str, Any]) -> Dict[str, List[str]]:
+    features = raw.get("features")
+    source = features if isinstance(features, dict) else raw
+    if not isinstance(source, dict):
+        raise ValueError("Lineage spec must be an object or contain object field 'features'.")
+
+    lineage: Dict[str, List[str]] = {}
+    for feature, payload in source.items():
+        if not isinstance(feature, str) or not feature.strip():
+            continue
+        ancestors: List[str] = []
+        if isinstance(payload, list):
+            ancestors = [str(x).strip() for x in payload if str(x).strip()]
+        elif isinstance(payload, dict):
+            raw_ancestors = payload.get("ancestors", [])
+            if isinstance(raw_ancestors, list):
+                ancestors = [str(x).strip() for x in raw_ancestors if str(x).strip()]
+        elif isinstance(payload, str):
+            if payload.strip():
+                ancestors = [payload.strip()]
+        lineage[feature.strip()] = ancestors
+    return lineage
+
+
+def main() -> int:
+    args = parse_args()
+    failures: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+
+    split_paths = {"train": args.train}
+    if args.valid:
+        split_paths["valid"] = args.valid
+    if args.test:
+        split_paths["test"] = args.test
+
+    try:
+        headers_by_split = {name: read_csv_header(path) for name, path in split_paths.items()}
+    except Exception as exc:
+        add_issue(failures, "input_error", "Failed to read split headers.", {"error": str(exc)})
+        return finish(args, failures, warnings, {}, [], [], {}, [])
+
+    header_sets = {name: set(cols) for name, cols in headers_by_split.items()}
+    union_headers = set().union(*header_sets.values())
+    intersection_headers = set.intersection(*header_sets.values()) if header_sets else set()
+    if union_headers != intersection_headers:
+        add_issue(
+            warnings,
+            "column_mismatch",
+            "Split files have non-identical headers.",
+            {"union_count": len(union_headers), "intersection_count": len(intersection_headers)},
+        )
+
+    def_spec_path = Path(args.definition_spec).expanduser().resolve()
+    lineage_path = Path(args.lineage_spec).expanduser().resolve()
+
+    try:
+        with def_spec_path.open("r", encoding="utf-8") as fh:
+            definition_spec = json.load(fh)
+        if not isinstance(definition_spec, dict):
+            raise ValueError("Definition spec root must be object.")
+    except Exception as exc:
+        add_issue(
+            failures,
+            "invalid_definition_spec",
+            "Unable to load definition spec.",
+            {"path": str(def_spec_path), "error": str(exc)},
+        )
+        return finish(args, failures, warnings, headers_by_split, [], [], {}, [])
+
+    try:
+        with lineage_path.open("r", encoding="utf-8") as fh:
+            lineage_raw = json.load(fh)
+        if not isinstance(lineage_raw, dict):
+            raise ValueError("Lineage spec root must be object.")
+        lineage_map = normalize_lineage_payload(lineage_raw)
+    except Exception as exc:
+        add_issue(
+            failures,
+            "invalid_lineage_spec",
+            "Unable to load feature lineage spec.",
+            {"path": str(lineage_path), "error": str(exc)},
+        )
+        return finish(args, failures, warnings, headers_by_split, [], [], {}, [])
+
+    target_block = resolve_target_block(definition_spec, args.target)
+    if target_block is None:
+        add_issue(
+            failures,
+            "target_not_found",
+            "Target not found in definition spec.",
+            {"target": args.target, "path": str(def_spec_path)},
+        )
+        return finish(args, failures, warnings, headers_by_split, [], [], lineage_map, [])
+
+    try:
+        global_forbidden_vars = list_from(definition_spec, "global_forbidden_variables")
+        global_patterns = list_from(definition_spec, "global_forbidden_patterns")
+        target_defining_vars = list_from(target_block, "defining_variables")
+        target_forbidden_vars = list_from(target_block, "forbidden_variables")
+        target_patterns = list_from(target_block, "forbidden_patterns")
+    except ValueError as exc:
+        add_issue(
+            failures,
+            "invalid_definition_spec",
+            "Definition spec fields have invalid type.",
+            {"error": str(exc)},
+        )
+        return finish(args, failures, warnings, headers_by_split, [], [], lineage_map, [])
+
+    forbidden_exact = global_forbidden_vars + target_defining_vars + target_forbidden_vars
+    forbidden_patterns = global_patterns + target_patterns
+    forbidden_exact_norm = {norm(x): x for x in forbidden_exact}
+    compiled_patterns, regex_errors = compile_patterns(forbidden_patterns)
+    for err in regex_errors:
+        add_issue(failures, "invalid_forbidden_pattern", "Invalid forbidden regex.", {"error": err})
+
+    ignore_cols = parse_comma_set(args.ignore_cols)
+    ignore_cols.add(args.target_col)
+    checked_features = sorted([h for h in union_headers if h not in ignore_cols])
+
+    if not checked_features:
+        add_issue(
+            warnings,
+            "no_features_checked",
+            "No predictor columns were checked after applying ignore columns.",
+            {"ignored_columns": sorted(ignore_cols)},
+        )
+
+    missing_lineage: List[str] = []
+    exact_hits: List[Dict[str, Any]] = []
+    pattern_hits: List[Dict[str, Any]] = []
+
+    for feature in checked_features:
+        ancestors = lineage_map.get(feature)
+        if ancestors is None:
+            missing_lineage.append(feature)
+            candidates = [feature]
+        else:
+            candidates = [feature] + ancestors
+
+        for candidate in candidates:
+            c_norm = norm(candidate)
+            if c_norm in forbidden_exact_norm:
+                exact_hits.append(
+                    {
+                        "feature": feature,
+                        "candidate": candidate,
+                        "matched_rule": forbidden_exact_norm[c_norm],
+                    }
+                )
+            for pattern in compiled_patterns:
+                if pattern.search(candidate):
+                    pattern_hits.append(
+                        {
+                            "feature": feature,
+                            "candidate": candidate,
+                            "matched_pattern": pattern.pattern,
+                        }
+                    )
+
+    if exact_hits:
+        add_issue(
+            failures,
+            "lineage_definition_leakage",
+            "Detected forbidden disease-definition ancestry in feature lineage.",
+            {"hits": exact_hits},
+        )
+    if pattern_hits:
+        add_issue(
+            failures,
+            "lineage_proxy_leakage",
+            "Detected forbidden proxy patterns in feature lineage.",
+            {"hits": pattern_hits},
+        )
+
+    if missing_lineage:
+        issue = {
+            "missing_count": len(missing_lineage),
+            "missing_features": missing_lineage,
+        }
+        if args.strict and not args.allow_missing_lineage:
+            add_issue(
+                failures,
+                "missing_lineage_entries",
+                "Missing lineage entries for checked features in strict mode.",
+                issue,
+            )
+        else:
+            add_issue(
+                warnings,
+                "missing_lineage_entries",
+                "Missing lineage entries for checked features.",
+                issue,
+            )
+
+    if args.strict and not lineage_map:
+        add_issue(
+            failures,
+            "empty_lineage_map",
+            "Lineage map is empty in strict mode.",
+            {},
+        )
+
+    return finish(
+        args,
+        failures,
+        warnings,
+        headers_by_split,
+        sorted(forbidden_exact),
+        forbidden_patterns,
+        lineage_map,
+        checked_features,
+    )
+
+
+def finish(
+    args: argparse.Namespace,
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+    headers_by_split: Dict[str, List[str]],
+    forbidden_exact: List[str],
+    forbidden_patterns: List[str],
+    lineage_map: Dict[str, List[str]],
+    checked_features: List[str],
+) -> int:
+    should_fail = bool(failures) or (args.strict and bool(warnings))
+    report = {
+        "status": "fail" if should_fail else "pass",
+        "strict_mode": bool(args.strict),
+        "target": args.target,
+        "definition_spec": str(Path(args.definition_spec).expanduser().resolve()),
+        "lineage_spec": str(Path(args.lineage_spec).expanduser().resolve()),
+        "failure_count": len(failures),
+        "warning_count": len(warnings),
+        "failures": failures,
+        "warnings": warnings,
+        "summary": {
+            "splits": {k: {"column_count": len(v), "columns": v} for k, v in headers_by_split.items()},
+            "forbidden_exact_count": len(forbidden_exact),
+            "forbidden_pattern_count": len(forbidden_patterns),
+            "lineage_feature_count": len(lineage_map),
+            "checked_feature_count": len(checked_features),
+            "lineage_coverage_ratio": (
+                0.0
+                if not checked_features
+                else round(
+                    sum(1 for f in checked_features if f in lineage_map) / float(len(checked_features)),
+                    6,
+                )
+            ),
+        },
+    }
+
+    if args.report:
+        report_path = Path(args.report).expanduser().resolve()
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        with report_path.open("w", encoding="utf-8") as fh:
+            json.dump(report, fh, ensure_ascii=True, indent=2)
+
+    print(f"Status: {report['status']}")
+    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
+    for issue in failures:
+        print(f"[FAIL] {issue['code']}: {issue['message']}")
+    for issue in warnings:
+        print(f"[WARN] {issue['code']}: {issue['message']}")
+
+    return 2 if should_fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

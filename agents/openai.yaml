@@ -1,0 +1,4 @@
+interface:
+  display_name: "Medical ML Leakage Guard"
+  short_description: "Strict medical prediction leakage and lineage guard"
+  default_prompt: "Run a publication-grade medical prediction review with strict request contract validation, phenotype-definition leakage checks, lineage ancestry gates, falsification tests, and fail-closed evidence outputs."
