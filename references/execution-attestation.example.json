@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "study_id": "sepsis-risk-icu-v1",
+  "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
+  "issued_at_utc": "2026-02-24T11:46:00Z",
+  "required_artifact_names": [
+    "training_log",
+    "training_config",
+    "model_artifact",
+    "evaluation_report"
+  ],
+  "signed_payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "signing": {
+    "method": "openssl-dgst-sha256",
+    "signed_payload_file": "../evidence/attestation_payload.json",
+    "signature_file": "../evidence/attestation.sig",
+    "public_key_file": "../keys/attestation_pub.pem"
+  }
+}

@@ -16,6 +16,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run self-critique scoring on evidence artifacts.")
     parser.add_argument("--request-report", required=True, help="Path to request contract report JSON.")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON.")
+    parser.add_argument(
+        "--execution-attestation-report",
+        required=True,
+        help="Path to execution attestation report JSON.",
+    )
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol report JSON.")
     parser.add_argument("--covariate-shift-report", required=True, help="Path to covariate-shift report JSON.")
@@ -63,8 +68,15 @@ def score_component(report: Dict[str, Any], hard_weight: float, warn_penalty: fl
 def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
     recs: List[str] = []
     codes = {i["code"] for i in issues}
+    components = {
+        str(i.get("details", {}).get("component"))
+        for i in issues
+        if isinstance(i.get("details"), dict) and i.get("details", {}).get("component") is not None
+    }
     if "component_not_passed" in codes or "component_has_failures" in codes:
         recs.append("Resolve all failed component gates before interpreting model metrics.")
+    if "execution_attestation_report" in components:
+        recs.append("Regenerate signed execution attestation and verify detached signature against public key.")
     if "component_not_strict" in codes:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
     if "insufficient_quality_score" in codes:
@@ -94,6 +106,7 @@ def main() -> int:
     artifact_paths = {
         "request_report": args.request_report,
         "manifest": args.manifest,
+        "execution_attestation_report": args.execution_attestation_report,
         "leakage_report": args.leakage_report,
         "split_protocol_report": args.split_protocol_report,
         "covariate_shift_report": args.covariate_shift_report,
@@ -162,6 +175,7 @@ def main() -> int:
 
     for component in (
         "request_report",
+        "execution_attestation_report",
         "leakage_report",
         "split_protocol_report",
         "covariate_shift_report",
@@ -233,6 +247,7 @@ def main() -> int:
     weights = {
         "request_report": 7.0,
         "manifest": 10.0,
+        "execution_attestation_report": 8.0,
         "leakage_report": 13.0,
         "split_protocol_report": 8.0,
         "covariate_shift_report": 7.0,

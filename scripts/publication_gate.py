@@ -17,6 +17,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run aggregate publication-grade evidence gate.")
     parser.add_argument("--request-report", required=True, help="Path to request contract report JSON.")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON.")
+    parser.add_argument(
+        "--execution-attestation-report",
+        required=True,
+        help="Path to execution attestation gate report JSON.",
+    )
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol gate report JSON.")
     parser.add_argument(
@@ -104,6 +109,7 @@ def main() -> int:
     files = {
         "request_report": args.request_report,
         "manifest": args.manifest,
+        "execution_attestation_report": args.execution_attestation_report,
         "leakage_report": args.leakage_report,
         "split_protocol_report": args.split_protocol_report,
         "covariate_shift_report": args.covariate_shift_report,
@@ -170,6 +176,7 @@ def main() -> int:
 
     for component in (
         "request_report",
+        "execution_attestation_report",
         "leakage_report",
         "split_protocol_report",
         "covariate_shift_report",

@@ -32,6 +32,13 @@
   - `references/report-template.md`
   - `agents/openai.yaml` default prompt
 
+## Implemented Improvement (Execution Non-Repudiation)
+- Added `scripts/execution_attestation_gate.py` to verify detached signatures and signed artifact hashes.
+- Added `scripts/generate_execution_attestation.py` to improve personal-user UX for payload/signature/spec generation.
+- Added strict artifact: `evidence/execution_attestation_report.json`.
+- Integrated attestation gate into strict pipeline + publication/self-critique aggregate gates.
+- Updated request contract to require `run_id` + `execution_attestation_spec` for publication-grade claims.
+
 ## Remaining Recommended Upgrades (Next Iteration)
 - Add machine-checkable TRIPOD+AI / PROBAST+AI compliance gate (reporting + risk-of-bias checklist JSON).
 - Add external-validation-specific gate for site/time transport checks when multi-center data are available.

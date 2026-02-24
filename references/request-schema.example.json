@@ -1,5 +1,6 @@
 {
   "study_id": "sepsis-risk-icu-v1",
+  "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
   "target_name": "sepsis",
   "prediction_unit": "patient-episode",
   "index_time_col": "event_time",
@@ -13,6 +14,7 @@
   "imbalance_policy_spec": "imbalance_policy.json",
   "missingness_policy_spec": "missingness_policy.json",
   "tuning_protocol_spec": "tuning_protocol.json",
+  "execution_attestation_spec": "execution_attestation.json",
   "split_paths": {
     "train": "../data/train.csv",
     "valid": "../data/valid.csv",

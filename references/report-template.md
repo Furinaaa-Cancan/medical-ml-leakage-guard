@@ -77,6 +77,8 @@
 - Data snapshot IDs:
 - Environment details:
 - Config files and random seeds:
+- Signed execution attestation spec (`execution_attestation.json`):
+- Signed payload (`attestation_payload.json`) and detached signature (`attestation.sig`):
 - Re-run reproducibility check:
 - Baseline manifest comparison result (`manifest.comparison.matched`):
 - Evidence manifest (`manifest.json`):

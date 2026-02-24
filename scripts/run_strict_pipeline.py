@@ -105,6 +105,7 @@ def main() -> int:
     reports = {
         "request_report": evidence_dir / "request_contract_report.json",
         "manifest": evidence_dir / "manifest.json",
+        "execution_attestation_report": evidence_dir / "execution_attestation_report.json",
         "leakage_report": evidence_dir / "leakage_report.json",
         "split_protocol_report": evidence_dir / "split_protocol_report.json",
         "covariate_shift_report": evidence_dir / "covariate_shift_report.json",
@@ -182,12 +183,15 @@ def main() -> int:
         time_col = str(normalized["index_time_col"])
         label_col = str(normalized["label_col"])
         metric_name = str(normalized["primary_metric"])
+        study_id = str(normalized["study_id"])
+        run_id = str(normalized["run_id"])
         phenotype_spec = str(normalized["phenotype_definition_spec"])
         lineage_spec = str(normalized["feature_lineage_spec"])
         split_protocol_spec = str(normalized["split_protocol_spec"])
         imbalance_policy_spec = str(normalized["imbalance_policy_spec"])
         missingness_policy_spec = str(normalized["missingness_policy_spec"])
         tuning_protocol_spec = str(normalized["tuning_protocol_spec"])
+        execution_attestation_spec = str(normalized["execution_attestation_spec"])
         evaluation_report_file = str(normalized["evaluation_report_file"])
         evaluation_metric_path = normalized.get("evaluation_metric_path")
         null_metrics_file = str(normalized["permutation_null_metrics_file"])
@@ -213,10 +217,26 @@ def main() -> int:
     if isinstance(valid, str) and valid:
         manifest_inputs.append(valid)
 
+    attestation_extra_inputs: List[str] = [execution_attestation_spec]
+    try:
+        attestation_spec_payload = load_json(resolve_path(cwd, execution_attestation_spec))
+        signing_block = attestation_spec_payload.get("signing")
+        if isinstance(signing_block, dict):
+            signing_base = resolve_path(cwd, execution_attestation_spec).parent
+            for key in ("signed_payload_file", "signature_file", "public_key_file"):
+                raw = signing_block.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    attestation_extra_inputs.append(str(resolve_path(signing_base, raw.strip())))
+    except Exception as exc:
+        print(f"[FAIL] Failed to parse execution_attestation_spec for manifest lock: {exc}", file=sys.stderr)
+        return finalize(args, reports, steps, success=False)
+
     gate_script_inputs = [
         str(scripts_dir / "run_strict_pipeline.py"),
         str(scripts_dir / "request_contract_gate.py"),
         str(scripts_dir / "manifest_lock.py"),
+        str(scripts_dir / "execution_attestation_gate.py"),
+        str(scripts_dir / "generate_execution_attestation.py"),
         str(scripts_dir / "leakage_gate.py"),
         str(scripts_dir / "split_protocol_gate.py"),
         str(scripts_dir / "covariate_shift_gate.py"),
@@ -240,6 +260,7 @@ def main() -> int:
             imbalance_policy_spec,
             missingness_policy_spec,
             tuning_protocol_spec,
+            *attestation_extra_inputs,
             evaluation_report_file,
             null_metrics_file,
             str(request_path),
@@ -262,7 +283,28 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 3: leakage gate
+    # Step 3: execution attestation gate
+    if not execute(
+        "execution_attestation_gate",
+        [
+            args.python,
+            str(scripts_dir / "execution_attestation_gate.py"),
+            "--attestation-spec",
+            execution_attestation_spec,
+            "--evaluation-report",
+            evaluation_report_file,
+            "--study-id",
+            study_id,
+            "--run-id",
+            run_id,
+            "--report",
+            str(reports["execution_attestation_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 4: leakage gate
     if not execute(
         "leakage_gate",
         [
@@ -282,7 +324,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 4: split protocol gate
+    # Step 5: split protocol gate
     if not execute(
         "split_protocol_gate",
         [
@@ -304,7 +346,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 5: covariate shift gate
+    # Step 6: covariate shift gate
     if not execute(
         "covariate_shift_gate",
         [
@@ -322,7 +364,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 6: definition variable guard
+    # Step 7: definition variable guard
     if not execute(
         "definition_variable_guard",
         [
@@ -344,7 +386,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 7: lineage gate
+    # Step 8: lineage gate
     if not execute(
         "feature_lineage_gate",
         [
@@ -368,7 +410,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 8: imbalance policy gate
+    # Step 9: imbalance policy gate
     if not execute(
         "imbalance_policy_gate",
         [
@@ -386,7 +428,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 9: missingness policy gate
+    # Step 10: missingness policy gate
     if not execute(
         "missingness_policy_gate",
         [
@@ -406,7 +448,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 10: tuning leakage gate
+    # Step 11: tuning leakage gate
     if not execute(
         "tuning_leakage_gate",
         [
@@ -423,7 +465,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 11: metric consistency gate
+    # Step 12: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -457,7 +499,7 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 12: permutation significance gate
+    # Step 13: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -480,7 +522,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 13: publication gate
+    # Step 14: publication gate
     if not execute(
         "publication_gate",
         [
@@ -490,6 +532,8 @@ def main() -> int:
             str(reports["request_report"]),
             "--manifest",
             str(reports["manifest"]),
+            "--execution-attestation-report",
+            str(reports["execution_attestation_report"]),
             "--leakage-report",
             str(reports["leakage_report"]),
             "--split-protocol-report",
@@ -517,7 +561,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 14: self critique
+    # Step 15: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -527,6 +571,8 @@ def main() -> int:
             str(reports["request_report"]),
             "--manifest",
             str(reports["manifest"]),
+            "--execution-attestation-report",
+            str(reports["execution_attestation_report"]),
             "--leakage-report",
             str(reports["leakage_report"]),
             "--split-protocol-report",
