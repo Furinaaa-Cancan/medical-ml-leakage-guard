@@ -18,6 +18,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate tuning protocol against leakage-safe requirements.")
     parser.add_argument("--tuning-spec", required=True, help="Path to tuning protocol JSON.")
     parser.add_argument("--id-col", help="Runtime ID column used for grouped CV validation.")
+    parser.add_argument(
+        "--has-valid-split",
+        action="store_true",
+        help="Indicate that a dedicated validation split exists in this run.",
+    )
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
@@ -90,6 +95,7 @@ def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
+    has_valid_split = bool(args.has_valid_split)
 
     spec_path = Path(args.tuning_spec).expanduser().resolve()
     if not spec_path.exists():
@@ -185,6 +191,28 @@ def main() -> int:
                 "final_model_refit_scope": final_model_refit_scope,
                 "allowed": sorted(allowed_final_model_refit_scope),
             },
+        )
+
+    if model_selection_data == "valid" and not has_valid_split:
+        add_issue(
+            failures,
+            "valid_model_selection_without_valid_split",
+            "model_selection_data=valid requires an actual validation split.",
+            {"has_valid_split": has_valid_split},
+        )
+    if early_stopping_data == "valid" and not has_valid_split:
+        add_issue(
+            failures,
+            "valid_early_stopping_without_valid_split",
+            "early_stopping_data=valid requires an actual validation split.",
+            {"has_valid_split": has_valid_split},
+        )
+    if final_model_refit_scope == "train_plus_valid_no_test" and not has_valid_split:
+        add_issue(
+            failures,
+            "train_plus_valid_refit_without_valid_split",
+            "final_model_refit_scope=train_plus_valid_no_test requires a validation split.",
+            {"has_valid_split": has_valid_split},
         )
 
     for field_name, field_value in (
@@ -397,6 +425,7 @@ def finish(
         "warnings": warnings,
         "summary": {
             "fields_present": sorted(spec.keys()) if isinstance(spec, dict) else [],
+            "has_valid_split": bool(args.has_valid_split),
         },
     }
 

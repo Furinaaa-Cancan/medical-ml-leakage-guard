@@ -17,7 +17,9 @@
     "require_timestamp_trust": true,
     "require_transparency_log": true,
     "require_transparency_log_signature": true,
-    "require_independent_timestamp_authority": false
+    "require_execution_receipt": true,
+    "require_independent_timestamp_authority": false,
+    "require_independent_execution_authority": false
   },
   "signing": {
     "method": "openssl-dgst-sha256",
@@ -44,5 +46,13 @@
     "signature_file": "../evidence/attestation_transparency_record.sig",
     "public_key_file": "../keys/transparency_pub.pem",
     "public_key_fingerprint_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "execution_receipt": {
+    "authority_id": "execution-authority-local",
+    "record_file": "../evidence/attestation_execution_receipt_record.json",
+    "signature_file": "../evidence/attestation_execution_receipt_record.sig",
+    "public_key_file": "../keys/execution_pub.pem",
+    "public_key_fingerprint_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "enforce_exit_code_zero": true
   }
 }

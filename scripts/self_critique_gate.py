@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to execution attestation report JSON.",
     )
+    parser.add_argument(
+        "--reporting-bias-report",
+        required=True,
+        help="Path to reporting/bias checklist report JSON.",
+    )
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol report JSON.")
     parser.add_argument("--covariate-shift-report", required=True, help="Path to covariate-shift report JSON.")
@@ -77,6 +82,8 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Resolve all failed component gates before interpreting model metrics.")
     if "execution_attestation_report" in components:
         recs.append("Regenerate signed execution attestation and verify detached signature against public key.")
+    if "reporting_bias_report" in components:
+        recs.append("Complete TRIPOD+AI/PROBAST+AI/STARD-AI checklist items and rerun reporting_bias_gate.")
     if "component_not_strict" in codes:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
     if "insufficient_quality_score" in codes:
@@ -107,6 +114,7 @@ def main() -> int:
         "request_report": args.request_report,
         "manifest": args.manifest,
         "execution_attestation_report": args.execution_attestation_report,
+        "reporting_bias_report": args.reporting_bias_report,
         "leakage_report": args.leakage_report,
         "split_protocol_report": args.split_protocol_report,
         "covariate_shift_report": args.covariate_shift_report,
@@ -176,6 +184,7 @@ def main() -> int:
     for component in (
         "request_report",
         "execution_attestation_report",
+        "reporting_bias_report",
         "leakage_report",
         "split_protocol_report",
         "covariate_shift_report",
@@ -248,6 +257,7 @@ def main() -> int:
         "request_report": 7.0,
         "manifest": 10.0,
         "execution_attestation_report": 8.0,
+        "reporting_bias_report": 8.0,
         "leakage_report": 13.0,
         "split_protocol_report": 8.0,
         "covariate_shift_report": 7.0,

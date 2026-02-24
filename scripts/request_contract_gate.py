@@ -397,6 +397,15 @@ def main() -> int:
 
     validate_optional_path(
         request=request,
+        key="reporting_bias_checklist_spec",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
         key="execution_attestation_spec",
         base=request_base,
         failures=failures,

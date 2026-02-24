@@ -288,6 +288,13 @@ def main() -> int:
                 "Unsupported missingness strategy.",
                 {"strategy": strategy, "allowed": sorted(allowed_strategies)},
             )
+        if strategy == "simple_with_indicator" and add_missing_indicators is not True:
+            add_issue(
+                failures,
+                "indicator_flag_required",
+                "strategy=simple_with_indicator requires add_missing_indicators=true.",
+                {"add_missing_indicators": add_missing_indicators},
+            )
 
     if imputer_fit_scope:
         allowed_fit_scopes = {"train_only", "cv_inner_train_only", "fold_train_only"}

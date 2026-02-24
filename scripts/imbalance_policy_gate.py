@@ -262,6 +262,7 @@ def main() -> int:
         )
 
     allowed_postprocessing_splits = {"valid", "cv_inner", "nested_cv", "none", "not_applicable", "na"}
+    has_valid_split = bool(args.valid)
     for field_name, split_name in (
         ("threshold_selection_split", threshold_selection_split),
         ("calibration_split", calibration_split),
@@ -289,6 +290,13 @@ def main() -> int:
                 "train_split_used_for_postprocessing",
                 "Train split must not be reused for threshold/calibration selection.",
                 {"field": field_name, "split": split_name},
+            )
+        if split_token == "valid" and not has_valid_split:
+            add_issue(
+                failures,
+                "valid_split_required_but_missing",
+                "Policy requires valid split for post-processing, but valid split path is not provided.",
+                {"field": field_name, "split": split_name, "has_valid_split": has_valid_split},
             )
 
     resampling_required = strategy in {"oversample_train_only", "undersample_train_only", "smote_train_only"}

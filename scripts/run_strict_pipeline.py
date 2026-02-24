@@ -106,6 +106,7 @@ def main() -> int:
         "request_report": evidence_dir / "request_contract_report.json",
         "manifest": evidence_dir / "manifest.json",
         "execution_attestation_report": evidence_dir / "execution_attestation_report.json",
+        "reporting_bias_report": evidence_dir / "reporting_bias_report.json",
         "leakage_report": evidence_dir / "leakage_report.json",
         "split_protocol_report": evidence_dir / "split_protocol_report.json",
         "covariate_shift_report": evidence_dir / "covariate_shift_report.json",
@@ -191,6 +192,7 @@ def main() -> int:
         imbalance_policy_spec = str(normalized["imbalance_policy_spec"])
         missingness_policy_spec = str(normalized["missingness_policy_spec"])
         tuning_protocol_spec = str(normalized["tuning_protocol_spec"])
+        reporting_bias_checklist_spec = str(normalized["reporting_bias_checklist_spec"])
         execution_attestation_spec = str(normalized["execution_attestation_spec"])
         evaluation_report_file = str(normalized["evaluation_report_file"])
         evaluation_metric_path = normalized.get("evaluation_metric_path")
@@ -246,6 +248,11 @@ def main() -> int:
         if isinstance(transparency_block, dict):
             for key in ("record_file", "signature_file", "public_key_file"):
                 append_attestation_path(transparency_block.get(key))
+
+        execution_receipt_block = attestation_spec_payload.get("execution_receipt")
+        if isinstance(execution_receipt_block, dict):
+            for key in ("record_file", "signature_file", "public_key_file"):
+                append_attestation_path(execution_receipt_block.get(key))
     except Exception as exc:
         print(f"[FAIL] Failed to parse execution_attestation_spec for manifest lock: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
@@ -259,6 +266,7 @@ def main() -> int:
         str(scripts_dir / "manifest_lock.py"),
         str(scripts_dir / "execution_attestation_gate.py"),
         str(scripts_dir / "generate_execution_attestation.py"),
+        str(scripts_dir / "reporting_bias_gate.py"),
         str(scripts_dir / "leakage_gate.py"),
         str(scripts_dir / "split_protocol_gate.py"),
         str(scripts_dir / "covariate_shift_gate.py"),
@@ -282,6 +290,7 @@ def main() -> int:
             imbalance_policy_spec,
             missingness_policy_spec,
             tuning_protocol_spec,
+            reporting_bias_checklist_spec,
             *attestation_extra_inputs,
             evaluation_report_file,
             null_metrics_file,
@@ -386,7 +395,22 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 7: definition variable guard
+    # Step 7: reporting and bias checklist gate
+    if not execute(
+        "reporting_bias_gate",
+        [
+            args.python,
+            str(scripts_dir / "reporting_bias_gate.py"),
+            "--checklist-spec",
+            reporting_bias_checklist_spec,
+            "--report",
+            str(reports["reporting_bias_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 8: definition variable guard
     if not execute(
         "definition_variable_guard",
         [
@@ -408,7 +432,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 8: lineage gate
+    # Step 9: lineage gate
     if not execute(
         "feature_lineage_gate",
         [
@@ -432,7 +456,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 9: imbalance policy gate
+    # Step 10: imbalance policy gate
     if not execute(
         "imbalance_policy_gate",
         [
@@ -450,7 +474,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 10: missingness policy gate
+    # Step 11: missingness policy gate
     if not execute(
         "missingness_policy_gate",
         [
@@ -470,24 +494,28 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 11: tuning leakage gate
+    # Step 12: tuning leakage gate
+    tuning_cmd = [
+        args.python,
+        str(scripts_dir / "tuning_leakage_gate.py"),
+        "--tuning-spec",
+        tuning_protocol_spec,
+        "--id-col",
+        id_col,
+        "--report",
+        str(reports["tuning_report"]),
+        *strict_flag,
+    ]
+    if isinstance(valid, str) and valid:
+        tuning_cmd.append("--has-valid-split")
+
     if not execute(
         "tuning_leakage_gate",
-        [
-            args.python,
-            str(scripts_dir / "tuning_leakage_gate.py"),
-            "--tuning-spec",
-            tuning_protocol_spec,
-            "--id-col",
-            id_col,
-            "--report",
-            str(reports["tuning_report"]),
-            *strict_flag,
-        ],
+        tuning_cmd,
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 12: metric consistency gate
+    # Step 13: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -521,7 +549,7 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 13: permutation significance gate
+    # Step 14: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -544,7 +572,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 14: publication gate
+    # Step 15: publication gate
     if not execute(
         "publication_gate",
         [
@@ -556,6 +584,8 @@ def main() -> int:
             str(reports["manifest"]),
             "--execution-attestation-report",
             str(reports["execution_attestation_report"]),
+            "--reporting-bias-report",
+            str(reports["reporting_bias_report"]),
             "--leakage-report",
             str(reports["leakage_report"]),
             "--split-protocol-report",
@@ -583,7 +613,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 15: self critique
+    # Step 16: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -595,6 +625,8 @@ def main() -> int:
             str(reports["manifest"]),
             "--execution-attestation-report",
             str(reports["execution_attestation_report"]),
+            "--reporting-bias-report",
+            str(reports["reporting_bias_report"]),
             "--leakage-report",
             str(reports["leakage_report"]),
             "--split-protocol-report",

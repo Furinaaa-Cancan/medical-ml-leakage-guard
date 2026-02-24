@@ -14,6 +14,7 @@
   "imbalance_policy_spec": "imbalance_policy.json",
   "missingness_policy_spec": "missingness_policy.json",
   "tuning_protocol_spec": "tuning_protocol.json",
+  "reporting_bias_checklist_spec": "reporting_bias_checklist.json",
   "execution_attestation_spec": "execution_attestation.json",
   "split_paths": {
     "train": "../data/train.csv",

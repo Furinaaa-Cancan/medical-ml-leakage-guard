@@ -581,8 +581,18 @@ def validate_key_assurance(
     require_transparency_log_signature = require_bool(
         policy, "require_transparency_log_signature", failures, "assurance_policy", default=True
     )
+    require_execution_receipt = require_bool(
+        policy, "require_execution_receipt", failures, "assurance_policy", default=True
+    )
     require_independent_timestamp_authority = require_bool(
         policy, "require_independent_timestamp_authority", failures, "assurance_policy", default=False
+    )
+    require_independent_execution_authority = require_bool(
+        policy,
+        "require_independent_execution_authority",
+        failures,
+        "assurance_policy",
+        default=False,
     )
 
     key_id = require_str(signing, "key_id", failures, "attestation_spec.signing")
@@ -736,7 +746,9 @@ def validate_key_assurance(
             "require_timestamp_trust": bool(require_timestamp_trust),
             "require_transparency_log": bool(require_transparency_log),
             "require_transparency_log_signature": bool(require_transparency_log_signature),
+            "require_execution_receipt": bool(require_execution_receipt),
             "require_independent_timestamp_authority": bool(require_independent_timestamp_authority),
+            "require_independent_execution_authority": bool(require_independent_execution_authority),
         },
         "key_id": key_id,
         "public_key_file": str(public_key_file) if public_key_file is not None else None,
@@ -1080,6 +1092,283 @@ def validate_transparency_log(
     }
 
 
+def validate_execution_receipt(
+    spec_base: Path,
+    spec: Dict[str, Any],
+    payload_sha256: Optional[str],
+    payload_study_id: Optional[str],
+    payload_run_id: Optional[str],
+    payload_command: Optional[str],
+    payload_executor: Optional[str],
+    payload_exit_code: Optional[int],
+    started_ts: Optional[dt.datetime],
+    finished_ts: Optional[dt.datetime],
+    issued_at_ts: Optional[dt.datetime],
+    signing_fp: Optional[str],
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = spec.get("assurance_policy", {})
+    require_execution_receipt = True
+    require_independent_execution_authority = False
+    if isinstance(policy, dict):
+        require_execution_receipt = bool(policy.get("require_execution_receipt", True))
+        require_independent_execution_authority = bool(
+            policy.get("require_independent_execution_authority", False)
+        )
+
+    block = spec.get("execution_receipt")
+    if block is None:
+        if require_execution_receipt:
+            add_issue(
+                failures,
+                "missing_execution_receipt",
+                "assurance_policy requires execution_receipt block.",
+                {},
+            )
+        return {"present": False}
+    if not isinstance(block, dict):
+        add_issue(
+            failures,
+            "invalid_execution_receipt",
+            "execution_receipt must be an object.",
+            {"actual_type": type(block).__name__},
+        )
+        return {"present": True}
+
+    authority_id = require_str(block, "authority_id", failures, "attestation_spec.execution_receipt")
+    record_file = collect_required_path(
+        spec_base, block, "record_file", failures, "attestation_spec.execution_receipt"
+    )
+    signature_file = collect_required_path(
+        spec_base, block, "signature_file", failures, "attestation_spec.execution_receipt"
+    )
+    public_key_file = collect_required_path(
+        spec_base, block, "public_key_file", failures, "attestation_spec.execution_receipt"
+    )
+    expected_fp = require_str(
+        block, "public_key_fingerprint_sha256", failures, "attestation_spec.execution_receipt"
+    )
+    enforce_exit_code_zero = require_bool(
+        block,
+        "enforce_exit_code_zero",
+        failures,
+        "attestation_spec.execution_receipt",
+        default=True,
+    )
+
+    observed_fp = None
+    verify_result = {}
+    if public_key_file is not None:
+        observed_fp = public_key_fingerprint_sha256(public_key_file, failures)
+        if expected_fp and not SHA256_RE.fullmatch(expected_fp):
+            add_issue(
+                failures,
+                "invalid_execution_receipt_public_key_fingerprint",
+                "execution_receipt.public_key_fingerprint_sha256 must be 64-char hex.",
+                {"value": expected_fp},
+            )
+        elif expected_fp and observed_fp and expected_fp.lower() != observed_fp.lower():
+            add_issue(
+                failures,
+                "execution_receipt_public_key_fingerprint_mismatch",
+                "Execution receipt public key fingerprint mismatch.",
+                {"expected": expected_fp.lower(), "observed": observed_fp.lower()},
+            )
+
+    if record_file and signature_file and public_key_file:
+        verify_result = verify_detached_signature(
+            data_file=record_file,
+            signature_file=signature_file,
+            public_key_file=public_key_file,
+            method="openssl-dgst-sha256",
+            failures=failures,
+            scope="execution_receipt_record",
+        )
+
+    record = load_json_obj(record_file, failures, "execution_receipt_record") if record_file else None
+    exit_code_value: Optional[int] = None
+    if record is not None:
+        record_authority = require_str(record, "authority_id", failures, "execution_receipt_record")
+        record_payload_sha = require_str(record, "payload_sha256", failures, "execution_receipt_record")
+        record_study = require_str(record, "study_id", failures, "execution_receipt_record")
+        record_run = require_str(record, "run_id", failures, "execution_receipt_record")
+        record_command = require_str(record, "command", failures, "execution_receipt_record")
+        record_executor = require_str(record, "executor", failures, "execution_receipt_record")
+        record_started_raw = require_str(record, "started_at_utc", failures, "execution_receipt_record")
+        record_finished_raw = require_str(record, "finished_at_utc", failures, "execution_receipt_record")
+        record_issued_raw = require_str(record, "issued_at_utc", failures, "execution_receipt_record")
+
+        raw_exit_code = record.get("exit_code")
+        if isinstance(raw_exit_code, bool):
+            raw_exit_code = None
+        if isinstance(raw_exit_code, int):
+            exit_code_value = int(raw_exit_code)
+        elif isinstance(raw_exit_code, float) and math.isfinite(raw_exit_code) and float(raw_exit_code).is_integer():
+            exit_code_value = int(raw_exit_code)
+        else:
+            add_issue(
+                failures,
+                "invalid_execution_receipt_exit_code",
+                "execution_receipt_record.exit_code must be integer.",
+                {"actual_value": raw_exit_code},
+            )
+
+        if authority_id and record_authority and authority_id != record_authority:
+            add_issue(
+                failures,
+                "execution_receipt_authority_mismatch",
+                "execution receipt authority_id does not match attestation spec.",
+                {"spec_authority_id": authority_id, "record_authority_id": record_authority},
+            )
+        if payload_sha256 and record_payload_sha and payload_sha256.lower() != record_payload_sha.lower():
+            add_issue(
+                failures,
+                "execution_receipt_payload_hash_mismatch",
+                "execution receipt payload_sha256 does not match signed payload.",
+                {"payload_sha256": payload_sha256.lower(), "record_payload_sha256": record_payload_sha.lower()},
+            )
+        if payload_study_id and record_study and payload_study_id != record_study:
+            add_issue(
+                failures,
+                "execution_receipt_study_id_mismatch",
+                "execution receipt study_id mismatch.",
+                {"payload_study_id": payload_study_id, "record_study_id": record_study},
+            )
+        if payload_run_id and record_run and payload_run_id != record_run:
+            add_issue(
+                failures,
+                "execution_receipt_run_id_mismatch",
+                "execution receipt run_id mismatch.",
+                {"payload_run_id": payload_run_id, "record_run_id": record_run},
+            )
+        if payload_command and record_command and payload_command.strip() != record_command.strip():
+            add_issue(
+                failures,
+                "execution_receipt_command_mismatch",
+                "execution receipt command does not match signed payload command.",
+                {"payload_command": payload_command, "record_command": record_command},
+            )
+        if payload_executor and record_executor and payload_executor.strip() != record_executor.strip():
+            add_issue(
+                failures,
+                "execution_receipt_executor_mismatch",
+                "execution receipt executor does not match signed payload executor.",
+                {"payload_executor": payload_executor, "record_executor": record_executor},
+            )
+        if payload_exit_code is not None and exit_code_value is not None and payload_exit_code != exit_code_value:
+            add_issue(
+                failures,
+                "execution_receipt_exit_code_mismatch",
+                "execution receipt exit_code does not match signed payload exit_code.",
+                {"payload_exit_code": payload_exit_code, "record_exit_code": exit_code_value},
+            )
+
+        record_started = parse_iso_ts(record_started_raw) if record_started_raw else None
+        record_finished = parse_iso_ts(record_finished_raw) if record_finished_raw else None
+        record_issued = parse_iso_ts(record_issued_raw) if record_issued_raw else None
+        if record_started_raw and record_started is None:
+            add_issue(
+                failures,
+                "invalid_execution_receipt_started_time",
+                "execution_receipt_record.started_at_utc must be ISO-8601 timestamp.",
+                {"started_at_utc": record_started_raw},
+            )
+        if record_finished_raw and record_finished is None:
+            add_issue(
+                failures,
+                "invalid_execution_receipt_finished_time",
+                "execution_receipt_record.finished_at_utc must be ISO-8601 timestamp.",
+                {"finished_at_utc": record_finished_raw},
+            )
+        if record_issued_raw and record_issued is None:
+            add_issue(
+                failures,
+                "invalid_execution_receipt_issued_time",
+                "execution_receipt_record.issued_at_utc must be ISO-8601 timestamp.",
+                {"issued_at_utc": record_issued_raw},
+            )
+        if record_started and record_finished and record_started > record_finished:
+            add_issue(
+                failures,
+                "invalid_execution_receipt_time_window",
+                "execution receipt started_at_utc must be <= finished_at_utc.",
+                {"started_at_utc": record_started_raw, "finished_at_utc": record_finished_raw},
+            )
+        if record_finished and record_issued and record_finished > record_issued:
+            add_issue(
+                failures,
+                "invalid_execution_receipt_issue_time",
+                "execution receipt issued_at_utc must be >= finished_at_utc.",
+                {"finished_at_utc": record_finished_raw, "issued_at_utc": record_issued_raw},
+            )
+        if issued_at_ts and record_issued and record_issued > issued_at_ts:
+            add_issue(
+                failures,
+                "execution_receipt_after_attestation_issue",
+                "execution receipt issued_at_utc must not exceed attestation issued_at_utc.",
+                {"receipt_issued_at_utc": record_issued.isoformat(), "attestation_issued_at_utc": issued_at_ts.isoformat()},
+            )
+        if started_ts and record_started and started_ts != record_started:
+            add_issue(
+                failures,
+                "execution_receipt_started_time_mismatch",
+                "execution receipt started_at_utc does not match signed payload.",
+                {"payload_started_at_utc": started_ts.isoformat(), "receipt_started_at_utc": record_started.isoformat()},
+            )
+        if finished_ts and record_finished and finished_ts != record_finished:
+            add_issue(
+                failures,
+                "execution_receipt_finished_time_mismatch",
+                "execution receipt finished_at_utc does not match signed payload.",
+                {
+                    "payload_finished_at_utc": finished_ts.isoformat(),
+                    "receipt_finished_at_utc": record_finished.isoformat(),
+                },
+            )
+
+        if exit_code_value is not None:
+            if enforce_exit_code_zero is not False and exit_code_value != 0:
+                add_issue(
+                    failures,
+                    "execution_receipt_nonzero_exit_code",
+                    "Execution receipt indicates non-zero exit_code.",
+                    {"exit_code": exit_code_value},
+                )
+            elif enforce_exit_code_zero is False and exit_code_value != 0:
+                add_issue(
+                    warnings,
+                    "execution_receipt_nonzero_exit_code_not_enforced",
+                    "Execution receipt exit_code is non-zero while enforce_exit_code_zero=false.",
+                    {"exit_code": exit_code_value},
+                )
+
+    if (
+        require_independent_execution_authority
+        and signing_fp
+        and observed_fp
+        and signing_fp.lower() == observed_fp.lower()
+    ):
+        add_issue(
+            failures,
+            "execution_authority_not_independent",
+            "assurance_policy requires independent execution receipt authority key.",
+            {"signing_key_fingerprint": signing_fp.lower(), "execution_key_fingerprint": observed_fp.lower()},
+        )
+
+    return {
+        "present": True,
+        "authority_id": authority_id,
+        "record_file": str(record_file) if record_file else None,
+        "signature_file": str(signature_file) if signature_file else None,
+        "public_key_file": str(public_key_file) if public_key_file else None,
+        "public_key_fingerprint_observed_sha256": observed_fp,
+        "signature_verification": verify_result,
+        "enforce_exit_code_zero": False if enforce_exit_code_zero is False else True,
+        "exit_code": exit_code_value,
+    }
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -1158,6 +1447,22 @@ def main() -> int:
     started_at_raw = require_str(payload, "started_at_utc", failures, "signed_payload")
     finished_at_raw = require_str(payload, "finished_at_utc", failures, "signed_payload")
     executor = require_str(payload, "executor", failures, "signed_payload")
+    payload_exit_code: Optional[int] = None
+    payload_exit_raw = payload.get("exit_code")
+    if payload_exit_raw is not None:
+        if isinstance(payload_exit_raw, bool):
+            payload_exit_raw = None
+        if isinstance(payload_exit_raw, int):
+            payload_exit_code = int(payload_exit_raw)
+        elif isinstance(payload_exit_raw, float) and math.isfinite(payload_exit_raw) and float(payload_exit_raw).is_integer():
+            payload_exit_code = int(payload_exit_raw)
+        else:
+            add_issue(
+                failures,
+                "invalid_payload_exit_code",
+                "signed_payload.exit_code must be integer when present.",
+                {"actual_value": payload_exit_raw},
+            )
 
     git_commit = payload.get("git_commit")
     if git_commit is not None and (
@@ -1302,6 +1607,22 @@ def main() -> int:
         issued_at_ts=issued_at_ts,
         failures=failures,
     )
+    execution_receipt_summary = validate_execution_receipt(
+        spec_base=spec_base,
+        spec=spec,
+        payload_sha256=payload_digest_actual,
+        payload_study_id=payload_study_id,
+        payload_run_id=payload_run_id,
+        payload_command=payload_command,
+        payload_executor=executor,
+        payload_exit_code=payload_exit_code,
+        started_ts=started_ts,
+        finished_ts=finished_ts,
+        issued_at_ts=issued_at_ts,
+        signing_fp=signing_fp,
+        failures=failures,
+        warnings=warnings,
+    )
 
     summary = {
         "attestation_spec": str(spec_path),
@@ -1310,11 +1631,13 @@ def main() -> int:
         "run_id": payload_run_id,
         "executor": executor,
         "command_present": payload_command is not None,
+        "payload_exit_code": payload_exit_code,
         "signature_verification": signature_verification,
         "artifacts": artifacts_summary,
         "key_assurance": key_assurance,
         "timestamp_trust": timestamp_summary,
         "transparency_log": transparency_summary,
+        "execution_receipt": execution_receipt_summary,
     }
 
     return finish(

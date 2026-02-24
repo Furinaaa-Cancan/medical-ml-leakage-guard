@@ -22,6 +22,11 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to execution attestation gate report JSON.",
     )
+    parser.add_argument(
+        "--reporting-bias-report",
+        required=True,
+        help="Path to reporting/bias checklist gate report JSON.",
+    )
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol gate report JSON.")
     parser.add_argument(
@@ -110,6 +115,7 @@ def main() -> int:
         "request_report": args.request_report,
         "manifest": args.manifest,
         "execution_attestation_report": args.execution_attestation_report,
+        "reporting_bias_report": args.reporting_bias_report,
         "leakage_report": args.leakage_report,
         "split_protocol_report": args.split_protocol_report,
         "covariate_shift_report": args.covariate_shift_report,
@@ -177,6 +183,7 @@ def main() -> int:
     for component in (
         "request_report",
         "execution_attestation_report",
+        "reporting_bias_report",
         "leakage_report",
         "split_protocol_report",
         "covariate_shift_report",

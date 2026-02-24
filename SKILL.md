@@ -37,6 +37,7 @@ Publication-grade required fields:
 - `imbalance_policy_spec`
 - `missingness_policy_spec`
 - `tuning_protocol_spec`
+- `reporting_bias_checklist_spec`
 - `execution_attestation_spec`
 - `evaluation_report_file`
 - `evaluation_metric_path`
@@ -54,11 +55,13 @@ Template:
 - `references/imbalance-policy.example.json`
 - `references/missingness-policy.example.json`
 - `references/tuning-protocol.example.json`
+- `references/reporting-bias-checklist.example.json`
 - `references/execution-attestation.example.json`
 - `references/attestation-payload.example.json`
 - `references/key-revocations.example.json`
 - `references/attestation-timestamp-record.example.json`
 - `references/attestation-transparency-record.example.json`
+- `references/attestation-execution-receipt-record.example.json`
 - `references/evaluation-report.example.json`
 
 Validate request first:
@@ -78,37 +81,39 @@ Use this internal sequence in order:
 4. Run split/time leakage gate (`leakage_gate.py`).
 5. Run split protocol gate (`split_protocol_gate.py`).
 6. Run covariate-shift gate (`covariate_shift_gate.py`).
-7. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
-8. Run lineage leakage gate (`feature_lineage_gate.py`).
-9. Run imbalance policy gate (`imbalance_policy_gate.py`).
-10. Run missingness policy gate (`missingness_policy_gate.py`).
-11. Run tuning leakage gate (`tuning_leakage_gate.py`).
-12. Run metric consistency gate (`metric_consistency_gate.py`).
-13. Run permutation falsification gate (`permutation_significance_gate.py`).
-14. Aggregate publication gate (`publication_gate.py`).
-15. Run self-critique scoring gate (`self_critique_gate.py`).
-16. Emit final report only if all strict gates pass.
+7. Run reporting/bias checklist gate (`reporting_bias_gate.py`).
+8. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
+9. Run lineage leakage gate (`feature_lineage_gate.py`).
+10. Run imbalance policy gate (`imbalance_policy_gate.py`).
+11. Run missingness policy gate (`missingness_policy_gate.py`).
+12. Run tuning leakage gate (`tuning_leakage_gate.py`).
+13. Run metric consistency gate (`metric_consistency_gate.py`).
+14. Run permutation falsification gate (`permutation_significance_gate.py`).
+15. Aggregate publication gate (`publication_gate.py`).
+16. Run self-critique scoring gate (`self_critique_gate.py`).
+17. Emit final report only if all strict gates pass.
 
-Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
+Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
 ## Output Contract (Machine-Parseable)
 Produce these deterministic artifacts:
 1. `evidence/request_contract_report.json`
 2. `evidence/manifest.json`
 3. `evidence/execution_attestation_report.json`
-4. `evidence/leakage_report.json`
-5. `evidence/split_protocol_report.json`
-6. `evidence/covariate_shift_report.json`
-7. `evidence/definition_guard_report.json`
-8. `evidence/lineage_report.json`
-9. `evidence/imbalance_policy_report.json`
-10. `evidence/missingness_policy_report.json`
-11. `evidence/tuning_leakage_report.json`
-12. `evidence/metric_consistency_report.json`
-13. `evidence/permutation_report.json`
-14. `evidence/publication_gate_report.json`
-15. `evidence/self_critique_report.json`
-16. `evidence/strict_pipeline_report.json`
+4. `evidence/reporting_bias_report.json`
+5. `evidence/leakage_report.json`
+6. `evidence/split_protocol_report.json`
+7. `evidence/covariate_shift_report.json`
+8. `evidence/definition_guard_report.json`
+9. `evidence/lineage_report.json`
+10. `evidence/imbalance_policy_report.json`
+11. `evidence/missingness_policy_report.json`
+12. `evidence/tuning_leakage_report.json`
+13. `evidence/metric_consistency_report.json`
+14. `evidence/permutation_report.json`
+15. `evidence/publication_gate_report.json`
+16. `evidence/self_critique_report.json`
+17. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -174,6 +179,7 @@ This command also creates:
 - `configs/key_revocations.json` (bootstrapped if missing)
 - `evidence/attestation_timestamp_record.json` + `.sig`
 - `evidence/attestation_transparency_record.json` + `.sig`
+- `evidence/attestation_execution_receipt_record.json` + `.sig`
 
 ## Manual Strict Execution Order
 If orchestration is unavailable, run in this exact order:
@@ -183,15 +189,16 @@ If orchestration is unavailable, run in this exact order:
 4. `leakage_gate.py`
 5. `split_protocol_gate.py`
 6. `covariate_shift_gate.py`
-7. `definition_variable_guard.py`
-8. `feature_lineage_gate.py`
-9. `imbalance_policy_gate.py`
-10. `missingness_policy_gate.py`
-11. `tuning_leakage_gate.py`
-12. `metric_consistency_gate.py`
-13. `permutation_significance_gate.py`
-14. `publication_gate.py`
-15. `self_critique_gate.py`
+7. `reporting_bias_gate.py`
+8. `definition_variable_guard.py`
+9. `feature_lineage_gate.py`
+10. `imbalance_policy_gate.py`
+11. `missingness_policy_gate.py`
+12. `tuning_leakage_gate.py`
+13. `metric_consistency_gate.py`
+14. `permutation_significance_gate.py`
+15. `publication_gate.py`
+16. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -206,6 +213,8 @@ If any step returns non-zero, stop and block claim release.
 - Never claim publication-grade without signed execution attestation proving run command, timing, and artifact hashes.
 - Never reuse revoked/expired/over-age signing keys for publication-grade claims.
 - Never omit trusted timestamp or transparency-log records for publication-grade claims.
+- Never omit signed execution-receipt proof (with exit code and timing consistency) for publication-grade claims.
+- Never claim publication-grade if TRIPOD+AI/PROBAST+AI checklist has unmet required items.
 - Never accept publication-grade primary metrics from non-test evaluation splits; evaluation report must explicitly declare `split=test`.
 - Never include variables used to define the disease label as model predictors.
 - Never include derived features whose lineage contains disease-defining variables.
@@ -220,7 +229,8 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/request_contract_gate.py`: request schema and path validation.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
-- `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency generator for personal users.
+- `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt generator for personal users.
+- `scripts/reporting_bias_gate.py`: TRIPOD+AI / PROBAST+AI / STARD-AI checklist hard gate.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
 - `scripts/split_protocol_gate.py`: enforce split protocol consistency and temporal/group safeguards.
 - `scripts/covariate_shift_gate.py`: train-vs-holdout covariate-shift and split separability risk gate.
@@ -241,11 +251,13 @@ If any step returns non-zero, stop and block claim release.
 - `references/imbalance-policy.example.json`: class-imbalance policy template.
 - `references/missingness-policy.example.json`: missing-data/imputation policy template.
 - `references/tuning-protocol.example.json`: hyperparameter tuning protocol template.
+- `references/reporting-bias-checklist.example.json`: TRIPOD+AI / PROBAST+AI / STARD-AI checklist template.
 - `references/execution-attestation.example.json`: signed execution-attestation spec template.
 - `references/attestation-payload.example.json`: signed payload template with artifact hashes.
 - `references/key-revocations.example.json`: key revocation list template.
 - `references/attestation-timestamp-record.example.json`: trusted timestamp record template.
 - `references/attestation-transparency-record.example.json`: transparency log record template.
+- `references/attestation-execution-receipt-record.example.json`: execution receipt record template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.

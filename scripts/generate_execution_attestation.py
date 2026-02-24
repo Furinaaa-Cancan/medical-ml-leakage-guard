@@ -8,7 +8,8 @@ Outputs:
 3. key revocation list (bootstrapped if absent)
 4. signed timestamp record
 5. signed transparency-log record
-6. attestation spec consumed by execution_attestation_gate.py
+6. signed execution receipt record
+7. attestation spec consumed by execution_attestation_gate.py
 """
 
 from __future__ import annotations
@@ -66,10 +67,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--transparency-public-key-file", help="Public key PEM for transparency record verification.")
     parser.add_argument("--transparency-private-key-file", help="Private key PEM for transparency record signing.")
 
+    parser.add_argument("--skip-execution-receipt", action="store_true", help="Do not generate execution_receipt block.")
+    parser.add_argument(
+        "--execution-authority-id",
+        default="execution-authority-local",
+        help="Authority ID in execution receipt record.",
+    )
+    parser.add_argument("--execution-receipt-record-out", help="Output JSON path for execution receipt record.")
+    parser.add_argument("--execution-receipt-signature-out", help="Output path for execution receipt signature.")
+    parser.add_argument("--execution-public-key-file", help="Public key PEM for execution receipt verification.")
+    parser.add_argument("--execution-private-key-file", help="Private key PEM for execution receipt signing.")
+    parser.add_argument(
+        "--execution-exit-code",
+        type=int,
+        default=0,
+        help="Process exit code to record in execution receipt and payload (default: 0).",
+    )
+
     parser.add_argument(
         "--require-independent-timestamp-authority",
         action="store_true",
         help="Set assurance_policy.require_independent_timestamp_authority=true in spec.",
+    )
+    parser.add_argument(
+        "--require-independent-execution-authority",
+        action="store_true",
+        help="Set assurance_policy.require_independent_execution_authority=true in spec.",
     )
 
     parser.add_argument(
@@ -340,6 +363,7 @@ def main() -> int:
         "signing_key_id": args.key_id.strip(),
         "started_at_utc": started_at,
         "finished_at_utc": finished_at,
+        "exit_code": int(args.execution_exit_code),
         "artifacts": payload_artifacts,
     }
     if payload["git_commit"] is None:
@@ -529,6 +553,87 @@ def main() -> int:
             "signature": str(transparency_sig_out),
         }
 
+    execution_receipt_block = None
+    execution_receipt_outputs: Dict[str, str] = {}
+    if not args.skip_execution_receipt:
+        execution_pub = (
+            Path(args.execution_public_key_file).expanduser().resolve()
+            if isinstance(args.execution_public_key_file, str) and args.execution_public_key_file.strip()
+            else public_key
+        )
+        execution_priv = (
+            Path(args.execution_private_key_file).expanduser().resolve()
+            if isinstance(args.execution_private_key_file, str) and args.execution_private_key_file.strip()
+            else private_key
+        )
+        execution_record_out = (
+            Path(args.execution_receipt_record_out).expanduser().resolve()
+            if isinstance(args.execution_receipt_record_out, str) and args.execution_receipt_record_out.strip()
+            else (payload_out.parent / "attestation_execution_receipt_record.json").resolve()
+        )
+        execution_sig_out = (
+            Path(args.execution_receipt_signature_out).expanduser().resolve()
+            if isinstance(args.execution_receipt_signature_out, str) and args.execution_receipt_signature_out.strip()
+            else (payload_out.parent / "attestation_execution_receipt_record.sig").resolve()
+        )
+
+        try:
+            ensure_file(execution_pub, "execution_public_key_file")
+            if not args.skip_sign:
+                if execution_priv is None:
+                    raise ValueError("execution_private_key_file is required when signatures are enabled.")
+                ensure_file(execution_priv, "execution_private_key_file")
+        except Exception as exc:
+            print(f"[FAIL] {exc}", file=sys.stderr)
+            return 2
+
+        execution_receipt_record = {
+            "schema_version": "1.0",
+            "authority_id": args.execution_authority_id.strip(),
+            "payload_sha256": payload_sha256,
+            "study_id": args.study_id.strip(),
+            "run_id": args.run_id.strip(),
+            "command": args.command.strip(),
+            "executor": payload["executor"],
+            "started_at_utc": started_at,
+            "finished_at_utc": finished_at,
+            "issued_at_utc": issued_at,
+            "exit_code": int(args.execution_exit_code),
+        }
+        write_json(execution_record_out, execution_receipt_record)
+
+        if args.skip_sign:
+            if execution_sig_out.exists():
+                execution_sig_out.unlink()
+        else:
+            ensure_parent(execution_sig_out)
+            try:
+                openssl_sign_file(
+                    private_key=execution_priv, input_file=execution_record_out, output_sig=execution_sig_out  # type: ignore[arg-type]
+                )
+            except Exception as exc:
+                print(f"[FAIL] {exc}", file=sys.stderr)
+                return 2
+
+        try:
+            execution_fp = public_key_fingerprint_sha256(execution_pub)
+        except Exception as exc:
+            print(f"[FAIL] Unable to compute execution receipt public key fingerprint: {exc}", file=sys.stderr)
+            return 2
+
+        execution_receipt_block = {
+            "authority_id": args.execution_authority_id.strip(),
+            "record_file": resolve_for_output(spec_base, execution_record_out),
+            "signature_file": resolve_for_output(spec_base, execution_sig_out),
+            "public_key_file": resolve_for_output(spec_base, execution_pub),
+            "public_key_fingerprint_sha256": execution_fp,
+            "enforce_exit_code_zero": True,
+        }
+        execution_receipt_outputs = {
+            "record": str(execution_record_out),
+            "signature": str(execution_sig_out),
+        }
+
     assurance_policy = {
         "min_signing_key_bits": int(args.min_signing_key_bits),
         "max_signing_key_age_days": int(args.max_signing_key_age_days),
@@ -536,7 +641,9 @@ def main() -> int:
         "require_timestamp_trust": not args.skip_timestamp_trust,
         "require_transparency_log": not args.skip_transparency_log,
         "require_transparency_log_signature": not args.skip_transparency_log,
+        "require_execution_receipt": not args.skip_execution_receipt,
         "require_independent_timestamp_authority": bool(args.require_independent_timestamp_authority),
+        "require_independent_execution_authority": bool(args.require_independent_execution_authority),
     }
 
     spec: Dict[str, Any] = {
@@ -564,6 +671,8 @@ def main() -> int:
         spec["timestamp_trust"] = timestamp_block
     if transparency_block is not None:
         spec["transparency_log"] = transparency_block
+    if execution_receipt_block is not None:
+        spec["execution_receipt"] = execution_receipt_block
 
     write_json(spec_out, spec)
 
@@ -577,6 +686,9 @@ def main() -> int:
     if transparency_outputs:
         print(f"Transparency record: {transparency_outputs['record']}")
         print(f"Transparency signature: {transparency_outputs['signature']}")
+    if execution_receipt_outputs:
+        print(f"Execution receipt record: {execution_receipt_outputs['record']}")
+        print(f"Execution receipt signature: {execution_receipt_outputs['signature']}")
     print(f"Artifacts hashed: {len(payload_artifacts)}")
     print(f"Required artifact names: {required_artifacts}")
     return 0
