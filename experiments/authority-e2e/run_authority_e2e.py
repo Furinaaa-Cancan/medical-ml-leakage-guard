@@ -27,6 +27,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
@@ -183,7 +184,7 @@ def train_and_evaluate(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     feature_cols: List[str],
-) -> Tuple[Pipeline, Dict[str, float], List[float]]:
+) -> Tuple[Pipeline, Dict[str, float], Dict[str, Any], List[float]]:
     X_train = train_df[feature_cols].to_numpy(dtype=float)
     y_train = train_df["y"].to_numpy(dtype=int)
     X_test = test_df[feature_cols].to_numpy(dtype=float)
@@ -199,6 +200,12 @@ def train_and_evaluate(
     proba = model.predict_proba(X_test)[:, 1]
     auroc = float(roc_auc_score(y_test, proba))
     pr_auc = float(average_precision_score(y_test, proba))
+    brier = float(brier_score_loss(y_test, proba))
+
+    prevalence = float(np.mean(y_train))
+    baseline_proba = np.full(shape=y_test.shape[0], fill_value=prevalence, dtype=float)
+    baseline_auroc = float(roc_auc_score(y_test, baseline_proba))
+    baseline_pr_auc = float(average_precision_score(y_test, baseline_proba))
 
     rng = np.random.default_rng(20260224)
     null_metrics: List[float] = []
@@ -206,7 +213,43 @@ def train_and_evaluate(
         y_perm = rng.permutation(y_test)
         null_metrics.append(float(roc_auc_score(y_perm, proba)))
 
-    return model, {"roc_auc": round(auroc, 6), "pr_auc": round(pr_auc, 6)}, null_metrics
+    ci_samples: List[float] = []
+    n_test = y_test.shape[0]
+    for _ in range(500):
+        idx = rng.integers(0, n_test, n_test)
+        if len(np.unique(y_test[idx])) < 2:
+            continue
+        ci_samples.append(float(roc_auc_score(y_test[idx], proba[idx])))
+    if len(ci_samples) < 200:
+        raise RuntimeError(f"Insufficient bootstrap resamples for CI: {len(ci_samples)}")
+    ci_arr = np.array(ci_samples, dtype=float)
+    ci_lower, ci_upper = np.percentile(ci_arr, [2.5, 97.5]).tolist()
+
+    metrics = {
+        "roc_auc": round(auroc, 6),
+        "pr_auc": round(pr_auc, 6),
+        "brier": round(brier, 6),
+    }
+    quality = {
+        "uncertainty": {
+            "metrics": {
+                "roc_auc": {
+                    "method": "bootstrap",
+                    "n_resamples": int(len(ci_samples)),
+                    "ci_95": [round(float(ci_lower), 6), round(float(ci_upper), 6)],
+                }
+            }
+        },
+        "baselines": {
+            "prevalence_model": {
+                "metrics": {
+                    "roc_auc": round(baseline_auroc, 6),
+                    "pr_auc": round(baseline_pr_auc, 6),
+                }
+            }
+        },
+    }
+    return model, metrics, quality, null_metrics
 
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -234,7 +277,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         raise ValueError(f"Unsupported case_id: {case.case_id}")
 
     splits = split_with_temporal_order(df, feature_cols, case.case_id)
-    model, metrics, null_metrics = train_and_evaluate(splits["train"], splits["test"], feature_cols)
+    model, metrics, quality, null_metrics = train_and_evaluate(splits["train"], splits["test"], feature_cols)
 
     case_root = DATA_ROOT / case.case_id
     data_dir = case_root / "data"
@@ -274,14 +317,16 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     ]
     train_log_path.write_text("\n".join(train_log_lines) + "\n", encoding="utf-8")
 
-    eval_report = {
+    eval_report: Dict[str, Any] = {
         "model_id": f"logreg_{case.case_id}",
         "split": "test",
         "metrics": {
             "roc_auc": metrics["roc_auc"],
             "pr_auc": metrics["pr_auc"],
+            "brier": metrics["brier"],
         },
     }
+    eval_report.update(quality)
     write_json(evidence_dir / "evaluation_report.json", eval_report)
     with (evidence_dir / "permutation_null_auc.txt").open("w", encoding="utf-8") as fh:
         for value in null_metrics:
@@ -389,7 +434,13 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         "evaluation_metric_path": "metrics.roc_auc",
         "permutation_null_metrics_file": "../evidence/permutation_null_auc.txt",
         "actual_primary_metric": metrics["roc_auc"],
-        "thresholds": {"alpha": 0.01, "min_delta": 0.03},
+        "thresholds": {
+            "alpha": 0.01,
+            "min_delta": 0.03,
+            "min_baseline_delta": 0.0,
+            "ci_min_resamples": 200,
+            "ci_max_width": 0.50,
+        },
         "context": {
             "source": case.source_name,
             "notes": "Authoritative public benchmark dataset for strict skill validation.",

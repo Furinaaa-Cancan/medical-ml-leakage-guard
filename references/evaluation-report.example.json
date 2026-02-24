@@ -6,6 +6,32 @@
     "pr_auc": 0.44,
     "brier": 0.12
   },
+  "uncertainty": {
+    "metrics": {
+      "roc_auc": {
+        "method": "bootstrap",
+        "n_resamples": 1000,
+        "ci_95": [
+          0.75,
+          0.83
+        ]
+      }
+    }
+  },
+  "baselines": {
+    "prevalence_model": {
+      "metrics": {
+        "roc_auc": 0.5,
+        "pr_auc": 0.19
+      }
+    },
+    "logistic_regression": {
+      "metrics": {
+        "roc_auc": 0.74,
+        "pr_auc": 0.39
+      }
+    }
+  },
   "calibration": {
     "ece": 0.03
   }

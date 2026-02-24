@@ -45,6 +45,10 @@ Publication-grade required fields:
 - `actual_primary_metric`
 - `evaluation_metric_path` terminal token must match `primary_metric` (after normalization).
 
+Optional threshold keys under `thresholds`:
+- `alpha` and `min_delta` for permutation significance gate.
+- `min_baseline_delta`, `ci_min_resamples`, and `ci_max_width` for evaluation quality gate.
+
 Path semantics:
 - All relative paths in request JSON are resolved relative to the request file directory.
 
@@ -88,10 +92,11 @@ Use this internal sequence in order:
 11. Run missingness policy gate (`missingness_policy_gate.py`).
 12. Run tuning leakage gate (`tuning_leakage_gate.py`).
 13. Run metric consistency gate (`metric_consistency_gate.py`).
-14. Run permutation falsification gate (`permutation_significance_gate.py`).
-15. Aggregate publication gate (`publication_gate.py`).
-16. Run self-critique scoring gate (`self_critique_gate.py`).
-17. Emit final report only if all strict gates pass.
+14. Run evaluation quality gate (`evaluation_quality_gate.py`).
+15. Run permutation falsification gate (`permutation_significance_gate.py`).
+16. Aggregate publication gate (`publication_gate.py`).
+17. Run self-critique scoring gate (`self_critique_gate.py`).
+18. Emit final report only if all strict gates pass.
 
 Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
@@ -110,10 +115,11 @@ Produce these deterministic artifacts:
 11. `evidence/missingness_policy_report.json`
 12. `evidence/tuning_leakage_report.json`
 13. `evidence/metric_consistency_report.json`
-14. `evidence/permutation_report.json`
-15. `evidence/publication_gate_report.json`
-16. `evidence/self_critique_report.json`
-17. `evidence/strict_pipeline_report.json`
+14. `evidence/evaluation_quality_report.json`
+15. `evidence/permutation_report.json`
+16. `evidence/publication_gate_report.json`
+17. `evidence/self_critique_report.json`
+18. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -196,9 +202,10 @@ If orchestration is unavailable, run in this exact order:
 11. `missingness_policy_gate.py`
 12. `tuning_leakage_gate.py`
 13. `metric_consistency_gate.py`
-14. `permutation_significance_gate.py`
-15. `publication_gate.py`
-16. `self_critique_gate.py`
+14. `evaluation_quality_gate.py`
+15. `permutation_significance_gate.py`
+16. `publication_gate.py`
+17. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -216,6 +223,7 @@ If any step returns non-zero, stop and block claim release.
 - Never omit signed execution-receipt proof (with exit code and timing consistency) for publication-grade claims.
 - Never claim publication-grade if TRIPOD+AI/PROBAST+AI checklist has unmet required items.
 - Never accept publication-grade primary metrics from non-test evaluation splits; evaluation report must explicitly declare `split=test`.
+- Never claim publication-grade without valid primary-metric confidence interval and explicit baseline comparison in the evaluation artifact.
 - Never include variables used to define the disease label as model predictors.
 - Never include derived features whose lineage contains disease-defining variables.
 - Never include post-index features for pre-index prediction tasks.
@@ -240,6 +248,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/missingness_policy_gate.py`: validate missing-data strategy, large-scale method suitability, and imputer isolation policy.
 - `scripts/tuning_leakage_gate.py`: validate hyperparameter tuning/test-isolation protocol.
 - `scripts/metric_consistency_gate.py`: extract and validate metric from evaluation report.
+- `scripts/evaluation_quality_gate.py`: enforce primary-metric CI quality and baseline improvement checks.
 - `scripts/permutation_significance_gate.py`: falsification significance gate.
 - `scripts/publication_gate.py`: aggregate fail-closed publication gate.
 - `scripts/self_critique_gate.py`: quality scoring and reviewer-grade self-critique gate.

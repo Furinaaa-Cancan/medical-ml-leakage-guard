@@ -399,6 +399,60 @@ def main() -> int:
     ]
     scenarios.append(execute_scenario("split_protocol_overlap_allowed", ["patient_overlap_allowed"], cmd8, report8))
 
+    # 9) Evaluation quality: remove CI evidence.
+    eval_report = load_json(evidence_dir / "evaluation_report.json")
+    eval_no_ci = copy.deepcopy(eval_report)
+    eval_no_ci.pop("uncertainty", None)
+    eval_no_ci_path = tmp_root / "evaluation_report.no_ci.json"
+    write_json(eval_no_ci_path, eval_no_ci)
+    report9 = tmp_root / "evaluation_quality.no_ci.report.json"
+    cmd9 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "evaluation_quality_gate.py"),
+        "--evaluation-report",
+        str(eval_no_ci_path),
+        "--metric-name",
+        "roc_auc",
+        "--metric-path",
+        "metrics.roc_auc",
+        "--primary-metric",
+        str(float(eval_report.get("metrics", {}).get("roc_auc", 0.0))),
+        "--strict",
+        "--report",
+        str(report9),
+    ]
+    scenarios.append(execute_scenario("evaluation_quality_missing_ci", ["missing_primary_metric_ci"], cmd9, report9))
+
+    # 10) Evaluation quality: remove baselines.
+    eval_no_baseline = copy.deepcopy(eval_report)
+    eval_no_baseline.pop("baselines", None)
+    eval_no_baseline_path = tmp_root / "evaluation_report.no_baseline.json"
+    write_json(eval_no_baseline_path, eval_no_baseline)
+    report10 = tmp_root / "evaluation_quality.no_baseline.report.json"
+    cmd10 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "evaluation_quality_gate.py"),
+        "--evaluation-report",
+        str(eval_no_baseline_path),
+        "--metric-name",
+        "roc_auc",
+        "--metric-path",
+        "metrics.roc_auc",
+        "--primary-metric",
+        str(float(eval_report.get("metrics", {}).get("roc_auc", 0.0))),
+        "--strict",
+        "--report",
+        str(report10),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "evaluation_quality_missing_baseline",
+            ["missing_baseline_metrics"],
+            cmd10,
+            report10,
+        )
+    )
+
     summary = {
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "case_id": args.case_id,

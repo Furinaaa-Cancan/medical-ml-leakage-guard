@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--missingness-report", required=True, help="Path to missingness policy report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
+    parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
     parser.add_argument("--publication-report", required=True, help="Path to publication gate report JSON.")
     parser.add_argument("--min-score", type=float, default=95.0, help="Minimum score for publication-grade readiness.")
@@ -86,6 +87,8 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Complete TRIPOD+AI/PROBAST+AI/STARD-AI checklist items and rerun reporting_bias_gate.")
     if "component_not_strict" in codes:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
+    if "evaluation_quality_report" in components:
+        recs.append("Provide valid primary-metric CI + baseline comparison in evaluation artifact and rerun evaluation_quality_gate.")
     if "insufficient_quality_score" in codes:
         recs.append("Increase robustness evidence and reduce warnings to lift quality score.")
     if "manifest_not_comparable" in codes:
@@ -124,6 +127,7 @@ def main() -> int:
         "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
         "metric_report": args.metric_report,
+        "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
         "publication_report": args.publication_report,
     }
@@ -194,6 +198,7 @@ def main() -> int:
         "missingness_report",
         "tuning_report",
         "metric_report",
+        "evaluation_quality_report",
         "permutation_report",
         "publication_report",
     ):
@@ -267,6 +272,7 @@ def main() -> int:
         "missingness_report": 8.0,
         "tuning_report": 8.0,
         "metric_report": 7.0,
+        "evaluation_quality_report": 8.0,
         "permutation_report": 7.0,
         "publication_report": 8.0,
     }

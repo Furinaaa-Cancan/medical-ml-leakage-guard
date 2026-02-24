@@ -84,7 +84,7 @@ def validate_thresholds(
         return {}
 
     parsed: Dict[str, float] = {}
-    for key in ("alpha", "min_delta"):
+    for key in ("alpha", "min_delta", "min_baseline_delta", "ci_max_width"):
         if key in thresholds:
             value = thresholds[key]
             if is_finite_number(value):
@@ -96,6 +96,22 @@ def validate_thresholds(
                     "Threshold value must be a finite number.",
                     {"field": key, "actual_type": type(value).__name__},
                 )
+
+    if "ci_min_resamples" in thresholds:
+        value = thresholds["ci_min_resamples"]
+        if isinstance(value, bool):
+            value = None
+        if isinstance(value, int):
+            parsed["ci_min_resamples"] = float(value)
+        elif isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
+            parsed["ci_min_resamples"] = float(int(value))
+        else:
+            add_issue(
+                failures,
+                "invalid_threshold_value",
+                "Threshold value must be an integer.",
+                {"field": "ci_min_resamples", "actual_type": type(thresholds["ci_min_resamples"]).__name__},
+            )
 
     if "alpha" in parsed and not (0.0 < parsed["alpha"] <= 1.0):
         add_issue(
@@ -110,6 +126,27 @@ def validate_thresholds(
             "invalid_threshold_min_delta_range",
             "thresholds.min_delta must be >= 0.",
             {"min_delta": parsed["min_delta"]},
+        )
+    if "min_baseline_delta" in parsed and parsed["min_baseline_delta"] < 0.0:
+        add_issue(
+            failures,
+            "invalid_threshold_min_baseline_delta_range",
+            "thresholds.min_baseline_delta must be >= 0.",
+            {"min_baseline_delta": parsed["min_baseline_delta"]},
+        )
+    if "ci_max_width" in parsed and parsed["ci_max_width"] <= 0.0:
+        add_issue(
+            failures,
+            "invalid_threshold_ci_max_width_range",
+            "thresholds.ci_max_width must be > 0.",
+            {"ci_max_width": parsed["ci_max_width"]},
+        )
+    if "ci_min_resamples" in parsed and parsed["ci_min_resamples"] < 1.0:
+        add_issue(
+            failures,
+            "invalid_threshold_ci_min_resamples_range",
+            "thresholds.ci_min_resamples must be >= 1.",
+            {"ci_min_resamples": parsed["ci_min_resamples"]},
         )
 
     if strict and "alpha" not in parsed:

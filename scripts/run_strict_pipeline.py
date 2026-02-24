@@ -116,6 +116,7 @@ def main() -> int:
         "missingness_report": evidence_dir / "missingness_policy_report.json",
         "tuning_report": evidence_dir / "tuning_leakage_report.json",
         "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
+        "evaluation_quality_report": evidence_dir / "evaluation_quality_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
         "publication_report": evidence_dir / "publication_gate_report.json",
         "self_critique_report": evidence_dir / "self_critique_report.json",
@@ -203,6 +204,9 @@ def main() -> int:
             thresholds = {}
         alpha = float(thresholds.get("alpha", 0.01))
         min_delta = float(thresholds.get("min_delta", 0.03))
+        min_baseline_delta = float(thresholds.get("min_baseline_delta", 0.0))
+        ci_min_resamples = int(float(thresholds.get("ci_min_resamples", 200)))
+        ci_max_width = float(thresholds.get("ci_max_width", 0.50))
     except Exception as exc:
         print(f"[FAIL] Missing required publication-grade fields: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
@@ -276,6 +280,7 @@ def main() -> int:
         str(scripts_dir / "missingness_policy_gate.py"),
         str(scripts_dir / "tuning_leakage_gate.py"),
         str(scripts_dir / "metric_consistency_gate.py"),
+        str(scripts_dir / "evaluation_quality_gate.py"),
         str(scripts_dir / "permutation_significance_gate.py"),
         str(scripts_dir / "publication_gate.py"),
         str(scripts_dir / "self_critique_gate.py"),
@@ -549,7 +554,36 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 14: permutation significance gate
+    # Step 14: evaluation quality gate
+    evaluation_quality_cmd = [
+        args.python,
+        str(scripts_dir / "evaluation_quality_gate.py"),
+        "--evaluation-report",
+        evaluation_report_file,
+        "--metric-name",
+        metric_name,
+        "--primary-metric",
+        str(actual_metric),
+        "--min-resamples",
+        str(ci_min_resamples),
+        "--min-baseline-delta",
+        str(min_baseline_delta),
+        "--max-ci-width",
+        str(ci_max_width),
+        "--report",
+        str(reports["evaluation_quality_report"]),
+        *strict_flag,
+    ]
+    if isinstance(evaluation_metric_path, str) and evaluation_metric_path:
+        evaluation_quality_cmd.extend(["--metric-path", evaluation_metric_path])
+
+    if not execute(
+        "evaluation_quality_gate",
+        evaluation_quality_cmd,
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 15: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -572,7 +606,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 15: publication gate
+    # Step 16: publication gate
     if not execute(
         "publication_gate",
         [
@@ -604,6 +638,8 @@ def main() -> int:
             str(reports["tuning_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
+            "--evaluation-quality-report",
+            str(reports["evaluation_quality_report"]),
             "--permutation-report",
             str(reports["permutation_report"]),
             "--report",
@@ -613,7 +649,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 16: self critique
+    # Step 17: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -645,6 +681,8 @@ def main() -> int:
             str(reports["tuning_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
+            "--evaluation-quality-report",
+            str(reports["evaluation_quality_report"]),
             "--permutation-report",
             str(reports["permutation_report"]),
             "--publication-report",

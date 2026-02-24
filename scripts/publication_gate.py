@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--missingness-report", required=True, help="Path to missingness policy gate report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage gate report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
+    parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality gate report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
     parser.add_argument("--report", help="Optional output publication gate report path.")
     parser.add_argument("--strict", action="store_true", help="Require strict-mode component reports.")
@@ -125,6 +126,7 @@ def main() -> int:
         "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
         "metric_report": args.metric_report,
+        "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
     }
 
@@ -193,6 +195,7 @@ def main() -> int:
         "missingness_report",
         "tuning_report",
         "metric_report",
+        "evaluation_quality_report",
         "permutation_report",
     ):
         validate_component_status(component, loaded.get(component), failures, warnings, args.strict)

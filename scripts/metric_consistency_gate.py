@@ -140,6 +140,28 @@ def collect_metric_leaf_hits(payload: Any, metric_name: str) -> List[Dict[str, A
     return sorted(dedup.values(), key=lambda item: str(item["path"]))
 
 
+def path_tokens(path: str) -> List[str]:
+    normalized = re.sub(r"\[\d+\]", "", path)
+    return [token for token in normalized.split(".") if token]
+
+
+def is_auxiliary_metric_path(path: str) -> bool:
+    tokens = [token.lower() for token in path_tokens(path)]
+    if not tokens:
+        return False
+
+    auxiliary_tokens = {
+        "baseline",
+        "baselines",
+        "confidence_intervals",
+        "metrics_ci",
+        "null_distribution",
+        "null_metrics",
+        "uncertainty",
+    }
+    return any(token in auxiliary_tokens for token in tokens)
+
+
 def has_conflicting_values(hits: List[Dict[str, Any]], tolerance: float = 1e-12) -> bool:
     observed: List[float] = []
     for hit in hits:
@@ -266,6 +288,7 @@ def main() -> int:
 
     actual, source_path, raw_value, candidates, ambiguous = extract_metric(payload, args.metric_name, args.metric_path)
     leaf_metric_hits = collect_metric_leaf_hits(payload, args.metric_name)
+    primary_leaf_hits = [hit for hit in leaf_metric_hits if not is_auxiliary_metric_path(str(hit.get("path", "")))]
 
     if args.required_evaluation_split:
         split_key, declared_split = extract_declared_split(payload)
@@ -315,12 +338,12 @@ def main() -> int:
             "Multiple metric sources found with inconsistent values; provide --metric-path.",
             {"metric_name": args.metric_name, "candidates": candidates},
         )
-    elif has_conflicting_values(leaf_metric_hits):
+    elif has_conflicting_values(primary_leaf_hits):
         add_issue(
             failures,
             "ambiguous_metric_sources",
-            "Metric appears in multiple locations with inconsistent numeric values.",
-            {"metric_name": args.metric_name, "leaf_metric_hits": leaf_metric_hits},
+            "Primary metric appears in multiple non-auxiliary locations with inconsistent numeric values.",
+            {"metric_name": args.metric_name, "leaf_metric_hits": primary_leaf_hits},
         )
 
     if args.expected is not None:
@@ -355,6 +378,7 @@ def main() -> int:
         raw_value=raw_value,
         candidate_metrics=candidates,
         leaf_metric_hits=leaf_metric_hits,
+        primary_leaf_metric_hits=primary_leaf_hits,
     )
 
 
@@ -367,6 +391,7 @@ def finish(
     raw_value: Any = None,
     candidate_metrics: Optional[List[Dict[str, Any]]] = None,
     leaf_metric_hits: Optional[List[Dict[str, Any]]] = None,
+    primary_leaf_metric_hits: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
     should_fail = bool(failures) or (args.strict and bool(warnings))
     report = {
@@ -377,6 +402,7 @@ def finish(
         "metric_source_path": metric_source_path,
         "candidate_metrics": candidate_metrics or [],
         "leaf_metric_hits": leaf_metric_hits or [],
+        "primary_leaf_metric_hits": primary_leaf_metric_hits or [],
         "actual_metric": actual_metric,
         "raw_metric_value": raw_value,
         "expected_metric": args.expected,

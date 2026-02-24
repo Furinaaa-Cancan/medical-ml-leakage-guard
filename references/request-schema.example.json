@@ -27,7 +27,10 @@
   "actual_primary_metric": 0.79,
   "thresholds": {
     "alpha": 0.01,
-    "min_delta": 0.03
+    "min_delta": 0.03,
+    "min_baseline_delta": 0.0,
+    "ci_min_resamples": 200,
+    "ci_max_width": 0.5
   },
   "context": {
     "hospital_system": "example-health",
