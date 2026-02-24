@@ -74,10 +74,16 @@ def contains_test_token(value: Optional[str]) -> bool:
     if not value:
         return False
     token = value.strip().lower()
-    if "no_test" in token or "without_test" in token:
+    if "no_test" in token or "without_test" in token or "exclude_test" in token or "notest" in token:
         return False
     parts = [p for p in re.split(r"[^a-z0-9]+", token) if p]
-    return "test" in parts
+    if "test" in parts:
+        return True
+    for part in parts:
+        if part.startswith("test") or part.endswith("test"):
+            if part not in {"latest", "attest", "tested", "testing"}:
+                return True
+    return False
 
 
 def main() -> int:
@@ -126,6 +132,22 @@ def main() -> int:
     outer_evaluation_split_locked = require_bool(spec, "outer_evaluation_split_locked", failures)
     random_seed_controlled = require_bool(spec, "random_seed_controlled", failures)
 
+    allowed_search_methods = {
+        "grid_search",
+        "random_search",
+        "bayesian_optimization",
+        "optuna",
+        "hyperband",
+        "manual_pre_registered",
+    }
+    if search_method and search_method not in allowed_search_methods:
+        add_issue(
+            failures,
+            "unsupported_search_method",
+            "search_method must be a pre-registered and approved strategy.",
+            {"search_method": search_method, "allowed": sorted(allowed_search_methods)},
+        )
+
     allowed_train_only_scopes = {"train_only", "fold_train_only", "cv_inner_train_only"}
     for field_name, field_value in (
         ("preprocessing_fit_scope", preprocessing_fit_scope),
@@ -139,6 +161,31 @@ def main() -> int:
                 "Scope must be train-only to avoid leakage.",
                 {"field": field_name, "value": field_value, "allowed": sorted(allowed_train_only_scopes)},
             )
+
+    allowed_early_stopping_data = {"none", "valid", "cv_inner", "nested_cv"}
+    if early_stopping_data and early_stopping_data not in allowed_early_stopping_data:
+        add_issue(
+            failures,
+            "invalid_early_stopping_data",
+            "early_stopping_data must use approved non-test sources.",
+            {"early_stopping_data": early_stopping_data, "allowed": sorted(allowed_early_stopping_data)},
+        )
+
+    allowed_final_model_refit_scope = {
+        "train_only",
+        "train_plus_valid_no_test",
+        "outer_train_only",
+    }
+    if final_model_refit_scope and final_model_refit_scope not in allowed_final_model_refit_scope:
+        add_issue(
+            failures,
+            "invalid_final_model_refit_scope",
+            "final_model_refit_scope must not include test data and must be explicitly approved.",
+            {
+                "final_model_refit_scope": final_model_refit_scope,
+                "allowed": sorted(allowed_final_model_refit_scope),
+            },
+        )
 
     for field_name, field_value in (
         ("model_selection_data", model_selection_data),

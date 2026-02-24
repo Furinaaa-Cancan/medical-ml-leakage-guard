@@ -33,6 +33,10 @@ def parse_args() -> argparse.Namespace:
         default=1e-12,
         help="Absolute tolerance for expected metric comparison.",
     )
+    parser.add_argument(
+        "--required-evaluation-split",
+        help="Required split declaration in evaluation report (for example: test).",
+    )
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
@@ -100,6 +104,29 @@ def collect_candidate_metrics(payload: Dict[str, Any], metric_name: str) -> List
         if numeric is not None:
             hits.append((resolved, numeric, value))
     return hits
+
+
+def normalize_split_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def extract_declared_split(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    for key in ("split", "evaluation_split", "dataset_split"):
+        raw = payload.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return key, raw.strip()
+        if raw is not None and not isinstance(raw, str):
+            return key, None
+
+    meta = payload.get("meta")
+    if isinstance(meta, dict):
+        for key in ("split", "evaluation_split", "dataset_split"):
+            raw = meta.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return f"meta.{key}", raw.strip()
+            if raw is not None and not isinstance(raw, str):
+                return f"meta.{key}", None
+    return None, None
 
 
 def extract_metric(
@@ -189,6 +216,35 @@ def main() -> int:
         return finish(args, failures, warnings, actual_metric=None, metric_source_path=None)
 
     actual, source_path, raw_value, candidates, ambiguous = extract_metric(payload, args.metric_name, args.metric_path)
+
+    if args.required_evaluation_split:
+        split_key, declared_split = extract_declared_split(payload)
+        if split_key is None:
+            add_issue(
+                failures,
+                "missing_evaluation_split",
+                "Evaluation report must declare which split the metric comes from.",
+                {"required_split": args.required_evaluation_split},
+            )
+        elif declared_split is None:
+            add_issue(
+                failures,
+                "invalid_evaluation_split",
+                "Declared evaluation split must be a non-empty string.",
+                {"split_field": split_key},
+            )
+        elif normalize_split_token(declared_split) != normalize_split_token(args.required_evaluation_split):
+            add_issue(
+                failures,
+                "evaluation_split_mismatch",
+                "Evaluation split does not match required split.",
+                {
+                    "required_split": args.required_evaluation_split,
+                    "declared_split": declared_split,
+                    "split_field": split_key,
+                },
+            )
+
     if actual is None:
         add_issue(
             failures,
@@ -265,6 +321,7 @@ def finish(
         "raw_metric_value": raw_value,
         "expected_metric": args.expected,
         "tolerance": args.tolerance,
+        "required_evaluation_split": args.required_evaluation_split,
         "failure_count": len(failures),
         "warning_count": len(warnings),
         "failures": failures,

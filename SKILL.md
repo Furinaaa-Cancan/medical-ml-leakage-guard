@@ -157,6 +157,7 @@ If any step returns non-zero, stop and block claim release.
 - Never select thresholds or calibrate probabilities on test split.
 - Never fit imputers on validation/test distributions.
 - Never use target/outcome information for feature imputation.
+- Never accept publication-grade primary metrics from non-test evaluation splits; evaluation report must explicitly declare `split=test`.
 - Never include variables used to define the disease label as model predictors.
 - Never include derived features whose lineage contains disease-defining variables.
 - Never include post-index features for pre-index prediction tasks.

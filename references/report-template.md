@@ -54,6 +54,7 @@
 - Confidence interval procedure:
 - Baselines:
 - Evaluation report artifact and explicit metric extraction path (`evaluation_metric_path`):
+- Evaluation report split declaration (`split=test`) for final claim metrics:
 - Metric-source consistency check (no conflicting duplicate metric values):
 
 ## 8. Robustness and Falsification

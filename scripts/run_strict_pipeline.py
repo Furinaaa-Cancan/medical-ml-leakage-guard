@@ -388,6 +388,8 @@ def main() -> int:
         str(scripts_dir / "metric_consistency_gate.py"),
         "--evaluation-report",
         evaluation_report_file,
+        "--required-evaluation-split",
+        "test",
         "--metric-name",
         metric_name,
         "--expected",
