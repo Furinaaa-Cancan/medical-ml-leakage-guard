@@ -9,6 +9,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 
 ## B. Data and Splits
 - [ ] Freeze split protocol before model development.
+- [ ] Keep machine-readable split protocol spec and gate report.
 - [ ] Use out-of-time test for temporal settings.
 - [ ] Enforce patient-level disjointness for repeated entities.
 - [ ] Document sample counts and event rates per split.
@@ -24,12 +25,14 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Fit preprocessors on training folds only.
 - [ ] Keep preprocessing + model in one fold-aware pipeline.
 - [ ] Run feature selection inside CV loops only.
+- [ ] Apply any resampling/SMOTE only on train folds (never valid/test).
 - [ ] Avoid manual transformations that touch validation/test outcomes.
 
 ## E. Model Selection and Tuning
 - [ ] Tune hyperparameters using inner CV or validation only.
 - [ ] Select architecture without peeking at final test labels.
 - [ ] Select threshold/calibration without final test outcomes.
+- [ ] Keep tuning protocol spec and prove all `test_used_*` flags are false.
 - [ ] Keep final test unopened until design freeze.
 
 ## F. Evaluation Quality

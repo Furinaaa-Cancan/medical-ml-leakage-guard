@@ -313,11 +313,38 @@ def main() -> int:
                 {"path": str(resolved)},
             )
 
-    # Publication-grade requests must include lineage specification and evaluated metric.
+    # Publication-grade requests must include lineage, split/imbalance/tuning protocol specs, and evaluated metric.
     require_lineage = normalized.get("claim_tier_target") == "publication-grade"
     validate_optional_path(
         request=request,
         key="feature_lineage_spec",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
+        key="split_protocol_spec",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
+        key="imbalance_policy_spec",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
+        key="tuning_protocol_spec",
         base=request_base,
         failures=failures,
         required=require_lineage,

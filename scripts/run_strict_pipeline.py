@@ -100,8 +100,11 @@ def main() -> int:
         "request_report": evidence_dir / "request_contract_report.json",
         "manifest": evidence_dir / "manifest.json",
         "leakage_report": evidence_dir / "leakage_report.json",
+        "split_protocol_report": evidence_dir / "split_protocol_report.json",
         "definition_report": evidence_dir / "definition_guard_report.json",
         "lineage_report": evidence_dir / "lineage_report.json",
+        "imbalance_report": evidence_dir / "imbalance_policy_report.json",
+        "tuning_report": evidence_dir / "tuning_leakage_report.json",
         "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
         "publication_report": evidence_dir / "publication_gate_report.json",
@@ -173,6 +176,9 @@ def main() -> int:
         metric_name = str(normalized["primary_metric"])
         phenotype_spec = str(normalized["phenotype_definition_spec"])
         lineage_spec = str(normalized["feature_lineage_spec"])
+        split_protocol_spec = str(normalized["split_protocol_spec"])
+        imbalance_policy_spec = str(normalized["imbalance_policy_spec"])
+        tuning_protocol_spec = str(normalized["tuning_protocol_spec"])
         evaluation_report_file = str(normalized["evaluation_report_file"])
         evaluation_metric_path = normalized.get("evaluation_metric_path")
         null_metrics_file = str(normalized["permutation_null_metrics_file"])
@@ -197,7 +203,17 @@ def main() -> int:
     manifest_inputs = [train]
     if isinstance(valid, str) and valid:
         manifest_inputs.append(valid)
-    manifest_inputs.extend([test, phenotype_spec, lineage_spec, str(request_path)])
+    manifest_inputs.extend(
+        [
+            test,
+            phenotype_spec,
+            lineage_spec,
+            split_protocol_spec,
+            imbalance_policy_spec,
+            tuning_protocol_spec,
+            str(request_path),
+        ]
+    )
 
     # Step 2: manifest lock
     if not execute(
@@ -234,7 +250,29 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 4: definition variable guard
+    # Step 4: split protocol gate
+    if not execute(
+        "split_protocol_gate",
+        [
+            args.python,
+            str(scripts_dir / "split_protocol_gate.py"),
+            "--protocol-spec",
+            split_protocol_spec,
+            *split_args,
+            "--id-col",
+            id_col,
+            "--time-col",
+            time_col,
+            "--target-col",
+            label_col,
+            "--report",
+            str(reports["split_protocol_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 5: definition variable guard
     if not execute(
         "definition_variable_guard",
         [
@@ -256,7 +294,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 5: lineage gate
+    # Step 6: lineage gate
     if not execute(
         "feature_lineage_gate",
         [
@@ -280,7 +318,42 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 6: metric consistency gate
+    # Step 7: imbalance policy gate
+    if not execute(
+        "imbalance_policy_gate",
+        [
+            args.python,
+            str(scripts_dir / "imbalance_policy_gate.py"),
+            "--policy-spec",
+            imbalance_policy_spec,
+            *split_args,
+            "--target-col",
+            label_col,
+            "--report",
+            str(reports["imbalance_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 8: tuning leakage gate
+    if not execute(
+        "tuning_leakage_gate",
+        [
+            args.python,
+            str(scripts_dir / "tuning_leakage_gate.py"),
+            "--tuning-spec",
+            tuning_protocol_spec,
+            "--id-col",
+            id_col,
+            "--report",
+            str(reports["tuning_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 9: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -312,7 +385,7 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 7: permutation significance gate
+    # Step 10: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -335,7 +408,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 8: publication gate
+    # Step 11: publication gate
     if not execute(
         "publication_gate",
         [
@@ -347,10 +420,16 @@ def main() -> int:
             str(reports["manifest"]),
             "--leakage-report",
             str(reports["leakage_report"]),
+            "--split-protocol-report",
+            str(reports["split_protocol_report"]),
             "--definition-report",
             str(reports["definition_report"]),
             "--lineage-report",
             str(reports["lineage_report"]),
+            "--imbalance-report",
+            str(reports["imbalance_report"]),
+            "--tuning-report",
+            str(reports["tuning_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
             "--permutation-report",
@@ -362,7 +441,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 9: self critique
+    # Step 12: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -374,10 +453,16 @@ def main() -> int:
             str(reports["manifest"]),
             "--leakage-report",
             str(reports["leakage_report"]),
+            "--split-protocol-report",
+            str(reports["split_protocol_report"]),
             "--definition-report",
             str(reports["definition_report"]),
             "--lineage-report",
             str(reports["lineage_report"]),
+            "--imbalance-report",
+            str(reports["imbalance_report"]),
+            "--tuning-report",
+            str(reports["tuning_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
             "--permutation-report",

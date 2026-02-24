@@ -48,6 +48,11 @@ For publication-grade metric integrity:
 - Pin one canonical metric location with `evaluation_metric_path`.
 - Reject reports with conflicting duplicated metric values or non-finite metrics (`NaN`, `Inf`).
 
+For publication-grade model development integrity:
+- Freeze split protocol and keep patient-disjoint temporal boundaries.
+- Apply imbalance mitigation (class weights/resampling) only on train folds.
+- Keep hyperparameter tuning, thresholding, and calibration fully isolated from final test labels.
+
 Minimal example:
 
 ```json

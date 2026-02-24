@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -17,8 +18,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--request-report", required=True, help="Path to request contract report JSON.")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON.")
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
+    parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol gate report JSON.")
     parser.add_argument("--definition-report", required=True, help="Path to definition-variable guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
+    parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy gate report JSON.")
+    parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage gate report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
     parser.add_argument("--report", help="Optional output publication gate report path.")
@@ -95,8 +99,11 @@ def main() -> int:
         "request_report": args.request_report,
         "manifest": args.manifest,
         "leakage_report": args.leakage_report,
+        "split_protocol_report": args.split_protocol_report,
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
+        "imbalance_report": args.imbalance_report,
+        "tuning_report": args.tuning_report,
         "metric_report": args.metric_report,
         "permutation_report": args.permutation_report,
     }
@@ -156,8 +163,11 @@ def main() -> int:
     for component in (
         "request_report",
         "leakage_report",
+        "split_protocol_report",
         "definition_report",
         "lineage_report",
+        "imbalance_report",
+        "tuning_report",
         "metric_report",
         "permutation_report",
     ):
@@ -166,11 +176,15 @@ def main() -> int:
     metric_report = loaded.get("metric_report")
     if isinstance(metric_report, dict):
         actual_metric = metric_report.get("actual_metric")
-        if not isinstance(actual_metric, (int, float)):
+        if not (
+            isinstance(actual_metric, (int, float))
+            and not isinstance(actual_metric, bool)
+            and math.isfinite(float(actual_metric))
+        ):
             add_issue(
                 failures,
                 "metric_report_missing_actual",
-                "Metric consistency report must contain numeric actual_metric.",
+                "Metric consistency report must contain finite numeric actual_metric.",
                 {"actual_metric_type": type(actual_metric).__name__ if actual_metric is not None else None},
             )
 

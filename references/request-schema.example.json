@@ -9,6 +9,9 @@
   "claim_tier_target": "publication-grade",
   "phenotype_definition_spec": "phenotype_definitions.json",
   "feature_lineage_spec": "feature_lineage.json",
+  "split_protocol_spec": "split_protocol.json",
+  "imbalance_policy_spec": "imbalance_policy.json",
+  "tuning_protocol_spec": "tuning_protocol.json",
   "split_paths": {
     "train": "../data/train.csv",
     "valid": "../data/valid.csv",

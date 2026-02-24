@@ -28,6 +28,7 @@
 - Group disjointness constraints:
 - Train/validation/test sample counts:
 - Event prevalence by split:
+- Split protocol artifact (`split_protocol_report.json`):
 
 ## 5. Leakage Controls
 - Leakage risk register summary:
@@ -41,6 +42,8 @@
 - Preprocessing pipeline:
 - Hyperparameter optimization procedure:
 - Calibration and threshold selection protocol:
+- Class-imbalance strategy and train-only scope proof (`imbalance_policy_report.json`):
+- Tuning leakage isolation proof (`tuning_leakage_report.json`):
 
 ## 7. Evaluation Plan
 - Primary metrics:
@@ -70,6 +73,9 @@
 - Config files and random seeds:
 - Re-run reproducibility check:
 - Evidence manifest (`manifest.json`):
+- Split protocol gate artifact (`split_protocol_report.json`):
+- Imbalance policy gate artifact (`imbalance_policy_report.json`):
+- Tuning leakage gate artifact (`tuning_leakage_report.json`):
 - Metric consistency artifact (`metric_consistency_report.json`):
 - Publication gate artifact (`publication_gate_report.json`):
 

@@ -63,6 +63,7 @@ Fit preprocessing transforms on full data before split/fold boundaries.
 Red flags:
 - Scaler/imputer/encoder/PCA fit once on full dataset.
 - Feature selection executed before CV loop.
+- Resampling/SMOTE applied on validation/test or before split.
 
 Mitigation:
 - Fit transforms only on training partition per fold.

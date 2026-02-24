@@ -1,0 +1,13 @@
+{
+  "strategy": "class_weight",
+  "fit_scope": "cv_inner_train_only",
+  "forbid_test_usage": true,
+  "threshold_selection_split": "valid",
+  "calibration_split": "valid",
+  "resampling_applied_to": [
+    "train"
+  ],
+  "imbalance_alert_ratio": 5.0,
+  "minimum_minority_cases": 20,
+  "notes": "No test-based threshold tuning; imbalance mitigation learned only from train folds."
+}

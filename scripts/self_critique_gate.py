@@ -17,8 +17,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--request-report", required=True, help="Path to request contract report JSON.")
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON.")
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
+    parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol report JSON.")
     parser.add_argument("--definition-report", required=True, help="Path to definition guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
+    parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy report JSON.")
+    parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
     parser.add_argument("--publication-report", required=True, help="Path to publication gate report JSON.")
@@ -88,8 +91,11 @@ def main() -> int:
         "request_report": args.request_report,
         "manifest": args.manifest,
         "leakage_report": args.leakage_report,
+        "split_protocol_report": args.split_protocol_report,
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
+        "imbalance_report": args.imbalance_report,
+        "tuning_report": args.tuning_report,
         "metric_report": args.metric_report,
         "permutation_report": args.permutation_report,
         "publication_report": args.publication_report,
@@ -142,8 +148,11 @@ def main() -> int:
     for component in (
         "request_report",
         "leakage_report",
+        "split_protocol_report",
         "definition_report",
         "lineage_report",
+        "imbalance_report",
+        "tuning_report",
         "metric_report",
         "permutation_report",
         "publication_report",
@@ -197,14 +206,17 @@ def main() -> int:
 
     # Weighted score emphasizes phenotype integrity and lineage coverage.
     weights = {
-        "request_report": 10.0,
-        "manifest": 12.0,
-        "leakage_report": 18.0,
-        "definition_report": 20.0,
-        "lineage_report": 16.0,
-        "metric_report": 10.0,
-        "permutation_report": 10.0,
-        "publication_report": 4.0,
+        "request_report": 7.0,
+        "manifest": 10.0,
+        "leakage_report": 13.0,
+        "split_protocol_report": 8.0,
+        "definition_report": 13.0,
+        "lineage_report": 11.0,
+        "imbalance_report": 8.0,
+        "tuning_report": 8.0,
+        "metric_report": 7.0,
+        "permutation_report": 7.0,
+        "publication_report": 8.0,
     }
     warn_penalty = 1.0
     quality_score = 0.0

@@ -1,6 +1,6 @@
 ---
 name: ml-leakage-guard
-description: "Publication-grade medical prediction workflow with strict anti-data-leakage controls, phenotype-definition safeguards, lineage-based leakage detection, falsification tests, and reproducibility gates. Use when building, reviewing, or debugging disease risk or prognosis models in EHR/claims/registry data, especially when target definitions, diagnosis codes, lab criteria, medications, temporal windows, and derived features can leak target information."
+description: "Publication-grade medical prediction workflow with strict anti-data-leakage controls, phenotype-definition safeguards, lineage-based leakage detection, split-protocol verification, class-imbalance policy validation, hyperparameter-tuning isolation checks, falsification tests, and reproducibility gates. Use when building, reviewing, or debugging disease risk or prognosis models in EHR/claims/registry data, especially when target definitions, diagnosis codes, lab criteria, medications, temporal windows, and derived features can leak target information."
 ---
 
 # ML Leakage Guard
@@ -32,6 +32,9 @@ Required fields:
 
 Publication-grade required fields:
 - `feature_lineage_spec`
+- `split_protocol_spec`
+- `imbalance_policy_spec`
+- `tuning_protocol_spec`
 - `evaluation_report_file`
 - `evaluation_metric_path`
 - `permutation_null_metrics_file`
@@ -44,6 +47,9 @@ Path semantics:
 Template:
 - `references/request-schema.example.json`
 - `references/feature-lineage.example.json`
+- `references/split-protocol.example.json`
+- `references/imbalance-policy.example.json`
+- `references/tuning-protocol.example.json`
 - `references/evaluation-report.example.json`
 
 Validate request first:
@@ -60,28 +66,34 @@ Use this internal sequence in order:
 1. Validate request contract.
 2. Lock data/config fingerprints (`manifest_lock.py`).
 3. Run split/time leakage gate (`leakage_gate.py`).
-4. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
-5. Run lineage leakage gate (`feature_lineage_gate.py`).
-6. Run metric consistency gate (`metric_consistency_gate.py`).
-7. Run permutation falsification gate (`permutation_significance_gate.py`).
-8. Aggregate publication gate (`publication_gate.py`).
-9. Run self-critique scoring gate (`self_critique_gate.py`).
-10. Emit final report only if all strict gates pass.
+4. Run split protocol gate (`split_protocol_gate.py`).
+5. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
+6. Run lineage leakage gate (`feature_lineage_gate.py`).
+7. Run imbalance policy gate (`imbalance_policy_gate.py`).
+8. Run tuning leakage gate (`tuning_leakage_gate.py`).
+9. Run metric consistency gate (`metric_consistency_gate.py`).
+10. Run permutation falsification gate (`permutation_significance_gate.py`).
+11. Aggregate publication gate (`publication_gate.py`).
+12. Run self-critique scoring gate (`self_critique_gate.py`).
+13. Emit final report only if all strict gates pass.
 
-Treat disease-definition leakage, lineage ambiguity, and metric-source ambiguity as critical failure in strict mode.
+Treat disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, class-imbalance misuse, and tuning/test leakage as critical failures in strict mode.
 
 ## Output Contract (Machine-Parseable)
 Produce these deterministic artifacts:
 1. `evidence/request_contract_report.json`
 2. `evidence/manifest.json`
 3. `evidence/leakage_report.json`
-4. `evidence/definition_guard_report.json`
-5. `evidence/lineage_report.json`
-6. `evidence/metric_consistency_report.json`
-7. `evidence/permutation_report.json`
-8. `evidence/publication_gate_report.json`
-9. `evidence/self_critique_report.json`
-10. `evidence/strict_pipeline_report.json`
+4. `evidence/split_protocol_report.json`
+5. `evidence/definition_guard_report.json`
+6. `evidence/lineage_report.json`
+7. `evidence/imbalance_policy_report.json`
+8. `evidence/tuning_leakage_report.json`
+9. `evidence/metric_consistency_report.json`
+10. `evidence/permutation_report.json`
+11. `evidence/publication_gate_report.json`
+12. `evidence/self_critique_report.json`
+13. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -120,18 +132,23 @@ If orchestration is unavailable, run in this exact order:
 1. `request_contract_gate.py`
 2. `manifest_lock.py` (with optional `--compare-with`)
 3. `leakage_gate.py`
-4. `definition_variable_guard.py`
-5. `feature_lineage_gate.py`
-6. `metric_consistency_gate.py`
-7. `permutation_significance_gate.py`
-8. `publication_gate.py`
-9. `self_critique_gate.py`
+4. `split_protocol_gate.py`
+5. `definition_variable_guard.py`
+6. `feature_lineage_gate.py`
+7. `imbalance_policy_gate.py`
+8. `tuning_leakage_gate.py`
+9. `metric_consistency_gate.py`
+10. `permutation_significance_gate.py`
+11. `publication_gate.py`
+12. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
 ## Medical Non-Negotiable Rules
 - Never tune on test data.
 - Never fit preprocessors on combined train+validation+test.
+- Never apply resampling/SMOTE on validation or test splits.
+- Never select thresholds or calibrate probabilities on test split.
 - Never include variables used to define the disease label as model predictors.
 - Never include derived features whose lineage contains disease-defining variables.
 - Never include post-index features for pre-index prediction tasks.
@@ -145,8 +162,11 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/request_contract_gate.py`: request schema and path validation.
 - `scripts/manifest_lock.py`: dataset/protocol fingerprint and baseline comparison.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
+- `scripts/split_protocol_gate.py`: enforce split protocol consistency and temporal/group safeguards.
 - `scripts/definition_variable_guard.py`: hard gate against disease-definition variable leakage.
 - `scripts/feature_lineage_gate.py`: hard gate against lineage-derived leakage.
+- `scripts/imbalance_policy_gate.py`: validate class-imbalance strategy and train-only resampling policy.
+- `scripts/tuning_leakage_gate.py`: validate hyperparameter tuning/test-isolation protocol.
 - `scripts/metric_consistency_gate.py`: extract and validate metric from evaluation report.
 - `scripts/permutation_significance_gate.py`: falsification significance gate.
 - `scripts/publication_gate.py`: aggregate fail-closed publication gate.
@@ -155,6 +175,9 @@ If any step returns non-zero, stop and block claim release.
 ### references/
 - `references/request-schema.example.json`: structured request template.
 - `references/feature-lineage.example.json`: lineage map template.
+- `references/split-protocol.example.json`: split protocol template.
+- `references/imbalance-policy.example.json`: class-imbalance policy template.
+- `references/tuning-protocol.example.json`: hyperparameter tuning protocol template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
