@@ -76,6 +76,7 @@
 - Environment details:
 - Config files and random seeds:
 - Re-run reproducibility check:
+- Baseline manifest comparison result (`manifest.comparison.matched`):
 - Evidence manifest (`manifest.json`):
 - Split protocol gate artifact (`split_protocol_report.json`):
 - Imbalance policy gate artifact (`imbalance_policy_report.json`):

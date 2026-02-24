@@ -70,6 +70,8 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Increase robustness evidence and reduce warnings to lift quality score.")
     if "manifest_not_comparable" in codes:
         recs.append("Provide baseline manifest comparison to satisfy strict reproducibility gate.")
+    if "publication_claim_without_repro_comparison" in codes:
+        recs.append("Do not claim publication-grade readiness until manifest baseline comparison is present.")
     if not recs:
         recs.append("No blocking critique findings detected.")
     return recs
@@ -114,6 +116,15 @@ def main() -> int:
                 "Failed to load required artifact.",
                 {"artifact": name, "path": str(Path(path).expanduser()), "error": str(exc)},
             )
+
+    requested_claim_tier: str = ""
+    request_report = loaded.get("request_report")
+    if isinstance(request_report, dict):
+        normalized_request = request_report.get("normalized_request")
+        if isinstance(normalized_request, dict):
+            claim_tier_value = normalized_request.get("claim_tier_target")
+            if isinstance(claim_tier_value, str):
+                requested_claim_tier = claim_tier_value.strip()
 
     def require_pass(name: str, strict_mode_required: bool = True) -> None:
         report = loaded.get(name)
@@ -205,6 +216,14 @@ def main() -> int:
             "manifest_not_comparable",
             "Manifest has no comparison section; rerun consistency not evaluated.",
             {},
+        )
+
+    if args.strict and requested_claim_tier == "publication-grade" and reproducibility_comparison_evaluated is False:
+        add_issue(
+            failures,
+            "publication_claim_without_repro_comparison",
+            "Publication-grade readiness requires baseline manifest comparison; bootstrap mode cannot be claim-ready.",
+            {"allow_missing_comparison": bool(args.allow_missing_comparison)},
         )
 
     # Weighted score emphasizes phenotype integrity and lineage coverage.

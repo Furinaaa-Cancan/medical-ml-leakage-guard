@@ -129,7 +129,7 @@ python3 scripts/run_strict_pipeline.py \
 For first-run baseline bootstrap, you may omit `--compare-manifest` only with:
 - `--allow-missing-compare`
 - `run_strict_pipeline.py` always enforces `--strict` for publication-grade execution.
-- With `--allow-missing-compare`, only `manifest_not_comparable` is downgraded to non-blocking warning; other warnings still block.
+- `--allow-missing-compare` is bootstrap-only for artifact generation; publication-grade readiness still fails until baseline manifest comparison exists.
 - `run_strict_pipeline.py` is publication-grade only; non-publication claim tiers are rejected.
 
 ## Manual Strict Execution Order

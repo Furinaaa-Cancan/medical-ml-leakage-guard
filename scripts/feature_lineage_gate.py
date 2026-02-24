@@ -121,9 +121,30 @@ def normalize_lineage_payload(raw: Dict[str, Any]) -> Dict[str, List[str]]:
     return lineage
 
 
+def build_lineage_key_index(lineage_map: Dict[str, List[str]]) -> Tuple[Dict[str, str], Dict[str, List[str]]]:
+    index: Dict[str, str] = {}
+    collisions: Dict[str, Set[str]] = {}
+    for key in lineage_map.keys():
+        nk = norm(key)
+        existing = index.get(nk)
+        if existing is None:
+            index[nk] = key
+            continue
+        if existing != key:
+            collisions.setdefault(nk, set()).update({existing, key})
+    return index, {k: sorted(v) for k, v in collisions.items()}
+
+
+def resolve_lineage_key(node: str, lineage_map: Dict[str, List[str]], key_index: Dict[str, str]) -> Optional[str]:
+    if node in lineage_map:
+        return node
+    return key_index.get(norm(node))
+
+
 def collect_transitive_candidates(
     feature: str,
     lineage_map: Dict[str, List[str]],
+    key_index: Dict[str, str],
     max_depth: int = 256,
 ) -> Tuple[Set[str], List[List[str]], bool]:
     candidates: Set[str] = {feature}
@@ -138,21 +159,27 @@ def collect_transitive_candidates(
             return
         if node in expanded:
             return
-        ancestors = lineage_map.get(node, [])
+        resolved_node = resolve_lineage_key(node, lineage_map, key_index)
+        ancestors = lineage_map.get(resolved_node, []) if resolved_node else []
         for anc in ancestors:
             anc_clean = anc.strip()
             if not anc_clean:
                 continue
-            candidates.add(anc_clean)
+            resolved_anc = resolve_lineage_key(anc_clean, lineage_map, key_index)
+            if resolved_anc:
+                candidates.add(resolved_anc)
+            else:
+                candidates.add(anc_clean)
             if anc_clean in path:
                 start = path.index(anc_clean)
                 cycles.append(path[start:] + [anc_clean])
                 continue
-            dfs(anc_clean, path + [anc_clean], depth + 1)
+            dfs(resolved_anc or anc_clean, path + [anc_clean], depth + 1)
         expanded.add(node)
 
-    if feature in lineage_map:
-        dfs(feature, [feature], 0)
+    resolved_feature = resolve_lineage_key(feature, lineage_map, key_index)
+    if resolved_feature:
+        dfs(resolved_feature, [feature], 0)
     return candidates, cycles, overflow
 
 
@@ -207,6 +234,7 @@ def main() -> int:
         if not isinstance(lineage_raw, dict):
             raise ValueError("Lineage spec root must be object.")
         lineage_map = normalize_lineage_payload(lineage_raw)
+        lineage_key_index, lineage_key_collisions = build_lineage_key_index(lineage_map)
     except Exception as exc:
         add_issue(
             failures,
@@ -215,6 +243,14 @@ def main() -> int:
             {"path": str(lineage_path), "error": str(exc)},
         )
         return finish(args, failures, warnings, headers_by_split, [], [], {}, [])
+
+    if lineage_key_collisions:
+        add_issue(
+            failures,
+            "lineage_key_normalization_collision",
+            "Lineage feature keys collide after normalization; canonical naming must be unique.",
+            {"collisions": lineage_key_collisions},
+        )
 
     target_block = resolve_target_block(definition_spec, args.target)
     if target_block is None:
@@ -267,11 +303,16 @@ def main() -> int:
     pattern_hits: List[Dict[str, Any]] = []
 
     for feature in checked_features:
-        if feature not in lineage_map:
+        resolved_feature = resolve_lineage_key(feature, lineage_map, lineage_key_index)
+        if resolved_feature is None:
             missing_lineage.append(feature)
             candidates = [feature]
         else:
-            transitive_candidates, cycles, overflow = collect_transitive_candidates(feature, lineage_map)
+            transitive_candidates, cycles, overflow = collect_transitive_candidates(
+                feature,
+                lineage_map,
+                lineage_key_index,
+            )
             candidates = sorted(transitive_candidates)
             if cycles:
                 lineage_cycles.append(
@@ -371,6 +412,7 @@ def main() -> int:
         forbidden_patterns,
         lineage_map,
         checked_features,
+        lineage_key_index,
     )
 
 
@@ -383,8 +425,10 @@ def finish(
     forbidden_patterns: List[str],
     lineage_map: Dict[str, List[str]],
     checked_features: List[str],
+    lineage_key_index: Optional[Dict[str, str]] = None,
 ) -> int:
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    key_index = lineage_key_index or {}
     report = {
         "status": "fail" if should_fail else "pass",
         "strict_mode": bool(args.strict),
@@ -405,7 +449,8 @@ def finish(
                 0.0
                 if not checked_features
                 else round(
-                    sum(1 for f in checked_features if f in lineage_map) / float(len(checked_features)),
+                    sum(1 for f in checked_features if (f in lineage_map or norm(f) in key_index))
+                    / float(len(checked_features)),
                     6,
                 )
             ),
