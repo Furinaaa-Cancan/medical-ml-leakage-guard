@@ -257,6 +257,11 @@ def main() -> int:
         if isinstance(execution_receipt_block, dict):
             for key in ("record_file", "signature_file", "public_key_file"):
                 append_attestation_path(execution_receipt_block.get(key))
+
+        execution_log_block = attestation_spec_payload.get("execution_log_attestation")
+        if isinstance(execution_log_block, dict):
+            for key in ("record_file", "signature_file", "public_key_file"):
+                append_attestation_path(execution_log_block.get(key))
     except Exception as exc:
         print(f"[FAIL] Failed to parse execution_attestation_spec for manifest lock: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)

@@ -94,6 +94,31 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Set assurance_policy.require_independent_execution_authority=true in spec.",
     )
+    parser.add_argument(
+        "--require-independent-log-authority",
+        action="store_true",
+        help="Set assurance_policy.require_independent_log_authority=true in spec.",
+    )
+
+    parser.add_argument(
+        "--skip-execution-log-attestation",
+        action="store_true",
+        help="Do not generate execution_log_attestation block.",
+    )
+    parser.add_argument(
+        "--execution-log-authority-id",
+        default="execution-log-authority-local",
+        help="Authority ID in execution log attestation record.",
+    )
+    parser.add_argument(
+        "--execution-log-artifact-name",
+        default="training_log",
+        help="Artifact name in signed payload to attest (default: training_log).",
+    )
+    parser.add_argument("--execution-log-record-out", help="Output JSON path for execution-log record.")
+    parser.add_argument("--execution-log-signature-out", help="Output path for execution-log record signature.")
+    parser.add_argument("--execution-log-public-key-file", help="Public key PEM for execution-log verification.")
+    parser.add_argument("--execution-log-private-key-file", help="Private key PEM for execution-log signing.")
 
     parser.add_argument(
         "--artifact",
@@ -231,6 +256,14 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
 
 
+def count_lines(path: Path) -> int:
+    total = 0
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for _ in fh:
+            total += 1
+    return total
+
+
 def ensure_revocation_file(path: Path) -> Dict[str, Any]:
     ensure_parent(path)
     if path.exists():
@@ -310,6 +343,20 @@ def main() -> int:
     if missing_required:
         print(f"[FAIL] Missing required artifact names in --artifact list: {missing_required}", file=sys.stderr)
         return 2
+
+    execution_log_artifact_name = (
+        args.execution_log_artifact_name.strip()
+        if isinstance(args.execution_log_artifact_name, str) and args.execution_log_artifact_name.strip()
+        else "training_log"
+    )
+    if not args.skip_execution_log_attestation and execution_log_artifact_name not in names_seen:
+        print(
+            f"[FAIL] execution-log artifact '{execution_log_artifact_name}' not found in --artifact list.",
+            file=sys.stderr,
+        )
+        return 2
+
+    artifacts_by_name: Dict[str, Dict[str, Any]] = {str(item["name"]): item for item in artifacts}
 
     started_at = args.started_at_utc.strip() if isinstance(args.started_at_utc, str) and args.started_at_utc.strip() else iso_now_utc()
     finished_at = args.finished_at_utc.strip() if isinstance(args.finished_at_utc, str) and args.finished_at_utc.strip() else iso_now_utc()
@@ -634,6 +681,103 @@ def main() -> int:
             "signature": str(execution_sig_out),
         }
 
+    execution_log_block = None
+    execution_log_outputs: Dict[str, str] = {}
+    if not args.skip_execution_log_attestation:
+        log_artifact = artifacts_by_name.get(execution_log_artifact_name)
+        if log_artifact is None:
+            print(
+                f"[FAIL] execution-log artifact '{execution_log_artifact_name}' not found in signed artifacts.",
+                file=sys.stderr,
+            )
+            return 2
+
+        execution_log_pub = (
+            Path(args.execution_log_public_key_file).expanduser().resolve()
+            if isinstance(args.execution_log_public_key_file, str) and args.execution_log_public_key_file.strip()
+            else (
+                Path(args.execution_public_key_file).expanduser().resolve()
+                if isinstance(args.execution_public_key_file, str) and args.execution_public_key_file.strip()
+                else public_key
+            )
+        )
+        execution_log_priv = (
+            Path(args.execution_log_private_key_file).expanduser().resolve()
+            if isinstance(args.execution_log_private_key_file, str) and args.execution_log_private_key_file.strip()
+            else (
+                Path(args.execution_private_key_file).expanduser().resolve()
+                if isinstance(args.execution_private_key_file, str) and args.execution_private_key_file.strip()
+                else private_key
+            )
+        )
+        execution_log_record_out = (
+            Path(args.execution_log_record_out).expanduser().resolve()
+            if isinstance(args.execution_log_record_out, str) and args.execution_log_record_out.strip()
+            else (payload_out.parent / "attestation_execution_log_record.json").resolve()
+        )
+        execution_log_sig_out = (
+            Path(args.execution_log_signature_out).expanduser().resolve()
+            if isinstance(args.execution_log_signature_out, str) and args.execution_log_signature_out.strip()
+            else (payload_out.parent / "attestation_execution_log_record.sig").resolve()
+        )
+
+        try:
+            ensure_file(execution_log_pub, "execution_log_public_key_file")
+            if not args.skip_sign:
+                if execution_log_priv is None:
+                    raise ValueError("execution_log_private_key_file is required when signatures are enabled.")
+                ensure_file(execution_log_priv, "execution_log_private_key_file")
+        except Exception as exc:
+            print(f"[FAIL] {exc}", file=sys.stderr)
+            return 2
+
+        log_path = Path(str(log_artifact["abs_path"]))
+        execution_log_record = {
+            "schema_version": "1.0",
+            "authority_id": args.execution_log_authority_id.strip(),
+            "payload_sha256": payload_sha256,
+            "study_id": args.study_id.strip(),
+            "run_id": args.run_id.strip(),
+            "artifact_name": execution_log_artifact_name,
+            "artifact_path": str(log_path),
+            "artifact_sha256": str(log_artifact["sha256"]),
+            "line_count": count_lines(log_path),
+            "issued_at_utc": issued_at,
+        }
+        write_json(execution_log_record_out, execution_log_record)
+
+        if args.skip_sign:
+            if execution_log_sig_out.exists():
+                execution_log_sig_out.unlink()
+        else:
+            ensure_parent(execution_log_sig_out)
+            try:
+                openssl_sign_file(
+                    private_key=execution_log_priv, input_file=execution_log_record_out, output_sig=execution_log_sig_out  # type: ignore[arg-type]
+                )
+            except Exception as exc:
+                print(f"[FAIL] {exc}", file=sys.stderr)
+                return 2
+
+        try:
+            execution_log_fp = public_key_fingerprint_sha256(execution_log_pub)
+        except Exception as exc:
+            print(f"[FAIL] Unable to compute execution-log public key fingerprint: {exc}", file=sys.stderr)
+            return 2
+
+        execution_log_block = {
+            "authority_id": args.execution_log_authority_id.strip(),
+            "artifact_name": execution_log_artifact_name,
+            "record_file": resolve_for_output(spec_base, execution_log_record_out),
+            "signature_file": resolve_for_output(spec_base, execution_log_sig_out),
+            "public_key_file": resolve_for_output(spec_base, execution_log_pub),
+            "public_key_fingerprint_sha256": execution_log_fp,
+        }
+        execution_log_outputs = {
+            "record": str(execution_log_record_out),
+            "signature": str(execution_log_sig_out),
+        }
+
     assurance_policy = {
         "min_signing_key_bits": int(args.min_signing_key_bits),
         "max_signing_key_age_days": int(args.max_signing_key_age_days),
@@ -642,12 +786,14 @@ def main() -> int:
         "require_transparency_log": not args.skip_transparency_log,
         "require_transparency_log_signature": not args.skip_transparency_log,
         "require_execution_receipt": not args.skip_execution_receipt,
+        "require_execution_log_attestation": not args.skip_execution_log_attestation,
         "require_independent_timestamp_authority": bool(args.require_independent_timestamp_authority),
         "require_independent_execution_authority": bool(args.require_independent_execution_authority),
+        "require_independent_log_authority": bool(args.require_independent_log_authority),
     }
 
     spec: Dict[str, Any] = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "study_id": args.study_id.strip(),
         "run_id": args.run_id.strip(),
         "issued_at_utc": issued_at,
@@ -673,6 +819,8 @@ def main() -> int:
         spec["transparency_log"] = transparency_block
     if execution_receipt_block is not None:
         spec["execution_receipt"] = execution_receipt_block
+    if execution_log_block is not None:
+        spec["execution_log_attestation"] = execution_log_block
 
     write_json(spec_out, spec)
 
@@ -689,6 +837,9 @@ def main() -> int:
     if execution_receipt_outputs:
         print(f"Execution receipt record: {execution_receipt_outputs['record']}")
         print(f"Execution receipt signature: {execution_receipt_outputs['signature']}")
+    if execution_log_outputs:
+        print(f"Execution log record: {execution_log_outputs['record']}")
+        print(f"Execution log signature: {execution_log_outputs['signature']}")
     print(f"Artifacts hashed: {len(payload_artifacts)}")
     print(f"Required artifact names: {required_artifacts}")
     return 0

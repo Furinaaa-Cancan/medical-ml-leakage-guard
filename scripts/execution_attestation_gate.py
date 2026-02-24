@@ -9,6 +9,7 @@ This gate verifies high-assurance non-repudiation evidence by checking:
 4. Key assurance policy (fingerprint, key length, age, expiry, revocation list).
 5. Trusted timestamp record verification.
 6. Transparency-log record verification.
+7. Signed execution-log attestation verification against payload artifact hash.
 """
 
 from __future__ import annotations
@@ -202,6 +203,17 @@ def sha256_file(path: Path) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def file_line_count(path: Path) -> Optional[int]:
+    try:
+        total = 0
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for _ in fh:
+                total += 1
+        return total
+    except Exception:
+        return None
 
 
 def run_openssl(cmd: List[str], failures: List[Dict[str, Any]], code: str, message: str) -> Optional[subprocess.CompletedProcess]:
@@ -584,12 +596,22 @@ def validate_key_assurance(
     require_execution_receipt = require_bool(
         policy, "require_execution_receipt", failures, "assurance_policy", default=True
     )
+    require_execution_log_attestation = require_bool(
+        policy, "require_execution_log_attestation", failures, "assurance_policy", default=True
+    )
     require_independent_timestamp_authority = require_bool(
         policy, "require_independent_timestamp_authority", failures, "assurance_policy", default=False
     )
     require_independent_execution_authority = require_bool(
         policy,
         "require_independent_execution_authority",
+        failures,
+        "assurance_policy",
+        default=False,
+    )
+    require_independent_log_authority = require_bool(
+        policy,
+        "require_independent_log_authority",
         failures,
         "assurance_policy",
         default=False,
@@ -747,8 +769,10 @@ def validate_key_assurance(
             "require_transparency_log": bool(require_transparency_log),
             "require_transparency_log_signature": bool(require_transparency_log_signature),
             "require_execution_receipt": bool(require_execution_receipt),
+            "require_execution_log_attestation": bool(require_execution_log_attestation),
             "require_independent_timestamp_authority": bool(require_independent_timestamp_authority),
             "require_independent_execution_authority": bool(require_independent_execution_authority),
+            "require_independent_log_authority": bool(require_independent_log_authority),
         },
         "key_id": key_id,
         "public_key_file": str(public_key_file) if public_key_file is not None else None,
@@ -1369,6 +1393,271 @@ def validate_execution_receipt(
     }
 
 
+def validate_execution_log_attestation(
+    spec_base: Path,
+    spec: Dict[str, Any],
+    payload_sha256: Optional[str],
+    payload_study_id: Optional[str],
+    payload_run_id: Optional[str],
+    issued_at_ts: Optional[dt.datetime],
+    signing_fp: Optional[str],
+    artifacts_summary: Dict[str, Any],
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = spec.get("assurance_policy", {})
+    require_execution_log_attestation = True
+    require_independent_log_authority = False
+    if isinstance(policy, dict):
+        require_execution_log_attestation = bool(policy.get("require_execution_log_attestation", True))
+        require_independent_log_authority = bool(policy.get("require_independent_log_authority", False))
+
+    block = spec.get("execution_log_attestation")
+    if block is None:
+        if require_execution_log_attestation:
+            add_issue(
+                failures,
+                "missing_execution_log_attestation",
+                "assurance_policy requires execution_log_attestation block.",
+                {},
+            )
+        return {"present": False}
+    if not isinstance(block, dict):
+        add_issue(
+            failures,
+            "invalid_execution_log_attestation",
+            "execution_log_attestation must be an object.",
+            {"actual_type": type(block).__name__},
+        )
+        return {"present": True}
+
+    authority_id = require_str(block, "authority_id", failures, "attestation_spec.execution_log_attestation")
+    artifact_name = require_str(block, "artifact_name", failures, "attestation_spec.execution_log_attestation")
+    record_file = collect_required_path(
+        spec_base, block, "record_file", failures, "attestation_spec.execution_log_attestation"
+    )
+    signature_file = collect_required_path(
+        spec_base, block, "signature_file", failures, "attestation_spec.execution_log_attestation"
+    )
+    public_key_file = collect_required_path(
+        spec_base, block, "public_key_file", failures, "attestation_spec.execution_log_attestation"
+    )
+    expected_fp = require_str(
+        block, "public_key_fingerprint_sha256", failures, "attestation_spec.execution_log_attestation"
+    )
+
+    observed_fp = None
+    verify_result: Dict[str, Any] = {}
+    if public_key_file is not None:
+        observed_fp = public_key_fingerprint_sha256(public_key_file, failures)
+        if expected_fp and not SHA256_RE.fullmatch(expected_fp):
+            add_issue(
+                failures,
+                "invalid_execution_log_public_key_fingerprint",
+                "execution_log_attestation.public_key_fingerprint_sha256 must be 64-char hex.",
+                {"value": expected_fp},
+            )
+        elif expected_fp and observed_fp and expected_fp.lower() != observed_fp.lower():
+            add_issue(
+                failures,
+                "execution_log_public_key_fingerprint_mismatch",
+                "Execution-log attestation public key fingerprint mismatch.",
+                {"expected": expected_fp.lower(), "observed": observed_fp.lower()},
+            )
+
+    if record_file and signature_file and public_key_file:
+        verify_result = verify_detached_signature(
+            data_file=record_file,
+            signature_file=signature_file,
+            public_key_file=public_key_file,
+            method="openssl-dgst-sha256",
+            failures=failures,
+            scope="execution_log_record",
+        )
+
+    checked_artifacts = artifacts_summary.get("checked")
+    if not isinstance(checked_artifacts, list):
+        checked_artifacts = []
+
+    artifact_entry: Optional[Dict[str, Any]] = None
+    if artifact_name:
+        for item in checked_artifacts:
+            if isinstance(item, dict) and str(item.get("name")) == artifact_name:
+                artifact_entry = item
+                break
+        if artifact_entry is None:
+            add_issue(
+                failures,
+                "execution_log_artifact_not_found",
+                "execution_log_attestation artifact_name not found in signed payload artifacts.",
+                {"artifact_name": artifact_name},
+            )
+
+    record = load_json_obj(record_file, failures, "execution_log_record") if record_file else None
+    line_count_value: Optional[int] = None
+    if record is not None:
+        record_authority = require_str(record, "authority_id", failures, "execution_log_record")
+        record_payload_sha = require_str(record, "payload_sha256", failures, "execution_log_record")
+        record_study = require_str(record, "study_id", failures, "execution_log_record")
+        record_run = require_str(record, "run_id", failures, "execution_log_record")
+        record_artifact_name = require_str(record, "artifact_name", failures, "execution_log_record")
+        record_artifact_path = require_str(record, "artifact_path", failures, "execution_log_record")
+        record_artifact_sha = require_str(record, "artifact_sha256", failures, "execution_log_record")
+        record_issued_raw = require_str(record, "issued_at_utc", failures, "execution_log_record")
+
+        raw_line_count = record.get("line_count")
+        if isinstance(raw_line_count, bool):
+            raw_line_count = None
+        if isinstance(raw_line_count, int):
+            line_count_value = int(raw_line_count)
+        elif isinstance(raw_line_count, float) and math.isfinite(raw_line_count) and float(raw_line_count).is_integer():
+            line_count_value = int(raw_line_count)
+        elif raw_line_count is not None:
+            add_issue(
+                failures,
+                "invalid_execution_log_line_count",
+                "execution_log_record.line_count must be integer when present.",
+                {"actual_value": raw_line_count},
+            )
+
+        if authority_id and record_authority and authority_id != record_authority:
+            add_issue(
+                failures,
+                "execution_log_authority_mismatch",
+                "execution-log record authority_id does not match attestation spec.",
+                {"spec_authority_id": authority_id, "record_authority_id": record_authority},
+            )
+        if artifact_name and record_artifact_name and artifact_name != record_artifact_name:
+            add_issue(
+                failures,
+                "execution_log_artifact_name_mismatch",
+                "execution-log record artifact_name does not match attestation spec.",
+                {"spec_artifact_name": artifact_name, "record_artifact_name": record_artifact_name},
+            )
+        if payload_sha256 and record_payload_sha and payload_sha256.lower() != record_payload_sha.lower():
+            add_issue(
+                failures,
+                "execution_log_payload_hash_mismatch",
+                "execution-log record payload_sha256 does not match signed payload.",
+                {"payload_sha256": payload_sha256.lower(), "record_payload_sha256": record_payload_sha.lower()},
+            )
+        if payload_study_id and record_study and payload_study_id != record_study:
+            add_issue(
+                failures,
+                "execution_log_study_id_mismatch",
+                "execution-log record study_id mismatch.",
+                {"payload_study_id": payload_study_id, "record_study_id": record_study},
+            )
+        if payload_run_id and record_run and payload_run_id != record_run:
+            add_issue(
+                failures,
+                "execution_log_run_id_mismatch",
+                "execution-log record run_id mismatch.",
+                {"payload_run_id": payload_run_id, "record_run_id": record_run},
+            )
+
+        if record_artifact_sha and not SHA256_RE.fullmatch(record_artifact_sha):
+            add_issue(
+                failures,
+                "invalid_execution_log_artifact_sha256",
+                "execution_log_record.artifact_sha256 must be 64-char hex.",
+                {"artifact_sha256": record_artifact_sha},
+            )
+
+        if artifact_entry is not None:
+            artifact_entry_sha = str(artifact_entry.get("sha256", "")).lower()
+            if record_artifact_sha and record_artifact_sha.lower() != artifact_entry_sha:
+                add_issue(
+                    failures,
+                    "execution_log_artifact_hash_mismatch",
+                    "execution-log record artifact_sha256 does not match signed artifact hash.",
+                    {
+                        "artifact_name": artifact_name,
+                        "record_artifact_sha256": record_artifact_sha.lower(),
+                        "signed_artifact_sha256": artifact_entry_sha,
+                    },
+                )
+
+            artifact_entry_path = Path(str(artifact_entry.get("path"))).resolve()
+            if record_artifact_path:
+                rp = Path(record_artifact_path).expanduser()
+                if not rp.is_absolute() and record_file is not None:
+                    rp = (record_file.parent / rp).resolve()
+                else:
+                    rp = rp.resolve()
+                if artifact_entry_path != rp:
+                    add_issue(
+                        failures,
+                        "execution_log_artifact_path_mismatch",
+                        "execution-log record artifact_path does not match signed artifact path.",
+                        {
+                            "artifact_name": artifact_name,
+                            "record_artifact_path": str(rp),
+                            "signed_artifact_path": str(artifact_entry_path),
+                        },
+                    )
+
+                actual_line_count = file_line_count(artifact_entry_path)
+                if line_count_value is not None and actual_line_count is not None and line_count_value != actual_line_count:
+                    add_issue(
+                        failures,
+                        "execution_log_line_count_mismatch",
+                        "execution-log record line_count does not match actual artifact line count.",
+                        {
+                            "artifact_name": artifact_name,
+                            "record_line_count": line_count_value,
+                            "actual_line_count": actual_line_count,
+                        },
+                    )
+                elif line_count_value is not None and actual_line_count is None:
+                    add_issue(
+                        warnings,
+                        "execution_log_line_count_not_verifiable",
+                        "Unable to verify execution-log line_count due to unreadable artifact.",
+                        {"artifact_name": artifact_name, "artifact_path": str(artifact_entry_path)},
+                    )
+
+        record_issued = parse_iso_ts(record_issued_raw) if record_issued_raw else None
+        if record_issued_raw and record_issued is None:
+            add_issue(
+                failures,
+                "invalid_execution_log_issued_time",
+                "execution_log_record.issued_at_utc must be ISO-8601 timestamp.",
+                {"issued_at_utc": record_issued_raw},
+            )
+        if issued_at_ts and record_issued and record_issued > issued_at_ts:
+            add_issue(
+                failures,
+                "execution_log_after_attestation_issue",
+                "execution-log record issued_at_utc must not exceed attestation issued_at_utc.",
+                {"record_issued_at_utc": record_issued.isoformat(), "attestation_issued_at_utc": issued_at_ts.isoformat()},
+            )
+
+    if (
+        require_independent_log_authority
+        and signing_fp
+        and observed_fp
+        and signing_fp.lower() == observed_fp.lower()
+    ):
+        add_issue(
+            failures,
+            "execution_log_authority_not_independent",
+            "assurance_policy requires independent execution-log authority key.",
+            {"signing_key_fingerprint": signing_fp.lower(), "log_key_fingerprint": observed_fp.lower()},
+        )
+
+    return {
+        "present": True,
+        "authority_id": authority_id,
+        "artifact_name": artifact_name,
+        "record_file": str(record_file) if record_file else None,
+        "signature_file": str(signature_file) if signature_file else None,
+        "public_key_file": str(public_key_file) if public_key_file else None,
+        "public_key_fingerprint_observed_sha256": observed_fp,
+        "signature_verification": verify_result,
+    }
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -1623,6 +1912,18 @@ def main() -> int:
         failures=failures,
         warnings=warnings,
     )
+    execution_log_summary = validate_execution_log_attestation(
+        spec_base=spec_base,
+        spec=spec,
+        payload_sha256=payload_digest_actual,
+        payload_study_id=payload_study_id,
+        payload_run_id=payload_run_id,
+        issued_at_ts=issued_at_ts,
+        signing_fp=signing_fp,
+        artifacts_summary=artifacts_summary,
+        failures=failures,
+        warnings=warnings,
+    )
 
     summary = {
         "attestation_spec": str(spec_path),
@@ -1638,6 +1939,7 @@ def main() -> int:
         "timestamp_trust": timestamp_summary,
         "transparency_log": transparency_summary,
         "execution_receipt": execution_receipt_summary,
+        "execution_log_attestation": execution_log_summary,
     }
 
     return finish(

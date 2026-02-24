@@ -40,6 +40,8 @@
 - Updated request contract to require `run_id` + `execution_attestation_spec` for publication-grade claims.
 - Added key assurance controls: fingerprint pinning, minimum key bits, key age/expiry checks, and revocation-list enforcement.
 - Added trusted timestamp record verification and transparency-log record verification.
+- Added signed execution-log attestation verification (`execution_log_attestation`) that binds `training_log` hash to signed payload hash and run identity.
+- Added independent-authority policy enforcement for execution-log attestation.
 
 ## Remaining Recommended Upgrades (Next Iteration)
 - Add machine-checkable TRIPOD+AI / PROBAST+AI compliance gate (reporting + risk-of-bias checklist JSON).

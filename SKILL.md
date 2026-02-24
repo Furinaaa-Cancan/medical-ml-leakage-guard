@@ -161,6 +161,12 @@ Create keypair once:
 mkdir -p keys
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/attestation_priv.pem
 openssl pkey -in keys/attestation_priv.pem -pubout -out keys/attestation_pub.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/timestamp_priv.pem
+openssl pkey -in keys/timestamp_priv.pem -pubout -out keys/timestamp_pub.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/execution_priv.pem
+openssl pkey -in keys/execution_priv.pem -pubout -out keys/execution_pub.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out keys/execution_log_priv.pem
+openssl pkey -in keys/execution_log_priv.pem -pubout -out keys/execution_log_pub.pem
 ```
 
 Generate payload + signature + spec in one command:
@@ -174,6 +180,15 @@ python3 scripts/generate_execution_attestation.py \
   --spec-out configs/execution_attestation.json \
   --private-key-file keys/attestation_priv.pem \
   --public-key-file keys/attestation_pub.pem \
+  --timestamp-private-key-file keys/timestamp_priv.pem \
+  --timestamp-public-key-file keys/timestamp_pub.pem \
+  --execution-private-key-file keys/execution_priv.pem \
+  --execution-public-key-file keys/execution_pub.pem \
+  --execution-log-private-key-file keys/execution_log_priv.pem \
+  --execution-log-public-key-file keys/execution_log_pub.pem \
+  --require-independent-timestamp-authority \
+  --require-independent-execution-authority \
+  --require-independent-log-authority \
   --command "python train.py --config configs/train_config.json --seed 42" \
   --artifact training_log=evidence/train.log \
   --artifact training_config=configs/train_config.json \
@@ -186,6 +201,7 @@ This command also creates:
 - `evidence/attestation_timestamp_record.json` + `.sig`
 - `evidence/attestation_transparency_record.json` + `.sig`
 - `evidence/attestation_execution_receipt_record.json` + `.sig`
+- `evidence/attestation_execution_log_record.json` + `.sig`
 
 ## Manual Strict Execution Order
 If orchestration is unavailable, run in this exact order:
@@ -221,6 +237,7 @@ If any step returns non-zero, stop and block claim release.
 - Never reuse revoked/expired/over-age signing keys for publication-grade claims.
 - Never omit trusted timestamp or transparency-log records for publication-grade claims.
 - Never omit signed execution-receipt proof (with exit code and timing consistency) for publication-grade claims.
+- Never omit signed execution-log attestation binding `training_log` to payload hash for publication-grade claims.
 - Never claim publication-grade if TRIPOD+AI/PROBAST+AI checklist has unmet required items.
 - Never accept publication-grade primary metrics from non-test evaluation splits; evaluation report must explicitly declare `split=test`.
 - Never claim publication-grade without valid primary-metric confidence interval and explicit baseline comparison in the evaluation artifact.
@@ -237,7 +254,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/request_contract_gate.py`: request schema and path validation.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
-- `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt generator for personal users.
+- `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt/execution-log generator for personal users.
 - `scripts/reporting_bias_gate.py`: TRIPOD+AI / PROBAST+AI / STARD-AI checklist hard gate.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
 - `scripts/split_protocol_gate.py`: enforce split protocol consistency and temporal/group safeguards.
@@ -267,6 +284,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/attestation-timestamp-record.example.json`: trusted timestamp record template.
 - `references/attestation-transparency-record.example.json`: transparency log record template.
 - `references/attestation-execution-receipt-record.example.json`: execution receipt record template.
+- `references/attestation-execution-log-record.example.json`: execution-log attestation record template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.

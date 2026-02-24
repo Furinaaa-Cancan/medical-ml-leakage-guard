@@ -79,6 +79,7 @@ def absolutize_attestation_paths(spec: Dict[str, Any], spec_dir: Path) -> Dict[s
         ("timestamp_trust", ["record_file", "signature_file", "public_key_file"]),
         ("transparency_log", ["record_file", "signature_file", "public_key_file"]),
         ("execution_receipt", ["record_file", "signature_file", "public_key_file"]),
+        ("execution_log_attestation", ["record_file", "signature_file", "public_key_file"]),
     ):
         block = cloned.get(block_name)
         if not isinstance(block, dict):
@@ -450,6 +451,45 @@ def main() -> int:
             ["missing_baseline_metrics"],
             cmd10,
             report10,
+        )
+    )
+
+    # 11) Execution log attestation tampering.
+    attestation_spec_log = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_log = absolutize_attestation_paths(attestation_spec_log, cfg_dir)
+    log_block = attestation_abs_log.get("execution_log_attestation")
+    if not isinstance(log_block, dict):
+        raise RuntimeError("execution_log_attestation block missing in attestation spec.")
+    log_record_file = Path(str(log_block["record_file"]))
+    tampered_log_record = tmp_root / "attestation_execution_log_record.tampered.json"
+    tampered_log_payload = load_json(log_record_file)
+    tampered_log_payload["artifact_sha256"] = "0" * 64
+    write_json(tampered_log_record, tampered_log_payload)
+    log_block["record_file"] = str(tampered_log_record)
+    attestation_log_bad = tmp_root / "execution_attestation.log.bad.json"
+    write_json(attestation_log_bad, attestation_abs_log)
+    report11 = tmp_root / "execution_attestation.log.bad.report.json"
+    cmd11 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_log_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report11),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "execution_log_attestation_tamper",
+            ["signature_verification_failed", "execution_log_artifact_hash_mismatch"],
+            cmd11,
+            report11,
         )
     )
 

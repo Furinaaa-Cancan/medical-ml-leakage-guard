@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "authority_id": "execution-log-authority-local",
+  "payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "study_id": "sepsis-risk-icu-v1",
+  "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
+  "artifact_name": "training_log",
+  "artifact_path": "/absolute/path/to/evidence/train.log",
+  "artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "line_count": 342,
+  "issued_at_utc": "2026-02-24T11:46:00Z"
+}

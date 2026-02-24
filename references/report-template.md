@@ -82,6 +82,8 @@
 - Revocation list evidence (`key_revocations.json`) and signing key lifecycle evidence:
 - Trusted timestamp record + signature (`attestation_timestamp_record.json`, `attestation_timestamp_record.sig`):
 - Transparency-log record + signature (`attestation_transparency_record.json`, `attestation_transparency_record.sig`):
+- Execution-receipt record + signature (`attestation_execution_receipt_record.json`, `attestation_execution_receipt_record.sig`):
+- Execution-log attestation record + signature (`attestation_execution_log_record.json`, `attestation_execution_log_record.sig`):
 - Re-run reproducibility check:
 - Baseline manifest comparison result (`manifest.comparison.matched`):
 - Evidence manifest (`manifest.json`):

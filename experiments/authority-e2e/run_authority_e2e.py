@@ -358,21 +358,24 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     copy_reference("tuning-protocol.example.json", cfg_dir / "tuning_protocol.json")
     copy_reference("reporting-bias-checklist.example.json", cfg_dir / "reporting_bias_checklist.json")
 
-    priv_key = key_dir / "attestation_priv.pem"
-    pub_key = key_dir / "attestation_pub.pem"
-    run_cmd(
-        [
-            "openssl",
-            "genpkey",
-            "-algorithm",
-            "RSA",
-            "-pkeyopt",
-            "rsa_keygen_bits:3072",
-            "-out",
-            str(priv_key),
-        ]
-    )
-    run_cmd(["openssl", "pkey", "-in", str(priv_key), "-pubout", "-out", str(pub_key)])
+    key_pairs: Dict[str, Tuple[Path, Path]] = {}
+    for role in ("attestation", "timestamp", "transparency", "execution", "execution_log"):
+        priv_key = key_dir / f"{role}_priv.pem"
+        pub_key = key_dir / f"{role}_pub.pem"
+        run_cmd(
+            [
+                "openssl",
+                "genpkey",
+                "-algorithm",
+                "RSA",
+                "-pkeyopt",
+                "rsa_keygen_bits:3072",
+                "-out",
+                str(priv_key),
+            ]
+        )
+        run_cmd(["openssl", "pkey", "-in", str(priv_key), "-pubout", "-out", str(pub_key)])
+        key_pairs[role] = (priv_key, pub_key)
 
     study_id = f"{case.case_id}-study-v1"
     run_id = f"{case.case_id}-run-001"
@@ -391,9 +394,28 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "--spec-out",
             str(cfg_dir / "execution_attestation.json"),
             "--private-key-file",
-            str(priv_key),
+            str(key_pairs["attestation"][0]),
             "--public-key-file",
-            str(pub_key),
+            str(key_pairs["attestation"][1]),
+            "--timestamp-private-key-file",
+            str(key_pairs["timestamp"][0]),
+            "--timestamp-public-key-file",
+            str(key_pairs["timestamp"][1]),
+            "--transparency-private-key-file",
+            str(key_pairs["transparency"][0]),
+            "--transparency-public-key-file",
+            str(key_pairs["transparency"][1]),
+            "--execution-private-key-file",
+            str(key_pairs["execution"][0]),
+            "--execution-public-key-file",
+            str(key_pairs["execution"][1]),
+            "--execution-log-private-key-file",
+            str(key_pairs["execution_log"][0]),
+            "--execution-log-public-key-file",
+            str(key_pairs["execution_log"][1]),
+            "--require-independent-timestamp-authority",
+            "--require-independent-execution-authority",
+            "--require-independent-log-authority",
             "--command",
             f"python train_model.py --case {case.case_id}",
             "--artifact",
