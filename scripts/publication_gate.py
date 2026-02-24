@@ -19,6 +19,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", required=True, help="Path to manifest JSON.")
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--split-protocol-report", required=True, help="Path to split protocol gate report JSON.")
+    parser.add_argument(
+        "--covariate-shift-report",
+        required=True,
+        help="Path to covariate-shift gate report JSON.",
+    )
     parser.add_argument("--definition-report", required=True, help="Path to definition-variable guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
     parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy gate report JSON.")
@@ -101,6 +106,7 @@ def main() -> int:
         "manifest": args.manifest,
         "leakage_report": args.leakage_report,
         "split_protocol_report": args.split_protocol_report,
+        "covariate_shift_report": args.covariate_shift_report,
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
         "imbalance_report": args.imbalance_report,
@@ -166,6 +172,7 @@ def main() -> int:
         "request_report",
         "leakage_report",
         "split_protocol_report",
+        "covariate_shift_report",
         "definition_report",
         "lineage_report",
         "imbalance_report",

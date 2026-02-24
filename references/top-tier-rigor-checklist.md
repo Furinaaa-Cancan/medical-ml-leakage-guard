@@ -15,6 +15,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Ensure train/valid/test split files are distinct physical datasets (no path reuse).
 - [ ] Document sample counts and event rates per split.
 - [ ] Audit row overlap and entity overlap across splits.
+- [ ] Audit train-vs-holdout covariate shift (feature distribution drift + missingness drift).
 
 ## C. Feature Legality
 - [ ] Confirm each feature is available at or before `t_index`.
@@ -53,6 +54,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 
 ## G. Robustness and Falsification
 - [ ] Run label permutation test (expect chance-level metrics).
+- [ ] Run split separability (adversarial validation/proxy) and justify if holdout is highly separable.
 - [ ] Run time-slice robustness analysis.
 - [ ] Run group holdout robustness analysis.
 - [ ] Run seed sensitivity analysis across multiple seeds.

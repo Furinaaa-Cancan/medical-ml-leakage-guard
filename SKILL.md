@@ -69,18 +69,19 @@ Use this internal sequence in order:
 2. Lock data/config fingerprints (`manifest_lock.py`).
 3. Run split/time leakage gate (`leakage_gate.py`).
 4. Run split protocol gate (`split_protocol_gate.py`).
-5. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
-6. Run lineage leakage gate (`feature_lineage_gate.py`).
-7. Run imbalance policy gate (`imbalance_policy_gate.py`).
-8. Run missingness policy gate (`missingness_policy_gate.py`).
-9. Run tuning leakage gate (`tuning_leakage_gate.py`).
-10. Run metric consistency gate (`metric_consistency_gate.py`).
-11. Run permutation falsification gate (`permutation_significance_gate.py`).
-12. Aggregate publication gate (`publication_gate.py`).
-13. Run self-critique scoring gate (`self_critique_gate.py`).
-14. Emit final report only if all strict gates pass.
+5. Run covariate-shift gate (`covariate_shift_gate.py`).
+6. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
+7. Run lineage leakage gate (`feature_lineage_gate.py`).
+8. Run imbalance policy gate (`imbalance_policy_gate.py`).
+9. Run missingness policy gate (`missingness_policy_gate.py`).
+10. Run tuning leakage gate (`tuning_leakage_gate.py`).
+11. Run metric consistency gate (`metric_consistency_gate.py`).
+12. Run permutation falsification gate (`permutation_significance_gate.py`).
+13. Aggregate publication gate (`publication_gate.py`).
+14. Run self-critique scoring gate (`self_critique_gate.py`).
+15. Emit final report only if all strict gates pass.
 
-Treat disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
+Treat disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
 ## Output Contract (Machine-Parseable)
 Produce these deterministic artifacts:
@@ -88,16 +89,17 @@ Produce these deterministic artifacts:
 2. `evidence/manifest.json`
 3. `evidence/leakage_report.json`
 4. `evidence/split_protocol_report.json`
-5. `evidence/definition_guard_report.json`
-6. `evidence/lineage_report.json`
-7. `evidence/imbalance_policy_report.json`
-8. `evidence/missingness_policy_report.json`
-9. `evidence/tuning_leakage_report.json`
-10. `evidence/metric_consistency_report.json`
-11. `evidence/permutation_report.json`
-12. `evidence/publication_gate_report.json`
-13. `evidence/self_critique_report.json`
-14. `evidence/strict_pipeline_report.json`
+5. `evidence/covariate_shift_report.json`
+6. `evidence/definition_guard_report.json`
+7. `evidence/lineage_report.json`
+8. `evidence/imbalance_policy_report.json`
+9. `evidence/missingness_policy_report.json`
+10. `evidence/tuning_leakage_report.json`
+11. `evidence/metric_consistency_report.json`
+12. `evidence/permutation_report.json`
+13. `evidence/publication_gate_report.json`
+14. `evidence/self_critique_report.json`
+15. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -138,15 +140,16 @@ If orchestration is unavailable, run in this exact order:
 2. `manifest_lock.py` (with optional `--compare-with`)
 3. `leakage_gate.py`
 4. `split_protocol_gate.py`
-5. `definition_variable_guard.py`
-6. `feature_lineage_gate.py`
-7. `imbalance_policy_gate.py`
-8. `missingness_policy_gate.py`
-9. `tuning_leakage_gate.py`
-10. `metric_consistency_gate.py`
-11. `permutation_significance_gate.py`
-12. `publication_gate.py`
-13. `self_critique_gate.py`
+5. `covariate_shift_gate.py`
+6. `definition_variable_guard.py`
+7. `feature_lineage_gate.py`
+8. `imbalance_policy_gate.py`
+9. `missingness_policy_gate.py`
+10. `tuning_leakage_gate.py`
+11. `metric_consistency_gate.py`
+12. `permutation_significance_gate.py`
+13. `publication_gate.py`
+14. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -157,6 +160,7 @@ If any step returns non-zero, stop and block claim release.
 - Never select thresholds or calibrate probabilities on test split.
 - Never fit imputers on validation/test distributions.
 - Never use target/outcome information for feature imputation.
+- Never ignore severe train-vs-holdout distribution separability without explicit mitigation and downgrade.
 - Never accept publication-grade primary metrics from non-test evaluation splits; evaluation report must explicitly declare `split=test`.
 - Never include variables used to define the disease label as model predictors.
 - Never include derived features whose lineage contains disease-defining variables.
@@ -172,6 +176,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
 - `scripts/split_protocol_gate.py`: enforce split protocol consistency and temporal/group safeguards.
+- `scripts/covariate_shift_gate.py`: train-vs-holdout covariate-shift and split separability risk gate.
 - `scripts/definition_variable_guard.py`: hard gate against disease-definition variable leakage.
 - `scripts/feature_lineage_gate.py`: hard gate against lineage-derived leakage.
 - `scripts/imbalance_policy_gate.py`: validate class-imbalance strategy and train-only resampling policy.
@@ -193,4 +198,5 @@ If any step returns non-zero, stop and block claim release.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
 - `references/top-tier-rigor-checklist.md`: submission-grade hard gates.
+- `references/external-benchmark-comparison.md`: external tool/guideline comparison and gap map.
 - `references/report-template.md`: reporting template for methods/results/robustness.

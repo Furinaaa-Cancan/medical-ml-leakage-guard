@@ -107,6 +107,7 @@ def main() -> int:
         "manifest": evidence_dir / "manifest.json",
         "leakage_report": evidence_dir / "leakage_report.json",
         "split_protocol_report": evidence_dir / "split_protocol_report.json",
+        "covariate_shift_report": evidence_dir / "covariate_shift_report.json",
         "definition_report": evidence_dir / "definition_guard_report.json",
         "lineage_report": evidence_dir / "lineage_report.json",
         "imbalance_report": evidence_dir / "imbalance_policy_report.json",
@@ -218,6 +219,7 @@ def main() -> int:
         str(scripts_dir / "manifest_lock.py"),
         str(scripts_dir / "leakage_gate.py"),
         str(scripts_dir / "split_protocol_gate.py"),
+        str(scripts_dir / "covariate_shift_gate.py"),
         str(scripts_dir / "definition_variable_guard.py"),
         str(scripts_dir / "feature_lineage_gate.py"),
         str(scripts_dir / "imbalance_policy_gate.py"),
@@ -302,7 +304,25 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 5: definition variable guard
+    # Step 5: covariate shift gate
+    if not execute(
+        "covariate_shift_gate",
+        [
+            args.python,
+            str(scripts_dir / "covariate_shift_gate.py"),
+            *split_args,
+            "--target-col",
+            label_col,
+            "--ignore-cols",
+            f"{id_col},{time_col}",
+            "--report",
+            str(reports["covariate_shift_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 6: definition variable guard
     if not execute(
         "definition_variable_guard",
         [
@@ -324,7 +344,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 6: lineage gate
+    # Step 7: lineage gate
     if not execute(
         "feature_lineage_gate",
         [
@@ -348,7 +368,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 7: imbalance policy gate
+    # Step 8: imbalance policy gate
     if not execute(
         "imbalance_policy_gate",
         [
@@ -366,7 +386,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 8: missingness policy gate
+    # Step 9: missingness policy gate
     if not execute(
         "missingness_policy_gate",
         [
@@ -386,7 +406,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 9: tuning leakage gate
+    # Step 10: tuning leakage gate
     if not execute(
         "tuning_leakage_gate",
         [
@@ -403,7 +423,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 10: metric consistency gate
+    # Step 11: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -437,7 +457,7 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 11: permutation significance gate
+    # Step 12: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -460,7 +480,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 12: publication gate
+    # Step 13: publication gate
     if not execute(
         "publication_gate",
         [
@@ -474,6 +494,8 @@ def main() -> int:
             str(reports["leakage_report"]),
             "--split-protocol-report",
             str(reports["split_protocol_report"]),
+            "--covariate-shift-report",
+            str(reports["covariate_shift_report"]),
             "--definition-report",
             str(reports["definition_report"]),
             "--lineage-report",
@@ -495,7 +517,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 13: self critique
+    # Step 14: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -509,6 +531,8 @@ def main() -> int:
             str(reports["leakage_report"]),
             "--split-protocol-report",
             str(reports["split_protocol_report"]),
+            "--covariate-shift-report",
+            str(reports["covariate_shift_report"]),
             "--definition-report",
             str(reports["definition_report"]),
             "--lineage-report",

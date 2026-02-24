@@ -29,6 +29,7 @@
 - Train/validation/test sample counts:
 - Event prevalence by split:
 - Split protocol artifact (`split_protocol_report.json`):
+- Covariate-shift artifact (`covariate_shift_report.json`):
 
 ## 5. Leakage Controls
 - Leakage risk register summary:
@@ -59,6 +60,7 @@
 
 ## 8. Robustness and Falsification
 - Label permutation test results:
+- Split separability/covariate-shift risk assessment:
 - Time-slice robustness:
 - Group-holdout robustness:
 - Seed sensitivity:
@@ -80,6 +82,7 @@
 - Evidence manifest (`manifest.json`):
 - Gate script fingerprint lock (all strict gate scripts included in manifest):
 - Split protocol gate artifact (`split_protocol_report.json`):
+- Covariate-shift gate artifact (`covariate_shift_report.json`):
 - Imbalance policy gate artifact (`imbalance_policy_report.json`):
 - Missingness policy gate artifact (`missingness_policy_report.json`):
 - Tuning leakage gate artifact (`tuning_leakage_report.json`):
