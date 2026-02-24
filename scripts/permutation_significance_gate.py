@@ -43,13 +43,22 @@ def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Di
     bucket.append({"code": code, "message": message, "details": details})
 
 
+def parse_finite_float(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError("Boolean is not a valid numeric value.")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError("Non-finite numeric value.")
+    return parsed
+
+
 def parse_text_values(payload: str) -> List[float]:
     values: List[float] = []
     for line in payload.splitlines():
         s = line.strip()
         if not s:
             continue
-        values.append(float(s))
+        values.append(parse_finite_float(s))
     return values
 
 
@@ -61,12 +70,12 @@ def load_null_metrics(path: Path) -> List[float]:
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, list):
-            return [float(x) for x in parsed]
+            return [parse_finite_float(x) for x in parsed]
         if isinstance(parsed, dict):
             for key in ("metrics", "null_metrics", "values"):
                 value = parsed.get(key)
                 if isinstance(value, list):
-                    return [float(x) for x in value]
+                    return [parse_finite_float(x) for x in value]
     except json.JSONDecodeError:
         pass
 
@@ -85,6 +94,42 @@ def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
+
+    if not math.isfinite(args.actual):
+        add_issue(
+            failures,
+            "invalid_actual_metric",
+            "Observed metric must be finite.",
+            {"actual": args.actual},
+        )
+        return finish(args, failures, warnings, [])
+
+    if not math.isfinite(args.alpha) or not (0.0 < args.alpha <= 1.0):
+        add_issue(
+            failures,
+            "invalid_alpha",
+            "alpha must be finite and within (0, 1].",
+            {"alpha": args.alpha},
+        )
+        return finish(args, failures, warnings, [])
+
+    if not math.isfinite(args.min_delta) or args.min_delta < 0.0:
+        add_issue(
+            failures,
+            "invalid_min_delta",
+            "min-delta must be finite and >= 0.",
+            {"min_delta": args.min_delta},
+        )
+        return finish(args, failures, warnings, [])
+
+    if args.min_permutations <= 0:
+        add_issue(
+            failures,
+            "invalid_min_permutations",
+            "min-permutations must be >= 1.",
+            {"min_permutations": args.min_permutations},
+        )
+        return finish(args, failures, warnings, [])
 
     null_path = Path(args.null_metrics_file).expanduser().resolve()
     if not null_path.exists():

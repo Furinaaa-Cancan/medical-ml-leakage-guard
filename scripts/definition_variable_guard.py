@@ -96,7 +96,7 @@ def compile_patterns(patterns: Iterable[str]) -> Tuple[List[re.Pattern[str]], Li
     errors: List[str] = []
     for pattern in patterns:
         try:
-            compiled.append(re.compile(pattern))
+            compiled.append(re.compile(pattern, flags=re.IGNORECASE))
         except re.error as exc:
             errors.append(f"Invalid regex '{pattern}': {exc}")
     return compiled, errors

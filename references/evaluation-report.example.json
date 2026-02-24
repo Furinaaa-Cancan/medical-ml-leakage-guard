@@ -1,0 +1,12 @@
+{
+  "model_id": "xgb_sepsis_v3",
+  "split": "test",
+  "metrics": {
+    "roc_auc": 0.79,
+    "pr_auc": 0.44,
+    "brier": 0.12
+  },
+  "calibration": {
+    "ece": 0.03
+  }
+}

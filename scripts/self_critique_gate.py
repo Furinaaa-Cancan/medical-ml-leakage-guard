@@ -19,9 +19,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--definition-report", required=True, help="Path to definition guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
+    parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
     parser.add_argument("--publication-report", required=True, help="Path to publication gate report JSON.")
     parser.add_argument("--min-score", type=float, default=95.0, help="Minimum score for publication-grade readiness.")
+    parser.add_argument(
+        "--allow-missing-comparison",
+        action="store_true",
+        help="Allow missing manifest comparison section without strict failure.",
+    )
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail when warnings exist or score below threshold.")
     return parser.parse_args()
@@ -58,9 +64,18 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
     if "insufficient_quality_score" in codes:
         recs.append("Increase robustness evidence and reduce warnings to lift quality score.")
+    if "manifest_not_comparable" in codes:
+        recs.append("Provide baseline manifest comparison to satisfy strict reproducibility gate.")
     if not recs:
         recs.append("No blocking critique findings detected.")
     return recs
+
+
+def warning_is_blocking(issue: Dict[str, Any], args: argparse.Namespace) -> bool:
+    code = str(issue.get("code", ""))
+    if args.strict and args.allow_missing_comparison and code == "manifest_not_comparable":
+        return False
+    return True
 
 
 def main() -> int:
@@ -75,6 +90,7 @@ def main() -> int:
         "leakage_report": args.leakage_report,
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
+        "metric_report": args.metric_report,
         "permutation_report": args.permutation_report,
         "publication_report": args.publication_report,
     }
@@ -128,6 +144,7 @@ def main() -> int:
         "leakage_report",
         "definition_report",
         "lineage_report",
+        "metric_report",
         "permutation_report",
         "publication_report",
     ):
@@ -171,18 +188,23 @@ def main() -> int:
             reproducibility_comparison_evaluated = False
 
     if manifest is not None and reproducibility_comparison_evaluated is False:
-        # Non-blocking advisory surfaced in report metadata, not as a warning/failure.
-        pass
+        add_issue(
+            failures if (args.strict and not args.allow_missing_comparison) else warnings,
+            "manifest_not_comparable",
+            "Manifest has no comparison section; rerun consistency not evaluated.",
+            {},
+        )
 
     # Weighted score emphasizes phenotype integrity and lineage coverage.
     weights = {
-        "request_report": 12.0,
-        "manifest": 13.0,
+        "request_report": 10.0,
+        "manifest": 12.0,
         "leakage_report": 18.0,
         "definition_report": 20.0,
-        "lineage_report": 17.0,
-        "permutation_report": 12.0,
-        "publication_report": 8.0,
+        "lineage_report": 16.0,
+        "metric_report": 10.0,
+        "permutation_report": 10.0,
+        "publication_report": 4.0,
     }
     warn_penalty = 1.0
     quality_score = 0.0
@@ -209,7 +231,12 @@ def main() -> int:
             {"score": quality_score, "min_score": args.min_score},
         )
 
-    should_fail = bool(failures) or (args.strict and bool(warnings))
+    blocking_warning_count = (
+        sum(1 for issue in warnings if warning_is_blocking(issue, args))
+        if args.strict
+        else 0
+    )
+    should_fail = bool(failures) or (args.strict and blocking_warning_count > 0)
     claim_tier = "publication-grade-ready" if (not should_fail and quality_score >= args.min_score) else "not-ready"
     decision = "pass" if not should_fail else "fail"
 
@@ -221,6 +248,7 @@ def main() -> int:
         "claim_tier_decision": claim_tier,
         "failure_count": len(failures),
         "warning_count": len(warnings),
+        "blocking_warning_count": blocking_warning_count,
         "failures": failures,
         "warnings": warnings,
         "recommendations": summarize_recommendations(failures + warnings),

@@ -52,6 +52,7 @@ Red flags:
 Mitigation:
 - Maintain an allowlist of admissible features.
 - Run feature lineage review for each high-importance feature.
+- Check transitive lineage, not only direct ancestors.
 - Force ablation of suspect columns and compare metric drop.
 - Enforce `scripts/definition_variable_guard.py` against phenotype definition spec.
 
@@ -124,3 +125,4 @@ Run all checks:
 5. Verify preprocessing is fit only on training partitions.
 6. Verify tuning and thresholding avoid final test labels.
 7. Verify negative controls collapse to chance-level performance.
+8. Verify reported primary metric is extracted from a pinned path and is finite.

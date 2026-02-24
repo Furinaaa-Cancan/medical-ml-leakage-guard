@@ -91,7 +91,7 @@ def compile_patterns(patterns: Iterable[str]) -> Tuple[List[re.Pattern[str]], Li
     errors: List[str] = []
     for pattern in patterns:
         try:
-            compiled.append(re.compile(pattern))
+            compiled.append(re.compile(pattern, flags=re.IGNORECASE))
         except re.error as exc:
             errors.append(f"Invalid regex '{pattern}': {exc}")
     return compiled, errors
@@ -119,6 +119,41 @@ def normalize_lineage_payload(raw: Dict[str, Any]) -> Dict[str, List[str]]:
                 ancestors = [payload.strip()]
         lineage[feature.strip()] = ancestors
     return lineage
+
+
+def collect_transitive_candidates(
+    feature: str,
+    lineage_map: Dict[str, List[str]],
+    max_depth: int = 256,
+) -> Tuple[Set[str], List[List[str]], bool]:
+    candidates: Set[str] = {feature}
+    cycles: List[List[str]] = []
+    overflow = False
+    expanded: Set[str] = set()
+
+    def dfs(node: str, path: List[str], depth: int) -> None:
+        nonlocal overflow
+        if depth > max_depth:
+            overflow = True
+            return
+        if node in expanded:
+            return
+        ancestors = lineage_map.get(node, [])
+        for anc in ancestors:
+            anc_clean = anc.strip()
+            if not anc_clean:
+                continue
+            candidates.add(anc_clean)
+            if anc_clean in path:
+                start = path.index(anc_clean)
+                cycles.append(path[start:] + [anc_clean])
+                continue
+            dfs(anc_clean, path + [anc_clean], depth + 1)
+        expanded.add(node)
+
+    if feature in lineage_map:
+        dfs(feature, [feature], 0)
+    return candidates, cycles, overflow
 
 
 def main() -> int:
@@ -226,16 +261,27 @@ def main() -> int:
         )
 
     missing_lineage: List[str] = []
+    lineage_cycles: List[Dict[str, Any]] = []
+    lineage_depth_overflow_features: List[str] = []
     exact_hits: List[Dict[str, Any]] = []
     pattern_hits: List[Dict[str, Any]] = []
 
     for feature in checked_features:
-        ancestors = lineage_map.get(feature)
-        if ancestors is None:
+        if feature not in lineage_map:
             missing_lineage.append(feature)
             candidates = [feature]
         else:
-            candidates = [feature] + ancestors
+            transitive_candidates, cycles, overflow = collect_transitive_candidates(feature, lineage_map)
+            candidates = sorted(transitive_candidates)
+            if cycles:
+                lineage_cycles.append(
+                    {
+                        "feature": feature,
+                        "cycles": cycles,
+                    }
+                )
+            if overflow:
+                lineage_depth_overflow_features.append(feature)
 
         for candidate in candidates:
             c_norm = norm(candidate)
@@ -270,6 +316,22 @@ def main() -> int:
             "lineage_proxy_leakage",
             "Detected forbidden proxy patterns in feature lineage.",
             {"hits": pattern_hits},
+        )
+
+    if lineage_cycles:
+        add_issue(
+            failures,
+            "lineage_cycle_detected",
+            "Lineage spec contains cyclic dependencies.",
+            {"features_with_cycles": lineage_cycles},
+        )
+
+    if lineage_depth_overflow_features:
+        add_issue(
+            failures,
+            "lineage_depth_overflow",
+            "Lineage traversal exceeded maximum depth; lineage graph may be malformed.",
+            {"features": lineage_depth_overflow_features, "max_depth": 256},
         )
 
     if missing_lineage:

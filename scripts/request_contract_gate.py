@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -37,6 +39,10 @@ def parse_args() -> argparse.Namespace:
 
 def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
     bucket.append({"code": code, "message": message, "details": details})
+
+
+def is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
 
 
 def resolve_path(base: Path, value: str) -> Path:
@@ -80,15 +86,30 @@ def validate_thresholds(
     for key in ("alpha", "min_delta"):
         if key in thresholds:
             value = thresholds[key]
-            if isinstance(value, (int, float)):
+            if is_finite_number(value):
                 parsed[key] = float(value)
             else:
                 add_issue(
                     failures,
                     "invalid_threshold_value",
-                    "Threshold value must be numeric.",
+                    "Threshold value must be a finite number.",
                     {"field": key, "actual_type": type(value).__name__},
                 )
+
+    if "alpha" in parsed and not (0.0 < parsed["alpha"] <= 1.0):
+        add_issue(
+            failures,
+            "invalid_threshold_alpha_range",
+            "thresholds.alpha must be within (0, 1].",
+            {"alpha": parsed["alpha"]},
+        )
+    if "min_delta" in parsed and parsed["min_delta"] < 0.0:
+        add_issue(
+            failures,
+            "invalid_threshold_min_delta_range",
+            "thresholds.min_delta must be >= 0.",
+            {"min_delta": parsed["min_delta"]},
+        )
 
     if strict and "alpha" not in parsed:
         add_issue(
@@ -109,15 +130,19 @@ def validate_thresholds(
 
 def require_numeric(request: Dict[str, Any], key: str, failures: List[Dict[str, Any]]) -> Optional[float]:
     value = request.get(key)
-    if isinstance(value, (int, float)):
+    if is_finite_number(value):
         return float(value)
     add_issue(
         failures,
         "invalid_numeric_field",
-        "Required field must be numeric.",
+        "Required field must be a finite number.",
         {"field": key, "actual_type": type(value).__name__ if value is not None else None},
     )
     return None
+
+
+def is_valid_dot_path(path: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", path))
 
 
 def validate_optional_path(
@@ -295,15 +320,52 @@ def main() -> int:
         normalized=normalized,
     )
 
+    validate_optional_path(
+        request=request,
+        key="evaluation_report_file",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    metric_path = request.get("evaluation_metric_path")
+    if metric_path is None:
+        if require_lineage:
+            add_issue(
+                failures,
+                "missing_required_field",
+                "Publication-grade request requires evaluation_metric_path to pin canonical metric source.",
+                {"field": "evaluation_metric_path"},
+            )
+    elif isinstance(metric_path, str) and metric_path.strip():
+        metric_path_clean = metric_path.strip()
+        if not is_valid_dot_path(metric_path_clean):
+            add_issue(
+                failures,
+                "invalid_field",
+                "evaluation_metric_path must be a dot path using alphanumeric/underscore segments.",
+                {"field": "evaluation_metric_path", "value": metric_path_clean},
+            )
+        else:
+            normalized["evaluation_metric_path"] = metric_path_clean
+    else:
+        add_issue(
+            failures,
+            "invalid_field",
+            "evaluation_metric_path must be a non-empty string when provided.",
+            {"field": "evaluation_metric_path"},
+        )
+
     if request.get("actual_primary_metric") is not None:
         actual_metric = request.get("actual_primary_metric")
-        if isinstance(actual_metric, (int, float)):
+        if is_finite_number(actual_metric):
             normalized["actual_primary_metric"] = float(actual_metric)
         else:
             add_issue(
                 failures,
                 "invalid_numeric_field",
-                "actual_primary_metric must be numeric when provided.",
+                "actual_primary_metric must be a finite number when provided.",
                 {"actual_type": type(actual_metric).__name__},
             )
     elif require_lineage:

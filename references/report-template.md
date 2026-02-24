@@ -47,6 +47,8 @@
 - Secondary metrics:
 - Confidence interval procedure:
 - Baselines:
+- Evaluation report artifact and explicit metric extraction path (`evaluation_metric_path`):
+- Metric-source consistency check (no conflicting duplicate metric values):
 
 ## 8. Robustness and Falsification
 - Label permutation test results:
@@ -68,6 +70,7 @@
 - Config files and random seeds:
 - Re-run reproducibility check:
 - Evidence manifest (`manifest.json`):
+- Metric consistency artifact (`metric_consistency_report.json`):
 - Publication gate artifact (`publication_gate_report.json`):
 
 ## 11. Limitations and Scope

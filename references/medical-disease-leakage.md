@@ -41,7 +41,12 @@ Maintain a JSON spec with:
 
 Also maintain a feature-lineage spec:
 - `features.<feature>.ancestors`: raw variables contributing to each derived feature.
+- Include transitive ancestry where derived features depend on intermediate derived features.
 - Require near-complete lineage coverage for publication-grade claims.
+
+For publication-grade metric integrity:
+- Pin one canonical metric location with `evaluation_metric_path`.
+- Reject reports with conflicting duplicated metric values or non-finite metrics (`NaN`, `Inf`).
 
 Minimal example:
 

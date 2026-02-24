@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional baseline manifest JSON path for reproducibility comparison.",
     )
     parser.add_argument(
+        "--allow-missing-compare",
+        action="store_true",
+        help="Allow strict run without manifest baseline comparison (first-run bootstrap).",
+    )
+    parser.add_argument(
         "--python",
         default=sys.executable,
         help="Python executable for running gate scripts.",
@@ -90,6 +95,7 @@ def main() -> int:
         "leakage_report": evidence_dir / "leakage_report.json",
         "definition_report": evidence_dir / "definition_guard_report.json",
         "lineage_report": evidence_dir / "lineage_report.json",
+        "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
         "publication_report": evidence_dir / "publication_gate_report.json",
         "self_critique_report": evidence_dir / "self_critique_report.json",
@@ -147,8 +153,10 @@ def main() -> int:
         metric_name = str(normalized["primary_metric"])
         phenotype_spec = str(normalized["phenotype_definition_spec"])
         lineage_spec = str(normalized["feature_lineage_spec"])
+        evaluation_report_file = str(normalized["evaluation_report_file"])
+        evaluation_metric_path = normalized.get("evaluation_metric_path")
         null_metrics_file = str(normalized["permutation_null_metrics_file"])
-        actual_metric = ensure_number(normalized.get("actual_primary_metric"), "actual_primary_metric")
+        expected_metric = ensure_number(normalized.get("actual_primary_metric"), "actual_primary_metric")
         thresholds = normalized.get("thresholds", {})
         if not isinstance(thresholds, dict):
             thresholds = {}
@@ -252,7 +260,39 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 6: permutation significance gate
+    # Step 6: metric consistency gate
+    metric_consistency_cmd = [
+        args.python,
+        str(scripts_dir / "metric_consistency_gate.py"),
+        "--evaluation-report",
+        evaluation_report_file,
+        "--metric-name",
+        metric_name,
+        "--expected",
+        str(expected_metric),
+        "--report",
+        str(reports["metric_consistency_report"]),
+        *strict_flag,
+    ]
+    if isinstance(evaluation_metric_path, str) and evaluation_metric_path:
+        metric_consistency_cmd.extend(["--metric-path", evaluation_metric_path])
+
+    if not execute(
+        "metric_consistency_gate",
+        metric_consistency_cmd,
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    metric_consistency_report = load_json(reports["metric_consistency_report"])
+    try:
+        actual_metric = ensure_number(
+            metric_consistency_report.get("actual_metric"), "metric_consistency_report.actual_metric"
+        )
+    except Exception as exc:
+        print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
+        return finalize(args, reports, steps, success=False)
+
+    # Step 7: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -275,7 +315,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 7: publication gate
+    # Step 8: publication gate
     if not execute(
         "publication_gate",
         [
@@ -291,6 +331,8 @@ def main() -> int:
             str(reports["definition_report"]),
             "--lineage-report",
             str(reports["lineage_report"]),
+            "--metric-report",
+            str(reports["metric_consistency_report"]),
             "--permutation-report",
             str(reports["permutation_report"]),
             "--report",
@@ -300,7 +342,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 8: self critique
+    # Step 9: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -316,6 +358,8 @@ def main() -> int:
             str(reports["definition_report"]),
             "--lineage-report",
             str(reports["lineage_report"]),
+            "--metric-report",
+            str(reports["metric_consistency_report"]),
             "--permutation-report",
             str(reports["permutation_report"]),
             "--publication-report",
@@ -324,6 +368,7 @@ def main() -> int:
             "95",
             "--report",
             str(reports["self_critique_report"]),
+            *(["--allow-missing-comparison"] if args.allow_missing_compare else []),
             *strict_flag,
         ],
     ):

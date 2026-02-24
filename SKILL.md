@@ -32,6 +32,8 @@ Required fields:
 
 Publication-grade required fields:
 - `feature_lineage_spec`
+- `evaluation_report_file`
+- `evaluation_metric_path`
 - `permutation_null_metrics_file`
 - `actual_primary_metric`
 
@@ -41,6 +43,7 @@ Path semantics:
 Template:
 - `references/request-schema.example.json`
 - `references/feature-lineage.example.json`
+- `references/evaluation-report.example.json`
 
 Validate request first:
 
@@ -58,12 +61,13 @@ Use this internal sequence in order:
 3. Run split/time leakage gate (`leakage_gate.py`).
 4. Run phenotype-definition leakage gate (`definition_variable_guard.py`).
 5. Run lineage leakage gate (`feature_lineage_gate.py`).
-6. Run permutation falsification gate (`permutation_significance_gate.py`).
-7. Aggregate publication gate (`publication_gate.py`).
-8. Run self-critique scoring gate (`self_critique_gate.py`).
-9. Emit final report only if all strict gates pass.
+6. Run metric consistency gate (`metric_consistency_gate.py`).
+7. Run permutation falsification gate (`permutation_significance_gate.py`).
+8. Aggregate publication gate (`publication_gate.py`).
+9. Run self-critique scoring gate (`self_critique_gate.py`).
+10. Emit final report only if all strict gates pass.
 
-Treat disease-definition leakage and lineage ambiguity as critical failure in strict mode.
+Treat disease-definition leakage, lineage ambiguity, and metric-source ambiguity as critical failure in strict mode.
 
 ## Output Contract (Machine-Parseable)
 Produce these deterministic artifacts:
@@ -72,10 +76,11 @@ Produce these deterministic artifacts:
 3. `evidence/leakage_report.json`
 4. `evidence/definition_guard_report.json`
 5. `evidence/lineage_report.json`
-6. `evidence/permutation_report.json`
-7. `evidence/publication_gate_report.json`
-8. `evidence/self_critique_report.json`
-9. `evidence/strict_pipeline_report.json`
+6. `evidence/metric_consistency_report.json`
+7. `evidence/permutation_report.json`
+8. `evidence/publication_gate_report.json`
+9. `evidence/self_critique_report.json`
+10. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -104,7 +109,9 @@ python3 scripts/run_strict_pipeline.py \
   --strict
 ```
 
-`--compare-manifest` is optional but recommended for rerun consistency checks.
+For first-run baseline bootstrap, you may omit `--compare-manifest` only with:
+- `--allow-missing-compare`
+- In strict mode this downgrades only `manifest_not_comparable` to non-blocking warning; other warnings still block.
 
 ## Manual Strict Execution Order
 If orchestration is unavailable, run in this exact order:
@@ -113,9 +120,10 @@ If orchestration is unavailable, run in this exact order:
 3. `leakage_gate.py`
 4. `definition_variable_guard.py`
 5. `feature_lineage_gate.py`
-6. `permutation_significance_gate.py`
-7. `publication_gate.py`
-8. `self_critique_gate.py`
+6. `metric_consistency_gate.py`
+7. `permutation_significance_gate.py`
+8. `publication_gate.py`
+9. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -137,6 +145,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/leakage_gate.py`: split contamination, ID overlap, and temporal boundary checks.
 - `scripts/definition_variable_guard.py`: hard gate against disease-definition variable leakage.
 - `scripts/feature_lineage_gate.py`: hard gate against lineage-derived leakage.
+- `scripts/metric_consistency_gate.py`: extract and validate metric from evaluation report.
 - `scripts/permutation_significance_gate.py`: falsification significance gate.
 - `scripts/publication_gate.py`: aggregate fail-closed publication gate.
 - `scripts/self_critique_gate.py`: quality scoring and reviewer-grade self-critique gate.
@@ -144,6 +153,7 @@ If any step returns non-zero, stop and block claim release.
 ### references/
 - `references/request-schema.example.json`: structured request template.
 - `references/feature-lineage.example.json`: lineage map template.
+- `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
 - `references/top-tier-rigor-checklist.md`: submission-grade hard gates.

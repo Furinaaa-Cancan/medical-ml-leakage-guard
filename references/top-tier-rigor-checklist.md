@@ -38,6 +38,9 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Report confidence intervals (bootstrap or repeated resampling).
 - [ ] Report baseline comparisons (naive, linear/simple models).
 - [ ] Report class imbalance handling and prevalence context.
+- [ ] Extract primary metric from evaluation report artifact (no manual metric injection).
+- [ ] Pin explicit metric path and confirm no conflicting duplicate metric values in the artifact.
+- [ ] Reject non-finite metric values (`NaN`, `Inf`) in all evidence files.
 
 ## G. Robustness and Falsification
 - [ ] Run label permutation test (expect chance-level metrics).

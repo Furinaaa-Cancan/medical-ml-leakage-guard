@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--leakage-report", required=True, help="Path to leakage report JSON.")
     parser.add_argument("--definition-report", required=True, help="Path to definition-variable guard report JSON.")
     parser.add_argument("--lineage-report", required=True, help="Path to lineage gate report JSON.")
+    parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
     parser.add_argument("--report", help="Optional output publication gate report path.")
     parser.add_argument("--strict", action="store_true", help="Require strict-mode component reports.")
@@ -96,6 +97,7 @@ def main() -> int:
         "leakage_report": args.leakage_report,
         "definition_report": args.definition_report,
         "lineage_report": args.lineage_report,
+        "metric_report": args.metric_report,
         "permutation_report": args.permutation_report,
     }
 
@@ -156,9 +158,21 @@ def main() -> int:
         "leakage_report",
         "definition_report",
         "lineage_report",
+        "metric_report",
         "permutation_report",
     ):
         validate_component_status(component, loaded.get(component), failures, warnings, args.strict)
+
+    metric_report = loaded.get("metric_report")
+    if isinstance(metric_report, dict):
+        actual_metric = metric_report.get("actual_metric")
+        if not isinstance(actual_metric, (int, float)):
+            add_issue(
+                failures,
+                "metric_report_missing_actual",
+                "Metric consistency report must contain numeric actual_metric.",
+                {"actual_metric_type": type(actual_metric).__name__ if actual_metric is not None else None},
+            )
 
     should_fail = bool(failures) or (args.strict and bool(warnings))
     quality_score = max(0.0, min(100.0, 100.0 - 20.0 * len(failures) - 2.5 * len(warnings)))
