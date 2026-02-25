@@ -367,11 +367,11 @@ def main() -> int:
         else float(args.npv_floor)
     )
     selection_data = str(args.selection_data).strip().lower()
-    if selection_data not in {"valid", "cv_inner", "nested_cv"}:
-        raise SystemExit("--selection-data must be valid/cv_inner/nested_cv.")
+    if selection_data not in {"valid", "cv_inner"}:
+        raise SystemExit("--selection-data in this trainer must be valid/cv_inner.")
     threshold_selection_split = str(args.threshold_selection_split).strip().lower()
-    if threshold_selection_split not in {"valid", "cv_inner", "nested_cv"}:
-        raise SystemExit("--threshold-selection-split must be valid/cv_inner/nested_cv.")
+    if threshold_selection_split != "valid":
+        raise SystemExit("--threshold-selection-split in this trainer must be valid.")
 
     train_df = load_split(args.train)
     valid_df = load_split(args.valid)
@@ -381,13 +381,23 @@ def main() -> int:
     X_train, y_train = prepare_xy(train_df, feature_cols, args.target_col)
     X_valid, y_valid = prepare_xy(valid_df, feature_cols, args.target_col)
     X_test, y_test = prepare_xy(test_df, feature_cols, args.target_col)
+    if len(np.unique(y_valid)) < 2:
+        raise SystemExit("valid split must contain both classes for threshold/model selection.")
 
     candidates = build_candidates(args.random_seed)
     candidate_rows: List[Dict[str, Any]] = []
     for cand in candidates:
-        mean_score, std_score, n_folds = cv_score_pr_auc(
-            cand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
-        )
+        if selection_data == "cv_inner":
+            mean_score, std_score, n_folds = cv_score_pr_auc(
+                cand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
+            )
+        else:
+            model = clone(cand["estimator"])
+            model.fit(X_train, y_train)
+            valid_proba = predict_proba_1(model, X_valid)
+            mean_score = float(average_precision_score(y_valid, valid_proba))
+            std_score = 0.0
+            n_folds = 1
         candidate_rows.append(
             {
                 "model_id": cand["model_id"],
