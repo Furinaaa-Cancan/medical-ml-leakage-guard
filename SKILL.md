@@ -37,12 +37,15 @@ Publication-grade required fields:
 - `imbalance_policy_spec`
 - `missingness_policy_spec`
 - `tuning_protocol_spec`
+- `performance_policy_spec`
 - `reporting_bias_checklist_spec`
 - `execution_attestation_spec`
+- `model_selection_report_file`
 - `evaluation_report_file`
 - `evaluation_metric_path`
 - `permutation_null_metrics_file`
 - `actual_primary_metric`
+- `primary_metric` must be `pr_auc` for publication-grade strict mode.
 - `evaluation_metric_path` terminal token must match `primary_metric` (after normalization).
 
 Optional threshold keys under `thresholds`:
@@ -59,6 +62,7 @@ Template:
 - `references/imbalance-policy.example.json`
 - `references/missingness-policy.example.json`
 - `references/tuning-protocol.example.json`
+- `references/performance-policy.example.json`
 - `references/reporting-bias-checklist.example.json`
 - `references/execution-attestation.example.json`
 - `references/attestation-payload.example.json`
@@ -93,12 +97,15 @@ Use this internal sequence in order:
 10. Run imbalance policy gate (`imbalance_policy_gate.py`).
 11. Run missingness policy gate (`missingness_policy_gate.py`).
 12. Run tuning leakage gate (`tuning_leakage_gate.py`).
-13. Run metric consistency gate (`metric_consistency_gate.py`).
-14. Run evaluation quality gate (`evaluation_quality_gate.py`).
-15. Run permutation falsification gate (`permutation_significance_gate.py`).
-16. Aggregate publication gate (`publication_gate.py`).
-17. Run self-critique scoring gate (`self_critique_gate.py`).
-18. Emit final report only if all strict gates pass.
+13. Run model-selection audit gate (`model_selection_audit_gate.py`).
+14. Run clinical-metrics gate (`clinical_metrics_gate.py`).
+15. Run generalization-gap gate (`generalization_gap_gate.py`).
+16. Run metric consistency gate (`metric_consistency_gate.py`).
+17. Run evaluation quality gate (`evaluation_quality_gate.py`).
+18. Run permutation falsification gate (`permutation_significance_gate.py`).
+19. Aggregate publication gate (`publication_gate.py`).
+20. Run self-critique scoring gate (`self_critique_gate.py`).
+21. Emit final report only if all strict gates pass.
 
 Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt/execution-log/witness-quorum/cross-role-authority-distinctness), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
@@ -116,12 +123,15 @@ Produce these deterministic artifacts:
 10. `evidence/imbalance_policy_report.json`
 11. `evidence/missingness_policy_report.json`
 12. `evidence/tuning_leakage_report.json`
-13. `evidence/metric_consistency_report.json`
-14. `evidence/evaluation_quality_report.json`
-15. `evidence/permutation_report.json`
-16. `evidence/publication_gate_report.json`
-17. `evidence/self_critique_report.json`
-18. `evidence/strict_pipeline_report.json`
+13. `evidence/model_selection_audit_report.json`
+14. `evidence/clinical_metrics_report.json`
+15. `evidence/generalization_gap_report.json`
+16. `evidence/metric_consistency_report.json`
+17. `evidence/evaluation_quality_report.json`
+18. `evidence/permutation_report.json`
+19. `evidence/publication_gate_report.json`
+20. `evidence/self_critique_report.json`
+21. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -231,11 +241,14 @@ If orchestration is unavailable, run in this exact order:
 10. `imbalance_policy_gate.py`
 11. `missingness_policy_gate.py`
 12. `tuning_leakage_gate.py`
-13. `metric_consistency_gate.py`
-14. `evaluation_quality_gate.py`
-15. `permutation_significance_gate.py`
-16. `publication_gate.py`
-17. `self_critique_gate.py`
+13. `model_selection_audit_gate.py`
+14. `clinical_metrics_gate.py`
+15. `generalization_gap_gate.py`
+16. `metric_consistency_gate.py`
+17. `evaluation_quality_gate.py`
+18. `permutation_significance_gate.py`
+19. `publication_gate.py`
+20. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -246,7 +259,11 @@ If any step returns non-zero, stop and block claim release.
 - Never select thresholds or calibrate probabilities on test split.
 - Never fit imputers on validation/test distributions.
 - Never use target/outcome information for feature imputation.
+- Never run MICE at oversized scale without audited fallback evidence (`mice_with_scale_guard`).
 - Never ignore severe train-vs-holdout distribution separability without explicit mitigation and downgrade.
+- Never perform model ranking/selection with any test-derived signal.
+- Never release without full split-level clinical metrics (accuracy/precision/PPV/NPV/sensitivity/specificity/F1/F2-beta/ROC-AUC/PR-AUC/Brier).
+- Never ignore train/valid/test gap breaches beyond configured fail thresholds.
 - Never claim publication-grade without signed execution attestation proving run command, timing, and artifact hashes.
 - Never reuse revoked/expired/over-age signing keys for publication-grade claims.
 - Never omit trusted timestamp or transparency-log records for publication-grade claims.
@@ -279,11 +296,15 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/imbalance_policy_gate.py`: validate class-imbalance strategy and train-only resampling policy.
 - `scripts/missingness_policy_gate.py`: validate missing-data strategy, large-scale method suitability, and imputer isolation policy.
 - `scripts/tuning_leakage_gate.py`: validate hyperparameter tuning/test-isolation protocol.
+- `scripts/model_selection_audit_gate.py`: validate candidate pool, one-SE replay, and test-isolated model selection.
+- `scripts/clinical_metrics_gate.py`: validate clinical metric completeness and confusion-matrix consistency per split.
+- `scripts/generalization_gap_gate.py`: fail-closed overfitting gap checks across train/valid/test.
 - `scripts/metric_consistency_gate.py`: extract and validate metric from evaluation report.
 - `scripts/evaluation_quality_gate.py`: enforce primary-metric CI quality and baseline improvement checks.
 - `scripts/permutation_significance_gate.py`: falsification significance gate.
 - `scripts/publication_gate.py`: aggregate fail-closed publication gate.
 - `scripts/self_critique_gate.py`: quality scoring and reviewer-grade self-critique gate.
+- `scripts/train_select_evaluate.py`: terminal-ready training, model selection, threshold selection, and evaluation artifact generator.
 
 ### references/
 - `references/request-schema.example.json`: structured request template.
@@ -292,6 +313,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/imbalance-policy.example.json`: class-imbalance policy template.
 - `references/missingness-policy.example.json`: missing-data/imputation policy template.
 - `references/tuning-protocol.example.json`: hyperparameter tuning protocol template.
+- `references/performance-policy.example.json`: metric panel/threshold/gap policy template.
 - `references/reporting-bias-checklist.example.json`: TRIPOD+AI / PROBAST+AI / STARD-AI checklist template.
 - `references/execution-attestation.example.json`: signed execution-attestation spec template.
 - `references/attestation-payload.example.json`: signed payload template with artifact hashes.

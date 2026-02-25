@@ -81,7 +81,7 @@ Red flags:
 Mitigation:
 - Fit imputers on train folds only and forward-apply to valid/test.
 - Exclude target/outcome from imputation features.
-- For very large tables, prefer scalable train-fitted simple imputers plus missing indicators.
+- For very large tables, enforce `mice_with_scale_guard` fallback or use scalable train-fitted simple imputers plus missing indicators.
 
 ## 6. Hyperparameter and Model Selection Leakage
 Definition:

@@ -913,6 +913,176 @@ def main() -> int:
         )
     )
 
+    # 22) Model-selection report leaks test-derived ranking fields.
+    model_selection = load_json(evidence_dir / "model_selection_report.json")
+    model_selection_bad = copy.deepcopy(model_selection)
+    candidates_bad = model_selection_bad.get("candidates")
+    if isinstance(candidates_bad, list) and candidates_bad and isinstance(candidates_bad[0], dict):
+        candidates_bad[0]["test_rank"] = 1
+    else:
+        model_selection_bad["test_rank"] = 1
+    model_selection_bad_path = tmp_root / "model_selection.bad.json"
+    write_json(model_selection_bad_path, model_selection_bad)
+    report22 = tmp_root / "model_selection_audit.bad.report.json"
+    cmd22 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "model_selection_audit_gate.py"),
+        "--model-selection-report",
+        str(model_selection_bad_path),
+        "--tuning-spec",
+        str(cfg_dir / "tuning_protocol.json"),
+        "--expected-primary-metric",
+        "pr_auc",
+        "--strict",
+        "--report",
+        str(report22),
+    ]
+    scenarios.append(execute_scenario("model_selection_test_ranking", ["test_data_usage_detected"], cmd22, report22))
+
+    # 23) Clinical metrics: missing required metric.
+    eval_report_missing_metric = load_json(evidence_dir / "evaluation_report.json")
+    eval_report_missing_metric_bad = copy.deepcopy(eval_report_missing_metric)
+    test_metrics_block = (
+        eval_report_missing_metric_bad.get("split_metrics", {})
+        .get("test", {})
+        .get("metrics")
+    )
+    if isinstance(test_metrics_block, dict):
+        test_metrics_block.pop("npv", None)
+    eval_missing_metric_path = tmp_root / "evaluation_report.missing_metric.json"
+    write_json(eval_missing_metric_path, eval_report_missing_metric_bad)
+    report23 = tmp_root / "clinical_metrics.missing_metric.report.json"
+    cmd23 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "clinical_metrics_gate.py"),
+        "--evaluation-report",
+        str(eval_missing_metric_path),
+        "--performance-policy",
+        str(cfg_dir / "performance_policy.json"),
+        "--strict",
+        "--report",
+        str(report23),
+    ]
+    scenarios.append(execute_scenario("clinical_metrics_missing_required", ["missing_required_metric"], cmd23, report23))
+
+    # 24) Clinical metrics: precision/ppv mismatch.
+    eval_report_ppv_bad = load_json(evidence_dir / "evaluation_report.json")
+    eval_report_ppv_bad_payload = copy.deepcopy(eval_report_ppv_bad)
+    test_metrics_ppv = (
+        eval_report_ppv_bad_payload.get("split_metrics", {})
+        .get("test", {})
+        .get("metrics")
+    )
+    if isinstance(test_metrics_ppv, dict):
+        test_metrics_ppv["ppv"] = float(test_metrics_ppv.get("precision", 0.5)) + 0.1
+    eval_ppv_bad_path = tmp_root / "evaluation_report.ppv_mismatch.json"
+    write_json(eval_ppv_bad_path, eval_report_ppv_bad_payload)
+    report24 = tmp_root / "clinical_metrics.ppv_mismatch.report.json"
+    cmd24 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "clinical_metrics_gate.py"),
+        "--evaluation-report",
+        str(eval_ppv_bad_path),
+        "--performance-policy",
+        str(cfg_dir / "performance_policy.json"),
+        "--strict",
+        "--report",
+        str(report24),
+    ]
+    scenarios.append(execute_scenario("clinical_metrics_ppv_precision_mismatch", ["metric_formula_mismatch"], cmd24, report24))
+
+    # 25) Threshold selection uses forbidden test split.
+    eval_report_threshold_bad = load_json(evidence_dir / "evaluation_report.json")
+    eval_report_threshold_bad_payload = copy.deepcopy(eval_report_threshold_bad)
+    threshold_block = eval_report_threshold_bad_payload.get("threshold_selection")
+    if isinstance(threshold_block, dict):
+        threshold_block["selection_split"] = "test"
+    eval_threshold_bad_path = tmp_root / "evaluation_report.threshold_test_split.json"
+    write_json(eval_threshold_bad_path, eval_report_threshold_bad_payload)
+    report25 = tmp_root / "clinical_metrics.threshold_test_split.report.json"
+    cmd25 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "clinical_metrics_gate.py"),
+        "--evaluation-report",
+        str(eval_threshold_bad_path),
+        "--performance-policy",
+        str(cfg_dir / "performance_policy.json"),
+        "--strict",
+        "--report",
+        str(report25),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "threshold_selection_on_test_split",
+            ["test_split_used_for_threshold_selection"],
+            cmd25,
+            report25,
+        )
+    )
+
+    # 26) Generalization gap exceeds fail threshold.
+    eval_report_gap_bad = load_json(evidence_dir / "evaluation_report.json")
+    eval_report_gap_bad_payload = copy.deepcopy(eval_report_gap_bad)
+    split_metrics_gap = eval_report_gap_bad_payload.get("split_metrics")
+    if isinstance(split_metrics_gap, dict):
+        train_metrics_gap = split_metrics_gap.get("train", {}).get("metrics")
+        valid_metrics_gap = split_metrics_gap.get("valid", {}).get("metrics")
+        if isinstance(train_metrics_gap, dict):
+            train_metrics_gap["pr_auc"] = 0.95
+        if isinstance(valid_metrics_gap, dict):
+            valid_metrics_gap["pr_auc"] = 0.70
+    eval_gap_bad_path = tmp_root / "evaluation_report.gap_exceeds.json"
+    write_json(eval_gap_bad_path, eval_report_gap_bad_payload)
+    report26 = tmp_root / "generalization_gap.exceeds.report.json"
+    cmd26 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "generalization_gap_gate.py"),
+        "--evaluation-report",
+        str(eval_gap_bad_path),
+        "--performance-policy",
+        str(cfg_dir / "performance_policy.json"),
+        "--strict",
+        "--report",
+        str(report26),
+    ]
+    scenarios.append(execute_scenario("generalization_gap_exceeds", ["overfit_gap_exceeds_threshold"], cmd26, report26))
+
+    # 27) MICE scale guard violation (oversized with missing fallback evidence).
+    missingness_bad = load_json(cfg_dir / "missingness_policy.json")
+    missingness_bad_payload = copy.deepcopy(missingness_bad)
+    missingness_bad_payload["strategy"] = "mice_with_scale_guard"
+    missingness_bad_payload["mice_max_rows"] = 10
+    missingness_bad_payload["mice_max_cols"] = 5
+    missingness_bad_payload["scale_guard_evidence"] = {
+        "fallback_triggered": False,
+        "fallback_strategy": "mice",
+        "train_rows_seen": 1,
+        "feature_count_seen": 1,
+    }
+    missingness_bad_path = tmp_root / "missingness_policy.mice_guard.bad.json"
+    write_json(missingness_bad_path, missingness_bad_payload)
+    report27 = tmp_root / "missingness_policy.mice_guard.bad.report.json"
+    cmd27 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "missingness_policy_gate.py"),
+        "--policy-spec",
+        str(missingness_bad_path),
+        "--train",
+        str(data_dir / "train.csv"),
+        "--valid",
+        str(data_dir / "valid.csv"),
+        "--test",
+        str(data_dir / "test.csv"),
+        "--target-col",
+        label_col,
+        "--ignore-cols",
+        f"{id_col},{time_col}",
+        "--strict",
+        "--report",
+        str(report27),
+    ]
+    scenarios.append(execute_scenario("mice_scale_guard_violation", ["mice_scale_guard_violation"], cmd27, report27))
+
     summary = {
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "case_id": args.case_id,

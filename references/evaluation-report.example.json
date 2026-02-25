@@ -1,19 +1,104 @@
 {
   "model_id": "xgb_sepsis_v3",
   "split": "test",
+  "primary_metric": "pr_auc",
   "metrics": {
+    "accuracy": 0.8158995816,
+    "precision": 0.4736842105,
+    "ppv": 0.4736842105,
+    "npv": 0.947826087,
+    "sensitivity": 0.7777777778,
+    "specificity": 0.8236775819,
+    "f1": 0.5887850467,
+    "f2_beta": 0.6892778993,
     "roc_auc": 0.79,
     "pr_auc": 0.44,
     "brier": 0.12
   },
+  "split_metrics": {
+    "train": {
+      "metrics": {
+        "accuracy": 0.8638888889,
+        "precision": 0.5617977528,
+        "ppv": 0.5617977528,
+        "npv": 0.963099631,
+        "sensitivity": 0.8333333333,
+        "specificity": 0.87,
+        "f1": 0.6711409396,
+        "f2_beta": 0.7598784195,
+        "roc_auc": 0.86,
+        "pr_auc": 0.58,
+        "brier": 0.10
+      },
+      "confusion_matrix": {
+        "tp": 250,
+        "fp": 195,
+        "tn": 1305,
+        "fn": 50
+      }
+    },
+    "valid": {
+      "metrics": {
+        "accuracy": 0.8245614035,
+        "precision": 0.50,
+        "ppv": 0.50,
+        "npv": 0.9512195122,
+        "sensitivity": 0.80,
+        "specificity": 0.829787234,
+        "f1": 0.6153846154,
+        "f2_beta": 0.7142857143,
+        "roc_auc": 0.81,
+        "pr_auc": 0.49,
+        "brier": 0.11
+      },
+      "confusion_matrix": {
+        "tp": 96,
+        "fp": 96,
+        "tn": 468,
+        "fn": 24
+      }
+    },
+    "test": {
+      "metrics": {
+        "accuracy": 0.8158995816,
+        "precision": 0.4736842105,
+        "ppv": 0.4736842105,
+        "npv": 0.947826087,
+        "sensitivity": 0.7777777778,
+        "specificity": 0.8236775819,
+        "f1": 0.5887850467,
+        "f2_beta": 0.6892778993,
+        "roc_auc": 0.79,
+        "pr_auc": 0.44,
+        "brier": 0.12
+      },
+      "confusion_matrix": {
+        "tp": 63,
+        "fp": 70,
+        "tn": 327,
+        "fn": 18
+      }
+    }
+  },
+  "threshold_selection": {
+    "selection_split": "valid",
+    "strategy": "maximize_fbeta_under_floors",
+    "beta": 2.0,
+    "selected_threshold": 0.37,
+    "constraints": {
+      "sensitivity_min": 0.85,
+      "npv_min": 0.9
+    },
+    "constraints_satisfied": false
+  },
   "uncertainty": {
     "metrics": {
-      "roc_auc": {
+      "pr_auc": {
         "method": "bootstrap",
         "n_resamples": 1000,
         "ci_95": [
-          0.75,
-          0.83
+          0.39,
+          0.50
         ]
       }
     }
@@ -22,17 +107,16 @@
     "prevalence_model": {
       "metrics": {
         "roc_auc": 0.5,
-        "pr_auc": 0.19
+        "pr_auc": 0.19,
+        "brier": 0.18
       }
     },
-    "logistic_regression": {
+    "logistic_regression_baseline": {
       "metrics": {
         "roc_auc": 0.74,
-        "pr_auc": 0.39
+        "pr_auc": 0.39,
+        "brier": 0.14
       }
     }
-  },
-  "calibration": {
-    "ece": 0.03
   }
 }

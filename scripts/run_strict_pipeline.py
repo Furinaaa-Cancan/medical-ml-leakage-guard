@@ -115,6 +115,9 @@ def main() -> int:
         "imbalance_report": evidence_dir / "imbalance_policy_report.json",
         "missingness_report": evidence_dir / "missingness_policy_report.json",
         "tuning_report": evidence_dir / "tuning_leakage_report.json",
+        "model_selection_audit_report": evidence_dir / "model_selection_audit_report.json",
+        "clinical_metrics_report": evidence_dir / "clinical_metrics_report.json",
+        "generalization_gap_report": evidence_dir / "generalization_gap_report.json",
         "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
         "evaluation_quality_report": evidence_dir / "evaluation_quality_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
@@ -195,6 +198,8 @@ def main() -> int:
         tuning_protocol_spec = str(normalized["tuning_protocol_spec"])
         reporting_bias_checklist_spec = str(normalized["reporting_bias_checklist_spec"])
         execution_attestation_spec = str(normalized["execution_attestation_spec"])
+        performance_policy_spec = str(normalized["performance_policy_spec"])
+        model_selection_report_file = str(normalized["model_selection_report_file"])
         evaluation_report_file = str(normalized["evaluation_report_file"])
         evaluation_metric_path = normalized.get("evaluation_metric_path")
         null_metrics_file = str(normalized["permutation_null_metrics_file"])
@@ -293,6 +298,9 @@ def main() -> int:
         str(scripts_dir / "imbalance_policy_gate.py"),
         str(scripts_dir / "missingness_policy_gate.py"),
         str(scripts_dir / "tuning_leakage_gate.py"),
+        str(scripts_dir / "model_selection_audit_gate.py"),
+        str(scripts_dir / "clinical_metrics_gate.py"),
+        str(scripts_dir / "generalization_gap_gate.py"),
         str(scripts_dir / "metric_consistency_gate.py"),
         str(scripts_dir / "evaluation_quality_gate.py"),
         str(scripts_dir / "permutation_significance_gate.py"),
@@ -310,6 +318,8 @@ def main() -> int:
             missingness_policy_spec,
             tuning_protocol_spec,
             reporting_bias_checklist_spec,
+            performance_policy_spec,
+            model_selection_report_file,
             *attestation_extra_inputs,
             evaluation_report_file,
             null_metrics_file,
@@ -534,7 +544,60 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 13: metric consistency gate
+    # Step 13: model selection audit gate
+    if not execute(
+        "model_selection_audit_gate",
+        [
+            args.python,
+            str(scripts_dir / "model_selection_audit_gate.py"),
+            "--model-selection-report",
+            model_selection_report_file,
+            "--tuning-spec",
+            tuning_protocol_spec,
+            "--expected-primary-metric",
+            metric_name,
+            "--report",
+            str(reports["model_selection_audit_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 14: clinical metrics gate
+    if not execute(
+        "clinical_metrics_gate",
+        [
+            args.python,
+            str(scripts_dir / "clinical_metrics_gate.py"),
+            "--evaluation-report",
+            evaluation_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["clinical_metrics_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 15: generalization gap gate
+    if not execute(
+        "generalization_gap_gate",
+        [
+            args.python,
+            str(scripts_dir / "generalization_gap_gate.py"),
+            "--evaluation-report",
+            evaluation_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["generalization_gap_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 16: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -568,7 +631,7 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 14: evaluation quality gate
+    # Step 17: evaluation quality gate
     evaluation_quality_cmd = [
         args.python,
         str(scripts_dir / "evaluation_quality_gate.py"),
@@ -597,7 +660,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 15: permutation significance gate
+    # Step 18: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -620,7 +683,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 16: publication gate
+    # Step 19: publication gate
     if not execute(
         "publication_gate",
         [
@@ -650,6 +713,12 @@ def main() -> int:
             str(reports["missingness_report"]),
             "--tuning-report",
             str(reports["tuning_report"]),
+            "--model-selection-audit-report",
+            str(reports["model_selection_audit_report"]),
+            "--clinical-metrics-report",
+            str(reports["clinical_metrics_report"]),
+            "--generalization-gap-report",
+            str(reports["generalization_gap_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
             "--evaluation-quality-report",
@@ -663,7 +732,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 17: self critique
+    # Step 20: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -693,6 +762,12 @@ def main() -> int:
             str(reports["missingness_report"]),
             "--tuning-report",
             str(reports["tuning_report"]),
+            "--model-selection-audit-report",
+            str(reports["model_selection_audit_report"]),
+            "--clinical-metrics-report",
+            str(reports["clinical_metrics_report"]),
+            "--generalization-gap-report",
+            str(reports["generalization_gap_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
             "--evaluation-quality-report",

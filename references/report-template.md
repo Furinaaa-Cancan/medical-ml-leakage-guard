@@ -42,18 +42,25 @@
 
 ## 6. Modeling Pipeline
 - Candidate models and search space:
+- Model-selection evidence artifact (`model_selection_report.json`):
+- One-SE + simplicity replay result (`model_selection_audit_report.json`):
 - Preprocessing pipeline:
 - Hyperparameter optimization procedure:
 - Calibration and threshold selection protocol:
 - Class-imbalance strategy and train-only scope proof (`imbalance_policy_report.json`):
-- Missingness policy and large-data method suitability proof (`missingness_policy_report.json`):
+- Missingness policy and large-data method suitability proof (`missingness_policy_report.json`, include `mice_with_scale_guard` fallback evidence):
 - Tuning leakage isolation proof (`tuning_leakage_report.json`):
 
 ## 7. Evaluation Plan
 - Primary metrics:
 - Secondary metrics:
+- Required clinical metrics panel (accuracy, precision/PPV, NPV, sensitivity, specificity, F1, F2-beta, ROC-AUC, PR-AUC, Brier):
+- Split-level metrics and confusion matrices (`split_metrics.train/valid/test`):
+- Clinical metrics consistency artifact (`clinical_metrics_report.json`):
 - Confidence interval procedure:
 - Baselines:
+- Generalization gap policy (`performance_policy.json -> gap_thresholds`):
+- Generalization gap artifact (`generalization_gap_report.json`):
 - Evaluation report artifact and explicit metric extraction path (`evaluation_metric_path`):
 - Evaluation report split declaration (`split=test`) for final claim metrics:
 - Metric-source consistency check (no conflicting duplicate metric values):
@@ -67,6 +74,7 @@
 - Suspect-feature ablation:
 
 ## 9. Main Results
+- Train vs valid vs test metric table (include gap columns):
 - Validation performance:
 - Final test performance:
 - Calibration results:
@@ -95,6 +103,9 @@
 - Imbalance policy gate artifact (`imbalance_policy_report.json`):
 - Missingness policy gate artifact (`missingness_policy_report.json`):
 - Tuning leakage gate artifact (`tuning_leakage_report.json`):
+- Model-selection audit artifact (`model_selection_audit_report.json`):
+- Clinical metrics gate artifact (`clinical_metrics_report.json`):
+- Generalization gap gate artifact (`generalization_gap_report.json`):
 - Metric consistency artifact (`metric_consistency_report.json`):
 - Publication gate artifact (`publication_gate_report.json`):
 

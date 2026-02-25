@@ -1,6 +1,6 @@
 {
   "search_method": "random_search",
-  "objective_metric": "roc_auc",
+  "objective_metric": "pr_auc",
   "hyperparameter_trials": 60,
   "model_selection_data": "nested_cv",
   "early_stopping_data": "cv_inner",

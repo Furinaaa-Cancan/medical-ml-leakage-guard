@@ -34,6 +34,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy report JSON.")
     parser.add_argument("--missingness-report", required=True, help="Path to missingness policy report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage report JSON.")
+    parser.add_argument("--model-selection-audit-report", required=True, help="Path to model selection audit report JSON.")
+    parser.add_argument("--clinical-metrics-report", required=True, help="Path to clinical metrics report JSON.")
+    parser.add_argument("--generalization-gap-report", required=True, help="Path to generalization gap report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
@@ -85,6 +88,12 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Regenerate signed execution attestation and verify detached signature against public key.")
     if "reporting_bias_report" in components:
         recs.append("Complete TRIPOD+AI/PROBAST+AI/STARD-AI checklist items and rerun reporting_bias_gate.")
+    if "model_selection_audit_report" in components:
+        recs.append("Repair model-selection evidence (candidate pool, one-SE replay, and test-isolation proof).")
+    if "clinical_metrics_report" in components:
+        recs.append("Regenerate split metrics with full clinical panel and confusion-matrix-consistent values.")
+    if "generalization_gap_report" in components:
+        recs.append("Reduce overfitting gap or tighten regularization before publication-grade claims.")
     if "component_not_strict" in codes:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
     if "evaluation_quality_report" in components:
@@ -126,6 +135,9 @@ def main() -> int:
         "imbalance_report": args.imbalance_report,
         "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
+        "model_selection_audit_report": args.model_selection_audit_report,
+        "clinical_metrics_report": args.clinical_metrics_report,
+        "generalization_gap_report": args.generalization_gap_report,
         "metric_report": args.metric_report,
         "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
@@ -197,6 +209,9 @@ def main() -> int:
         "imbalance_report",
         "missingness_report",
         "tuning_report",
+        "model_selection_audit_report",
+        "clinical_metrics_report",
+        "generalization_gap_report",
         "metric_report",
         "evaluation_quality_report",
         "permutation_report",
@@ -271,6 +286,9 @@ def main() -> int:
         "imbalance_report": 8.0,
         "missingness_report": 8.0,
         "tuning_report": 8.0,
+        "model_selection_audit_report": 8.0,
+        "clinical_metrics_report": 8.0,
+        "generalization_gap_report": 8.0,
         "metric_report": 7.0,
         "evaluation_quality_report": 8.0,
         "permutation_report": 7.0,

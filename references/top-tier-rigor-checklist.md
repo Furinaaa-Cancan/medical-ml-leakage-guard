@@ -31,10 +31,14 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Fit imputers only on train folds and apply transform forward to valid/test.
 - [ ] Do not use target/outcome values in feature imputation.
 - [ ] Avoid manual transformations that touch validation/test outcomes.
+- [ ] If using MICE-first strategy, enforce `mice_with_scale_guard` and audited fallback evidence on oversized data.
 
 ## E. Model Selection and Tuning
 - [ ] Tune hyperparameters using inner CV or validation only.
 - [ ] Select architecture without peeking at final test labels.
+- [ ] Keep candidate model pool >= 3 and include interpretable logistic baseline.
+- [ ] Keep model-selection report and audit one-SE + simplicity replay.
+- [ ] Ensure strict publication-grade objective metric is PR-AUC.
 - [ ] Select threshold/calibration without final test outcomes.
 - [ ] Restrict threshold/calibration split to validation or inner-CV scopes (never train/test).
 - [ ] Keep tuning protocol spec and prove all `test_used_*` flags are false.
@@ -46,6 +50,10 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Report confidence intervals (bootstrap or repeated resampling).
 - [ ] Report baseline comparisons (naive, linear/simple models).
 - [ ] Report class imbalance handling and prevalence context.
+- [ ] Report full clinical metric panel: accuracy, precision/PPV, NPV, sensitivity, specificity, F1, F2-beta, ROC-AUC, PR-AUC, Brier.
+- [ ] Provide split-level metric panel with confusion matrix for train/valid/test.
+- [ ] Validate precision==PPV and metric formulas against confusion matrix.
+- [ ] Enforce train-valid, valid-test, and train-test gap thresholds with fail-closed policy.
 - [ ] Extract primary metric from evaluation report artifact (no manual metric injection).
 - [ ] Require evaluation report to declare `split=test` for final primary metric claims.
 - [ ] Pin explicit metric path and confirm no conflicting duplicate metric values in the artifact.

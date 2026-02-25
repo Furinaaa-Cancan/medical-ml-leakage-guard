@@ -277,6 +277,7 @@ def main() -> int:
             "simple",
             "simple_with_indicator",
             "mice",
+            "mice_with_scale_guard",
             "missforest",
             "knn",
             "drop_rows",
@@ -384,7 +385,9 @@ def main() -> int:
             )
 
         if strategy and strategy.lower() in large_data_restricted_methods:
-            if (
+            if strategy == "mice_with_scale_guard":
+                pass
+            elif (
                 large_data_row_threshold is not None
                 and large_data_col_threshold is not None
                 and train_rows >= int(large_data_row_threshold)
@@ -404,7 +407,9 @@ def main() -> int:
                 )
 
         if strategy == "mice":
-            if mice_max_rows is not None and train_rows > int(mice_max_rows):
+            if (
+                mice_max_rows is not None and train_rows > int(mice_max_rows)
+            ):
                 add_issue(
                     failures,
                     "mice_row_scale_exceeded",
@@ -418,6 +423,98 @@ def main() -> int:
                     "MICE is not approved beyond configured feature limit.",
                     {"feature_count": feature_count, "mice_max_cols": int(mice_max_cols)},
                 )
+
+        if strategy == "mice_with_scale_guard":
+            scale_guard_evidence = policy.get("scale_guard_evidence")
+            if not isinstance(scale_guard_evidence, dict):
+                add_issue(
+                    failures,
+                    "mice_scale_guard_violation",
+                    "mice_with_scale_guard requires scale_guard_evidence object.",
+                    {
+                        "required_fields": [
+                            "fallback_triggered",
+                            "fallback_strategy",
+                            "train_rows_seen",
+                            "feature_count_seen",
+                        ]
+                    },
+                )
+            else:
+                fallback_triggered = scale_guard_evidence.get("fallback_triggered")
+                fallback_strategy = scale_guard_evidence.get("fallback_strategy")
+                rows_seen = scale_guard_evidence.get("train_rows_seen")
+                cols_seen = scale_guard_evidence.get("feature_count_seen")
+                parsed_rows_seen: Optional[int] = None
+                parsed_cols_seen: Optional[int] = None
+                if isinstance(rows_seen, bool):
+                    rows_seen = None
+                if isinstance(cols_seen, bool):
+                    cols_seen = None
+                try:
+                    parsed_rows_seen = int(rows_seen) if rows_seen is not None else None
+                except (TypeError, ValueError):
+                    parsed_rows_seen = None
+                try:
+                    parsed_cols_seen = int(cols_seen) if cols_seen is not None else None
+                except (TypeError, ValueError):
+                    parsed_cols_seen = None
+                should_trigger = False
+                if mice_max_rows is not None and train_rows > int(mice_max_rows):
+                    should_trigger = True
+                if mice_max_cols is not None and feature_count > int(mice_max_cols):
+                    should_trigger = True
+                if (
+                    large_data_row_threshold is not None
+                    and large_data_col_threshold is not None
+                    and train_rows >= int(large_data_row_threshold)
+                    and feature_count >= int(large_data_col_threshold)
+                ):
+                    should_trigger = True
+
+                if parsed_rows_seen is None or parsed_rows_seen != int(train_rows):
+                    add_issue(
+                        failures,
+                        "mice_scale_guard_violation",
+                        "scale_guard_evidence.train_rows_seen must match train row count.",
+                        {"train_rows_seen": rows_seen, "actual_train_rows": train_rows},
+                    )
+                if parsed_cols_seen is None or parsed_cols_seen != int(feature_count):
+                    add_issue(
+                        failures,
+                        "mice_scale_guard_violation",
+                        "scale_guard_evidence.feature_count_seen must match feature count.",
+                        {"feature_count_seen": cols_seen, "actual_feature_count": feature_count},
+                    )
+
+                if should_trigger:
+                    if fallback_triggered is not True:
+                        add_issue(
+                            failures,
+                            "mice_scale_guard_violation",
+                            "MICE scale guard must trigger fallback for oversized data.",
+                            {
+                                "fallback_triggered": fallback_triggered,
+                                "train_rows": train_rows,
+                                "feature_count": feature_count,
+                                "mice_max_rows": int(mice_max_rows) if mice_max_rows is not None else None,
+                                "mice_max_cols": int(mice_max_cols) if mice_max_cols is not None else None,
+                            },
+                        )
+                    if str(fallback_strategy).strip().lower() != "simple_with_indicator":
+                        add_issue(
+                            failures,
+                            "mice_scale_guard_violation",
+                            "Fallback strategy must be simple_with_indicator when guard triggers.",
+                            {"fallback_strategy": fallback_strategy},
+                        )
+                elif fallback_triggered is True:
+                    add_issue(
+                        warnings,
+                        "mice_scale_guard_unexpected_fallback",
+                        "Fallback triggered although size thresholds were not exceeded.",
+                        {"fallback_strategy": fallback_strategy},
+                    )
 
         if strategy == "none":
             total_missing = sum(int(train_stats["missing_by_col"].get(col, 0)) for col in feature_headers)

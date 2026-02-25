@@ -1,5 +1,5 @@
 {
-  "strategy": "simple_with_indicator",
+  "strategy": "mice_with_scale_guard",
   "imputer_fit_scope": "cv_inner_train_only",
   "add_missing_indicators": true,
   "complete_case_analysis": false,
@@ -15,11 +15,17 @@
   "large_data_col_threshold": 300,
   "mice_max_rows": 200000,
   "mice_max_cols": 200,
+  "scale_guard_evidence": {
+    "fallback_triggered": false,
+    "fallback_strategy": "simple_with_indicator",
+    "train_rows_seen": 120000,
+    "feature_count_seen": 120
+  },
   "large_data_restricted_methods": [
     "mice",
     "missforest",
     "knn"
   ],
   "allowed_high_missing_features": [],
-  "notes": "For large-scale medical tabular data, prefer train-fitted simple imputation + missing indicators unless justified otherwise."
+  "notes": "Prefer MICE by default. If scale thresholds are exceeded, enforce auditable fallback to simple_with_indicator."
 }

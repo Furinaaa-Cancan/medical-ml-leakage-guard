@@ -1,0 +1,59 @@
+{
+  "primary_metric": "pr_auc",
+  "required_metrics": [
+    "accuracy",
+    "precision",
+    "ppv",
+    "npv",
+    "sensitivity",
+    "specificity",
+    "f1",
+    "f2_beta",
+    "roc_auc",
+    "pr_auc",
+    "brier"
+  ],
+  "beta": 2.0,
+  "threshold_policy": {
+    "strategy": "maximize_fbeta_under_floors",
+    "selection_split": "valid",
+    "allowed_selection_splits": [
+      "valid",
+      "cv_inner",
+      "nested_cv"
+    ],
+    "clinical_floors": {
+      "sensitivity_min": 0.85,
+      "npv_min": 0.90
+    }
+  },
+  "clinical_floors": {
+    "sensitivity_min": 0.85,
+    "npv_min": 0.90
+  },
+  "gap_thresholds": {
+    "train_valid": {
+      "pr_auc": {
+        "warn": 0.05,
+        "fail": 0.08
+      }
+    },
+    "valid_test": {
+      "pr_auc": {
+        "warn": 0.04,
+        "fail": 0.06
+      },
+      "brier": {
+        "warn": 0.02,
+        "fail": 0.03
+      }
+    },
+    "train_test": {
+      "f2_beta": {
+        "warn": 0.07,
+        "fail": 0.10
+      }
+    }
+  },
+  "notes": "Publication-grade default policy: PR-AUC primary, high-sensitivity/high-NPV thresholding, and hard overfitting gap limits."
+}

@@ -5,11 +5,10 @@ End-to-end strict skill validation on authoritative public medical binary datase
 Workflow per dataset:
 1. Load and clean raw data.
 2. Build train/valid/test CSV splits with disjoint IDs and strict temporal ordering.
-3. Train a baseline model and compute real test AUROC/PR-AUC.
-4. Build permutation-null AUROC distribution.
-5. Generate signed execution attestation bundle.
-6. Run strict pipeline bootstrap (allow-missing-compare).
-7. Freeze manifest baseline and rerun strict pipeline with comparison.
+3. Run train_select_evaluate.py to emit model_selection_report + evaluation_report.
+4. Generate signed execution attestation bundle.
+5. Run strict pipeline bootstrap (allow-missing-compare).
+6. Freeze manifest baseline and rerun strict pipeline with comparison.
 """
 
 from __future__ import annotations
@@ -23,15 +22,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import joblib
-import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import brier_score_loss
-from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 
 @dataclass
@@ -138,7 +130,7 @@ def load_breast_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
 
 def split_with_temporal_order(df: pd.DataFrame, feature_cols: List[str], case_id: str) -> Dict[str, pd.DataFrame]:
     y = df["y"].to_numpy()
-    indices = np.arange(len(df))
+    indices = df.index.to_numpy()
     train_idx, temp_idx = train_test_split(
         indices,
         test_size=0.30,
@@ -154,9 +146,9 @@ def split_with_temporal_order(df: pd.DataFrame, feature_cols: List[str], case_id
     )
 
     split_map = {
-        "train": np.array(sorted(train_idx.tolist()), dtype=int),
-        "valid": np.array(sorted(valid_idx.tolist()), dtype=int),
-        "test": np.array(sorted(test_idx.tolist()), dtype=int),
+        "train": sorted(int(x) for x in train_idx),
+        "valid": sorted(int(x) for x in valid_idx),
+        "test": sorted(int(x) for x in test_idx),
     }
     starts = {
         "train": datetime(2020, 1, 1, tzinfo=timezone.utc),
@@ -165,9 +157,9 @@ def split_with_temporal_order(df: pd.DataFrame, feature_cols: List[str], case_id
     }
 
     output: Dict[str, pd.DataFrame] = {}
-    for split_name, idx in split_map.items():
-        sub = df.iloc[idx].copy().reset_index(drop=True)
-        patient_ids = [f"{case_id.upper()}_{int(i):06d}" for i in idx]
+    for split_name, idxs in split_map.items():
+        sub = df.loc[idxs].copy().reset_index(drop=True)
+        patient_ids = [f"{case_id.upper()}_{i:06d}" for i in idxs]
         times = [
             (starts[split_name] + timedelta(minutes=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
             for i in range(len(sub))
@@ -180,88 +172,49 @@ def split_with_temporal_order(df: pd.DataFrame, feature_cols: List[str], case_id
     return output
 
 
-def train_and_evaluate(
-    train_df: pd.DataFrame,
-    test_df: pd.DataFrame,
-    feature_cols: List[str],
-) -> Tuple[Pipeline, Dict[str, float], Dict[str, Any], List[float]]:
-    X_train = train_df[feature_cols].to_numpy(dtype=float)
-    y_train = train_df["y"].to_numpy(dtype=int)
-    X_test = test_df[feature_cols].to_numpy(dtype=float)
-    y_test = test_df["y"].to_numpy(dtype=int)
-
-    model = Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(max_iter=4000, solver="liblinear", random_state=20260224)),
-        ]
-    )
-    model.fit(X_train, y_train)
-    proba = model.predict_proba(X_test)[:, 1]
-    auroc = float(roc_auc_score(y_test, proba))
-    pr_auc = float(average_precision_score(y_test, proba))
-    brier = float(brier_score_loss(y_test, proba))
-
-    prevalence = float(np.mean(y_train))
-    baseline_proba = np.full(shape=y_test.shape[0], fill_value=prevalence, dtype=float)
-    baseline_auroc = float(roc_auc_score(y_test, baseline_proba))
-    baseline_pr_auc = float(average_precision_score(y_test, baseline_proba))
-
-    rng = np.random.default_rng(20260224)
-    null_metrics: List[float] = []
-    for _ in range(300):
-        y_perm = rng.permutation(y_test)
-        null_metrics.append(float(roc_auc_score(y_perm, proba)))
-
-    ci_samples: List[float] = []
-    n_test = y_test.shape[0]
-    for _ in range(500):
-        idx = rng.integers(0, n_test, n_test)
-        if len(np.unique(y_test[idx])) < 2:
-            continue
-        ci_samples.append(float(roc_auc_score(y_test[idx], proba[idx])))
-    if len(ci_samples) < 200:
-        raise RuntimeError(f"Insufficient bootstrap resamples for CI: {len(ci_samples)}")
-    ci_arr = np.array(ci_samples, dtype=float)
-    ci_lower, ci_upper = np.percentile(ci_arr, [2.5, 97.5]).tolist()
-
-    metrics = {
-        "roc_auc": round(auroc, 6),
-        "pr_auc": round(pr_auc, 6),
-        "brier": round(brier, 6),
-    }
-    quality = {
-        "uncertainty": {
-            "metrics": {
-                "roc_auc": {
-                    "method": "bootstrap",
-                    "n_resamples": int(len(ci_samples)),
-                    "ci_95": [round(float(ci_lower), 6), round(float(ci_upper), 6)],
-                }
-            }
-        },
-        "baselines": {
-            "prevalence_model": {
-                "metrics": {
-                    "roc_auc": round(baseline_auroc, 6),
-                    "pr_auc": round(baseline_pr_auc, 6),
-                }
-            }
-        },
-    }
-    return model, metrics, quality, null_metrics
-
-
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
 
 
+def load_json(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON root must be object: {path}")
+    return payload
+
+
 def copy_reference(src_name: str, dst_path: Path) -> None:
     src = REFERENCES_ROOT / src_name
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst_path)
+
+
+def update_missingness_policy(path: Path, train_rows: int, feature_count: int) -> None:
+    policy = load_json(path)
+    strategy = str(policy.get("strategy", "")).strip().lower()
+    if strategy != "mice_with_scale_guard":
+        write_json(path, policy)
+        return
+
+    mice_max_rows = int(policy.get("mice_max_rows", 200000))
+    mice_max_cols = int(policy.get("mice_max_cols", 200))
+    large_rows = int(policy.get("large_data_row_threshold", 1_000_000))
+    large_cols = int(policy.get("large_data_col_threshold", 300))
+    should_trigger = (
+        train_rows > mice_max_rows
+        or feature_count > mice_max_cols
+        or (train_rows >= large_rows and feature_count >= large_cols)
+    )
+    policy["scale_guard_evidence"] = {
+        "fallback_triggered": bool(should_trigger),
+        "fallback_strategy": "simple_with_indicator",
+        "train_rows_seen": int(train_rows),
+        "feature_count_seen": int(feature_count),
+    }
+    write_json(path, policy)
 
 
 def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
@@ -277,7 +230,6 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         raise ValueError(f"Unsupported case_id: {case.case_id}")
 
     splits = split_with_temporal_order(df, feature_cols, case.case_id)
-    model, metrics, quality, null_metrics = train_and_evaluate(splits["train"], splits["test"], feature_cols)
 
     case_root = DATA_ROOT / case.case_id
     data_dir = case_root / "data"
@@ -291,46 +243,16 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     for split_name, frame in splits.items():
         frame.to_csv(data_dir / f"{split_name}.csv", index=False)
 
-    model_path = model_dir / "logreg_model.joblib"
-    joblib.dump(model, model_path)
-
     config_payload = {
         "dataset_case": case.case_id,
         "source_name": case.source_name,
-        "model_type": "logistic_regression",
+        "model_pool": ["logistic_l2", "random_forest_balanced", "hist_gradient_boosting_l2"],
+        "selection_policy": "pr_auc + one_se + lower_complexity",
+        "threshold_policy": "maximize_f2_beta_under_sensitivity_npv_floors",
         "random_seed": 20260224,
         "features": feature_cols,
     }
     write_json(cfg_dir / "train_config.json", config_payload)
-
-    train_log_path = evidence_dir / "train.log"
-    train_log_lines = [
-        f"[INFO] case={case.case_id}",
-        "[INFO] model=LogisticRegression(liblinear)",
-        f"[INFO] feature_count={len(feature_cols)}",
-        f"[INFO] train_rows={len(splits['train'])}",
-        f"[INFO] valid_rows={len(splits['valid'])}",
-        f"[INFO] test_rows={len(splits['test'])}",
-        f"[INFO] test_roc_auc={metrics['roc_auc']:.6f}",
-        f"[INFO] test_pr_auc={metrics['pr_auc']:.6f}",
-        "[INFO] training_complete=true",
-    ]
-    train_log_path.write_text("\n".join(train_log_lines) + "\n", encoding="utf-8")
-
-    eval_report: Dict[str, Any] = {
-        "model_id": f"logreg_{case.case_id}",
-        "split": "test",
-        "metrics": {
-            "roc_auc": metrics["roc_auc"],
-            "pr_auc": metrics["pr_auc"],
-            "brier": metrics["brier"],
-        },
-    }
-    eval_report.update(quality)
-    write_json(evidence_dir / "evaluation_report.json", eval_report)
-    with (evidence_dir / "permutation_null_auc.txt").open("w", encoding="utf-8") as fh:
-        for value in null_metrics:
-            fh.write(f"{value:.6f}\n")
 
     phenotype_def = {
         "global_forbidden_patterns": ["(?i)target", "(?i)label"],
@@ -356,7 +278,75 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     copy_reference("imbalance-policy.example.json", cfg_dir / "imbalance_policy.json")
     copy_reference("missingness-policy.example.json", cfg_dir / "missingness_policy.json")
     copy_reference("tuning-protocol.example.json", cfg_dir / "tuning_protocol.json")
+    copy_reference("performance-policy.example.json", cfg_dir / "performance_policy.json")
     copy_reference("reporting-bias-checklist.example.json", cfg_dir / "reporting_bias_checklist.json")
+    update_missingness_policy(
+        cfg_dir / "missingness_policy.json",
+        train_rows=int(len(splits["train"])),
+        feature_count=int(len(feature_cols)),
+    )
+
+    model_path = model_dir / "selected_model.joblib"
+    model_selection_report_path = evidence_dir / "model_selection_report.json"
+    evaluation_report_path = evidence_dir / "evaluation_report.json"
+    permutation_null_path = evidence_dir / "permutation_null_pr_auc.txt"
+
+    run_cmd(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "train_select_evaluate.py"),
+            "--train",
+            str(data_dir / "train.csv"),
+            "--valid",
+            str(data_dir / "valid.csv"),
+            "--test",
+            str(data_dir / "test.csv"),
+            "--target-col",
+            "y",
+            "--ignore-cols",
+            "patient_id,event_time",
+            "--performance-policy",
+            str(cfg_dir / "performance_policy.json"),
+            "--selection-data",
+            "cv_inner",
+            "--threshold-selection-split",
+            "valid",
+            "--primary-metric",
+            "pr_auc",
+            "--random-seed",
+            "20260224",
+            "--model-selection-report-out",
+            str(model_selection_report_path),
+            "--evaluation-report-out",
+            str(evaluation_report_path),
+            "--model-out",
+            str(model_path),
+            "--permutation-null-out",
+            str(permutation_null_path),
+        ]
+    )
+
+    evaluation_report = load_json(evaluation_report_path)
+    selected_model_id = str(evaluation_report.get("model_id", "unknown_model"))
+    metrics = evaluation_report.get("metrics")
+    if not isinstance(metrics, dict):
+        raise RuntimeError("evaluation_report.metrics missing.")
+    primary_metric = float(metrics.get("pr_auc"))
+
+    train_log_path = evidence_dir / "train.log"
+    train_log_lines = [
+        f"[INFO] case={case.case_id}",
+        f"[INFO] selected_model={selected_model_id}",
+        "[INFO] model_pool=logistic_l2,random_forest_balanced,hist_gradient_boosting_l2",
+        f"[INFO] feature_count={len(feature_cols)}",
+        f"[INFO] train_rows={len(splits['train'])}",
+        f"[INFO] valid_rows={len(splits['valid'])}",
+        f"[INFO] test_rows={len(splits['test'])}",
+        f"[INFO] test_pr_auc={float(metrics.get('pr_auc')):.6f}",
+        f"[INFO] test_roc_auc={float(metrics.get('roc_auc')):.6f}",
+        "[INFO] training_complete=true",
+    ]
+    train_log_path.write_text("\n".join(train_log_lines) + "\n", encoding="utf-8")
 
     key_pairs: Dict[str, Tuple[Path, Path]] = {}
     for role in ("attestation", "timestamp", "transparency", "execution", "execution_log", "witness_a", "witness_b"):
@@ -426,7 +416,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "--witness",
             f"witness-b|{key_pairs['witness_b'][1]}|{key_pairs['witness_b'][0]}",
             "--command",
-            f"python train_model.py --case {case.case_id}",
+            f"python scripts/train_select_evaluate.py --train {data_dir / 'train.csv'} --valid {data_dir / 'valid.csv'} --test {data_dir / 'test.csv'} --primary-metric pr_auc",
             "--artifact",
             f"training_log={train_log_path}",
             "--artifact",
@@ -434,7 +424,9 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "--artifact",
             f"model_artifact={model_path}",
             "--artifact",
-            f"evaluation_report={evidence_dir / 'evaluation_report.json'}",
+            f"model_selection_report={model_selection_report_path}",
+            "--artifact",
+            f"evaluation_report={evaluation_report_path}",
         ]
     )
 
@@ -446,7 +438,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         "index_time_col": "event_time",
         "label_col": "y",
         "patient_id_col": "patient_id",
-        "primary_metric": "roc_auc",
+        "primary_metric": "pr_auc",
         "claim_tier_target": "publication-grade",
         "phenotype_definition_spec": "phenotype_definitions.json",
         "feature_lineage_spec": "feature_lineage.json",
@@ -454,17 +446,19 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         "imbalance_policy_spec": "imbalance_policy.json",
         "missingness_policy_spec": "missingness_policy.json",
         "tuning_protocol_spec": "tuning_protocol.json",
+        "performance_policy_spec": "performance_policy.json",
         "reporting_bias_checklist_spec": "reporting_bias_checklist.json",
         "execution_attestation_spec": "execution_attestation.json",
+        "model_selection_report_file": "../evidence/model_selection_report.json",
         "split_paths": {
             "train": "../data/train.csv",
             "valid": "../data/valid.csv",
             "test": "../data/test.csv",
         },
         "evaluation_report_file": "../evidence/evaluation_report.json",
-        "evaluation_metric_path": "metrics.roc_auc",
-        "permutation_null_metrics_file": "../evidence/permutation_null_auc.txt",
-        "actual_primary_metric": metrics["roc_auc"],
+        "evaluation_metric_path": "metrics.pr_auc",
+        "permutation_null_metrics_file": "../evidence/permutation_null_pr_auc.txt",
+        "actual_primary_metric": primary_metric,
         "thresholds": {
             "alpha": 0.01,
             "min_delta": 0.03,
@@ -520,9 +514,10 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         allow_fail=True,
     )
 
-    pipeline_report = json.loads(final_report.read_text(encoding="utf-8"))
-    self_critique_report = json.loads((evidence_dir / "self_critique_report.json").read_text(encoding="utf-8"))
-    publication_report = json.loads((evidence_dir / "publication_gate_report.json").read_text(encoding="utf-8"))
+    pipeline_report = load_json(final_report)
+    self_critique_report = load_json(evidence_dir / "self_critique_report.json")
+    publication_report = load_json(evidence_dir / "publication_gate_report.json")
+    gap_report = load_json(evidence_dir / "generalization_gap_report.json")
 
     return {
         "case_id": case.case_id,
@@ -533,6 +528,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "test": int(len(splits["test"])),
         },
         "metrics": metrics,
+        "gap_summary": gap_report.get("summary", {}),
         "bootstrap_exit_code": int(bootstrap_proc.returncode),
         "final_exit_code": int(final_proc.returncode),
         "pipeline_status": pipeline_report.get("status"),
@@ -543,6 +539,8 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "case_root": str(case_root),
             "request": str(cfg_dir / "request.json"),
             "pipeline_report": str(final_report),
+            "model_selection_report": str(model_selection_report_path),
+            "evaluation_report": str(evaluation_report_path),
         },
     }
 

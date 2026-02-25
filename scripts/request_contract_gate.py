@@ -187,6 +187,218 @@ def canonical_metric_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
+def validate_evaluation_report_shape(
+    evaluation_report_path: str,
+    failures: List[Dict[str, Any]],
+) -> None:
+    path = Path(evaluation_report_path).expanduser().resolve()
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if not isinstance(payload, dict):
+            raise ValueError("JSON root must be object.")
+    except Exception as exc:
+        add_issue(
+            failures,
+            "invalid_evaluation_report",
+            "Unable to parse evaluation_report_file JSON.",
+            {"path": str(path), "error": str(exc)},
+        )
+        return
+
+    split_metrics = payload.get("split_metrics")
+    if not isinstance(split_metrics, dict):
+        add_issue(
+            failures,
+            "evaluation_report_missing_split_metrics",
+            "evaluation_report_file must include split_metrics with train/valid/test entries.",
+            {
+                "path": str(path),
+                "migration_hint": "Add split_metrics.{train,valid,test}.metrics and confusion_matrix blocks.",
+            },
+        )
+    else:
+        for split_name in ("train", "valid", "test"):
+            block = split_metrics.get(split_name)
+            if not isinstance(block, dict):
+                add_issue(
+                    failures,
+                    "evaluation_report_missing_split_metrics",
+                    "Required split missing from evaluation_report split_metrics.",
+                    {"path": str(path), "split": split_name},
+                )
+                continue
+            if not isinstance(block.get("metrics"), dict):
+                add_issue(
+                    failures,
+                    "evaluation_report_missing_split_metrics",
+                    "split_metrics.<split>.metrics must be an object.",
+                    {"path": str(path), "split": split_name},
+                )
+            if not isinstance(block.get("confusion_matrix"), dict):
+                add_issue(
+                    failures,
+                    "evaluation_report_missing_split_metrics",
+                    "split_metrics.<split>.confusion_matrix must be an object.",
+                    {"path": str(path), "split": split_name},
+                )
+
+    threshold_selection = payload.get("threshold_selection")
+    if not isinstance(threshold_selection, dict):
+        add_issue(
+            failures,
+            "evaluation_report_missing_threshold_selection",
+            "evaluation_report_file must include threshold_selection metadata.",
+            {
+                "path": str(path),
+                "migration_hint": "Add threshold_selection.selection_split and selected_threshold.",
+            },
+        )
+    else:
+        selection_split = threshold_selection.get("selection_split")
+        if not isinstance(selection_split, str) or not selection_split.strip():
+            add_issue(
+                failures,
+                "evaluation_report_missing_threshold_selection",
+                "threshold_selection.selection_split must be a non-empty string.",
+                {"path": str(path)},
+            )
+        else:
+            token = selection_split.strip().lower()
+            allowed = {"valid", "cv_inner", "nested_cv"}
+            if token not in allowed:
+                add_issue(
+                    failures,
+                    "threshold_selection_split_invalid",
+                    "threshold_selection.selection_split must be valid/cv_inner/nested_cv (never train/test).",
+                    {"path": str(path), "selection_split": selection_split, "allowed": sorted(allowed)},
+                )
+
+
+def validate_performance_policy_spec(
+    policy_path: str,
+    failures: List[Dict[str, Any]],
+    expected_primary_metric: str,
+) -> None:
+    path = Path(policy_path).expanduser().resolve()
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if not isinstance(payload, dict):
+            raise ValueError("JSON root must be object.")
+    except Exception as exc:
+        add_issue(
+            failures,
+            "invalid_performance_policy_spec",
+            "Unable to parse performance_policy_spec JSON.",
+            {"path": str(path), "error": str(exc)},
+        )
+        return
+
+    required_keys = [
+        "required_metrics",
+        "primary_metric",
+        "threshold_policy",
+        "clinical_floors",
+        "gap_thresholds",
+        "beta",
+    ]
+    for key in required_keys:
+        if key not in payload:
+            add_issue(
+                failures,
+                "missing_performance_policy_field",
+                "performance_policy_spec is missing required field.",
+                {"path": str(path), "field": key},
+            )
+
+    primary_metric = payload.get("primary_metric")
+    if not isinstance(primary_metric, str) or not primary_metric.strip():
+        add_issue(
+            failures,
+            "invalid_performance_policy_field",
+            "performance_policy_spec.primary_metric must be a non-empty string.",
+            {"path": str(path)},
+        )
+    else:
+        if canonical_metric_token(primary_metric) != canonical_metric_token(expected_primary_metric):
+            add_issue(
+                failures,
+                "performance_policy_metric_mismatch",
+                "performance_policy_spec.primary_metric must match request primary_metric.",
+                {
+                    "path": str(path),
+                    "policy_primary_metric": primary_metric,
+                    "request_primary_metric": expected_primary_metric,
+                },
+            )
+
+    required_metrics = payload.get("required_metrics")
+    if not isinstance(required_metrics, list) or not required_metrics:
+        add_issue(
+            failures,
+            "invalid_performance_policy_field",
+            "performance_policy_spec.required_metrics must be a non-empty list.",
+            {"path": str(path)},
+        )
+
+    beta = payload.get("beta")
+    if not is_finite_number(beta) or float(beta) <= 0.0:
+        add_issue(
+            failures,
+            "invalid_performance_policy_field",
+            "performance_policy_spec.beta must be finite and > 0.",
+            {"path": str(path), "beta": beta},
+        )
+
+    threshold_policy = payload.get("threshold_policy")
+    if not isinstance(threshold_policy, dict):
+        add_issue(
+            failures,
+            "invalid_performance_policy_field",
+            "performance_policy_spec.threshold_policy must be an object.",
+            {"path": str(path)},
+        )
+    else:
+        selection_split = threshold_policy.get("selection_split")
+        allowed = {"valid", "cv_inner", "nested_cv"}
+        if not isinstance(selection_split, str) or selection_split.strip().lower() not in allowed:
+            add_issue(
+                failures,
+                "invalid_performance_policy_field",
+                "threshold_policy.selection_split must be valid/cv_inner/nested_cv.",
+                {"path": str(path), "selection_split": selection_split, "allowed": sorted(allowed)},
+            )
+
+    clinical_floors = payload.get("clinical_floors")
+    if not isinstance(clinical_floors, dict):
+        add_issue(
+            failures,
+            "invalid_performance_policy_field",
+            "performance_policy_spec.clinical_floors must be an object.",
+            {"path": str(path)},
+        )
+    else:
+        for key in ("sensitivity_min", "npv_min"):
+            value = clinical_floors.get(key)
+            if not is_finite_number(value) or not (0.0 <= float(value) <= 1.0):
+                add_issue(
+                    failures,
+                    "invalid_performance_policy_field",
+                    "clinical floor must be finite within [0,1].",
+                    {"path": str(path), "field": key, "value": value},
+                )
+
+    gap_thresholds = payload.get("gap_thresholds")
+    if not isinstance(gap_thresholds, dict):
+        add_issue(
+            failures,
+            "invalid_performance_policy_field",
+            "performance_policy_spec.gap_thresholds must be an object.",
+            {"path": str(path)},
+        )
+
+
 def validate_optional_path(
     request: Dict[str, Any],
     key: str,
@@ -387,6 +599,17 @@ def main() -> int:
 
     # Publication-grade requests must include lineage, split/imbalance/tuning protocol specs, and evaluated metric.
     require_lineage = normalized.get("claim_tier_target") == "publication-grade"
+
+    if require_lineage:
+        primary_metric = str(normalized.get("primary_metric", "")).strip()
+        if canonical_metric_token(primary_metric) != canonical_metric_token("pr_auc"):
+            add_issue(
+                failures,
+                "unsupported_primary_metric",
+                "Publication-grade strict workflow requires primary_metric=pr_auc.",
+                {"primary_metric": primary_metric, "expected": "pr_auc"},
+            )
+
     validate_optional_path(
         request=request,
         key="feature_lineage_spec",
@@ -452,12 +675,40 @@ def main() -> int:
 
     validate_optional_path(
         request=request,
+        key="performance_policy_spec",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
+        key="model_selection_report_file",
+        base=request_base,
+        failures=failures,
+        required=require_lineage,
+        normalized=normalized,
+    )
+
+    validate_optional_path(
+        request=request,
         key="evaluation_report_file",
         base=request_base,
         failures=failures,
         required=require_lineage,
         normalized=normalized,
     )
+    evaluation_report_file = normalized.get("evaluation_report_file")
+    if isinstance(evaluation_report_file, str) and evaluation_report_file:
+        validate_evaluation_report_shape(evaluation_report_file, failures)
+    performance_policy_spec = normalized.get("performance_policy_spec")
+    if isinstance(performance_policy_spec, str) and performance_policy_spec:
+        validate_performance_policy_spec(
+            performance_policy_spec,
+            failures=failures,
+            expected_primary_metric=str(normalized.get("primary_metric", "")).strip(),
+        )
 
     metric_path = request.get("evaluation_metric_path")
     if metric_path is None:

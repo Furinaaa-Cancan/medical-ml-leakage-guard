@@ -158,8 +158,22 @@ def is_auxiliary_metric_path(path: str) -> bool:
         "null_distribution",
         "null_metrics",
         "uncertainty",
+        "threshold_selection",
+        "metadata",
     }
     return any(token in auxiliary_tokens for token in tokens)
+
+
+def is_allowed_primary_metric_path(path: str, required_split: Optional[str]) -> bool:
+    if is_auxiliary_metric_path(path):
+        return False
+
+    tokens = [normalize_split_token(token) for token in path_tokens(path)]
+    if "splitmetrics" in tokens:
+        if not required_split:
+            return False
+        return normalize_split_token(required_split) in tokens
+    return True
 
 
 def has_conflicting_values(hits: List[Dict[str, Any]], tolerance: float = 1e-12) -> bool:
@@ -288,7 +302,11 @@ def main() -> int:
 
     actual, source_path, raw_value, candidates, ambiguous = extract_metric(payload, args.metric_name, args.metric_path)
     leaf_metric_hits = collect_metric_leaf_hits(payload, args.metric_name)
-    primary_leaf_hits = [hit for hit in leaf_metric_hits if not is_auxiliary_metric_path(str(hit.get("path", "")))]
+    primary_leaf_hits = [
+        hit
+        for hit in leaf_metric_hits
+        if is_allowed_primary_metric_path(str(hit.get("path", "")), args.required_evaluation_split)
+    ]
 
     if args.required_evaluation_split:
         split_key, declared_split = extract_declared_split(payload)

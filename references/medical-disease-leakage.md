@@ -51,8 +51,8 @@ For publication-grade metric integrity:
 For publication-grade model development integrity:
 - Freeze split protocol and keep patient-disjoint temporal boundaries.
 - Apply imbalance mitigation (class weights/resampling) only on train folds.
-- Fit imputers only on train folds; for large-scale data prefer simple train-fitted imputation with missing indicators unless strongly justified.
-- Avoid direct MICE use for very large/high-dimensional tables unless scale limits and computational stability are documented.
+- Fit imputers only on train folds; for MICE-first policies enforce `mice_with_scale_guard` with audited fallback evidence.
+- Avoid direct MICE use for very large/high-dimensional tables unless scale limits are documented and fallback behavior is proven.
 - Keep hyperparameter tuning, thresholding, and calibration fully isolated from final test labels.
 
 Minimal example:

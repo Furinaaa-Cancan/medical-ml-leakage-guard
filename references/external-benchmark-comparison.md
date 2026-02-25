@@ -61,6 +61,19 @@
 - Added manifest lock coverage for witness quorum files in `scripts/run_strict_pipeline.py`.
 - Added adversarial scenario coverage for witness quorum tampering in `experiments/authority-e2e/run_adversarial_gate_checks.py`.
 
+## Implemented Improvement (Model Selection + Clinical Metrics + Overfitting Gap)
+- Added `scripts/model_selection_audit_gate.py`:
+  - candidate pool size gate (`>=3`) with required logistic baseline
+  - strict non-test model-selection scope checks
+  - deterministic one-SE + simplicity replay validation
+- Added `scripts/clinical_metrics_gate.py`:
+  - required clinical panel enforcement (accuracy/precision/PPV/NPV/sensitivity/specificity/F1/F2-beta/ROC-AUC/PR-AUC/Brier)
+  - precision==PPV and confusion-matrix formula consistency checks
+- Added `scripts/generalization_gap_gate.py`:
+  - train/valid/test directional gap thresholds with warning/fail tiers
+- Added policy artifact `references/performance-policy.example.json`.
+- Integrated all three gates into strict pipeline + publication gate + self-critique gate.
+
 ## Comparison vs SLSA / in-toto / Sigstore (Current Position)
 - Current skill already provides:
   - Detached-signature verification for execution payload and authority records.

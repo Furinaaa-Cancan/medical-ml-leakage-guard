@@ -39,6 +39,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--imbalance-report", required=True, help="Path to imbalance policy gate report JSON.")
     parser.add_argument("--missingness-report", required=True, help="Path to missingness policy gate report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage gate report JSON.")
+    parser.add_argument("--model-selection-audit-report", required=True, help="Path to model selection audit report JSON.")
+    parser.add_argument("--clinical-metrics-report", required=True, help="Path to clinical metrics gate report JSON.")
+    parser.add_argument("--generalization-gap-report", required=True, help="Path to generalization gap gate report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality gate report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
@@ -299,6 +302,9 @@ def main() -> int:
         "imbalance_report": args.imbalance_report,
         "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
+        "model_selection_audit_report": args.model_selection_audit_report,
+        "clinical_metrics_report": args.clinical_metrics_report,
+        "generalization_gap_report": args.generalization_gap_report,
         "metric_report": args.metric_report,
         "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
@@ -377,6 +383,9 @@ def main() -> int:
         "imbalance_report",
         "missingness_report",
         "tuning_report",
+        "model_selection_audit_report",
+        "clinical_metrics_report",
+        "generalization_gap_report",
         "metric_report",
         "evaluation_quality_report",
         "permutation_report",
