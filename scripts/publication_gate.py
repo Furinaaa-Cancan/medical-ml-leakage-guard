@@ -159,6 +159,7 @@ def enforce_execution_attestation_publication_contract(
         "require_independent_timestamp_authority",
         "require_independent_execution_authority",
         "require_independent_log_authority",
+        "require_distinct_authority_roles",
         "require_witness_quorum",
         "require_independent_witness_keys",
         "require_witness_independence_from_signing",
@@ -253,6 +254,30 @@ def enforce_execution_attestation_publication_contract(
             },
         )
 
+    role_distinctness = summary.get("authority_role_distinctness")
+    if not isinstance(role_distinctness, dict):
+        add_issue(
+            failures,
+            "execution_attestation_role_distinctness_missing",
+            "Publication gate requires authority_role_distinctness summary block.",
+            {},
+        )
+        return
+    if role_distinctness.get("enforced") is not True:
+        add_issue(
+            failures,
+            "execution_attestation_role_distinctness_not_enforced",
+            "Publication gate requires cross-role authority distinctness enforcement.",
+            {"enforced": role_distinctness.get("enforced")},
+        )
+    if str(role_distinctness.get("status", "")).lower() != "pass":
+        add_issue(
+            failures,
+            "execution_attestation_role_distinctness_failed",
+            "Publication gate requires authority_role_distinctness status to be pass.",
+            {"status": role_distinctness.get("status")},
+        )
+
 
 def main() -> int:
     args = parse_args()
@@ -319,17 +344,26 @@ def main() -> int:
             )
 
         comparison = manifest.get("comparison")
-        if isinstance(comparison, dict) and comparison.get("matched") is False:
+        if not isinstance(comparison, dict):
             add_issue(
                 failures,
-                "manifest_comparison_mismatch",
-                "Manifest comparison against baseline did not match.",
-                {
-                    "missing_in_current": comparison.get("missing_in_current", []),
-                    "missing_in_baseline": comparison.get("missing_in_baseline", []),
-                    "hash_mismatches": comparison.get("hash_mismatches", []),
-                },
+                "manifest_comparison_missing",
+                "Publication gate requires manifest baseline comparison result.",
+                {},
             )
+        else:
+            if comparison.get("matched") is not True:
+                add_issue(
+                    failures,
+                    "manifest_comparison_mismatch",
+                    "Manifest comparison against baseline did not match.",
+                    {
+                        "matched": comparison.get("matched"),
+                        "missing_in_current": comparison.get("missing_in_current", []),
+                        "missing_in_baseline": comparison.get("missing_in_baseline", []),
+                        "hash_mismatches": comparison.get("hash_mismatches", []),
+                    },
+                )
 
     for component in (
         "request_report",

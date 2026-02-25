@@ -22,6 +22,7 @@
     "require_independent_timestamp_authority": true,
     "require_independent_execution_authority": true,
     "require_independent_log_authority": true,
+    "require_distinct_authority_roles": true,
     "require_witness_quorum": true,
     "min_witness_count": 2,
     "require_independent_witness_keys": true,

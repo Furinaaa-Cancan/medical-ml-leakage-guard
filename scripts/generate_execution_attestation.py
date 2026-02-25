@@ -410,6 +410,16 @@ def main() -> int:
     require_witness_independence_from_signing = bool(
         args.require_witness_independence_from_signing or require_witness_quorum
     )
+    # Default to publication-grade independent authorities when corresponding attestations are enabled.
+    require_independent_timestamp_authority = bool(
+        args.require_independent_timestamp_authority or not args.skip_timestamp_trust
+    )
+    require_independent_execution_authority = bool(
+        args.require_independent_execution_authority or not args.skip_execution_receipt
+    )
+    require_independent_log_authority = bool(
+        args.require_independent_log_authority or not args.skip_execution_log_attestation
+    )
     if require_witness_quorum and not parsed_witnesses:
         print("[FAIL] Witness quorum required but no --witness entries provided.", file=sys.stderr)
         return 2
@@ -931,6 +941,71 @@ def main() -> int:
             "records": witness_records,
         }
 
+    # Publication-grade default: require all authority roles to be distinct.
+    role_entries: List[Tuple[str, str, str]] = []
+
+    def add_role_entry(role: str, authority_id: str, fingerprint: str) -> None:
+        role_entries.append((role, authority_id.strip().lower(), fingerprint.strip().lower()))
+
+    if isinstance(timestamp_block, dict):
+        add_role_entry(
+            "timestamp_trust",
+            str(timestamp_block.get("authority_id", "")),
+            str(timestamp_block.get("public_key_fingerprint_sha256", "")),
+        )
+    if isinstance(transparency_block, dict):
+        add_role_entry(
+            "transparency_log",
+            str(transparency_block.get("log_id", "")),
+            str(transparency_block.get("public_key_fingerprint_sha256", "")),
+        )
+    if isinstance(execution_receipt_block, dict):
+        add_role_entry(
+            "execution_receipt",
+            str(execution_receipt_block.get("authority_id", "")),
+            str(execution_receipt_block.get("public_key_fingerprint_sha256", "")),
+        )
+    if isinstance(execution_log_block, dict):
+        add_role_entry(
+            "execution_log_attestation",
+            str(execution_log_block.get("authority_id", "")),
+            str(execution_log_block.get("public_key_fingerprint_sha256", "")),
+        )
+    if isinstance(witness_quorum_block, dict):
+        for idx, witness in enumerate(witness_quorum_block.get("records", [])):
+            if isinstance(witness, dict):
+                add_role_entry(
+                    f"witness[{idx}]",
+                    str(witness.get("authority_id", "")),
+                    str(witness.get("public_key_fingerprint_sha256", "")),
+                )
+
+    empty_roles = [role for role, authority, fp in role_entries if not authority or not fp]
+    if empty_roles:
+        print(
+            f"[FAIL] Missing authority_id or public_key_fingerprint_sha256 for roles: {sorted(set(empty_roles))}",
+            file=sys.stderr,
+        )
+        return 2
+
+    seen_authorities: Dict[str, List[str]] = {}
+    seen_fingerprints: Dict[str, List[str]] = {}
+    for role, authority, fp in role_entries:
+        seen_authorities.setdefault(authority, []).append(role)
+        seen_fingerprints.setdefault(fp, []).append(role)
+    duplicate_authorities = {k: v for k, v in seen_authorities.items() if len(v) > 1}
+    duplicate_fingerprints = {k: v for k, v in seen_fingerprints.items() if len(v) > 1}
+    if duplicate_authorities or duplicate_fingerprints:
+        print(
+            "[FAIL] Authority roles are not distinct across timestamp/transparency/execution/log/witness attestations.",
+            file=sys.stderr,
+        )
+        if duplicate_authorities:
+            print(f"[DETAIL] duplicate authority IDs: {duplicate_authorities}", file=sys.stderr)
+        if duplicate_fingerprints:
+            print(f"[DETAIL] duplicate key fingerprints: {duplicate_fingerprints}", file=sys.stderr)
+        return 2
+
     assurance_policy = {
         "min_signing_key_bits": int(args.min_signing_key_bits),
         "max_signing_key_age_days": int(args.max_signing_key_age_days),
@@ -940,9 +1015,10 @@ def main() -> int:
         "require_transparency_log_signature": not args.skip_transparency_log,
         "require_execution_receipt": not args.skip_execution_receipt,
         "require_execution_log_attestation": not args.skip_execution_log_attestation,
-        "require_independent_timestamp_authority": bool(args.require_independent_timestamp_authority),
-        "require_independent_execution_authority": bool(args.require_independent_execution_authority),
-        "require_independent_log_authority": bool(args.require_independent_log_authority),
+        "require_independent_timestamp_authority": bool(require_independent_timestamp_authority),
+        "require_independent_execution_authority": bool(require_independent_execution_authority),
+        "require_independent_log_authority": bool(require_independent_log_authority),
+        "require_distinct_authority_roles": True,
         "require_witness_quorum": bool(require_witness_quorum),
         "min_witness_count": int(args.min_witness_count) if require_witness_quorum else 0,
         "require_independent_witness_keys": bool(require_independent_witness_keys),

@@ -58,6 +58,26 @@ def run_cmd(cmd: List[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=str(REPO_ROOT), text=True, capture_output=True)
 
 
+def sign_file(private_key: Path, input_file: Path, signature_file: Path) -> None:
+    signature_file.parent.mkdir(parents=True, exist_ok=True)
+    proc = run_cmd(
+        [
+            "openssl",
+            "dgst",
+            "-sha256",
+            "-sign",
+            str(private_key),
+            "-out",
+            str(signature_file),
+            str(input_file),
+        ]
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"openssl signing failed for {input_file}: returncode={proc.returncode}, stderr={proc.stderr[-400:]}"
+        )
+
+
 def load_json(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         payload = json.load(fh)
@@ -133,7 +153,7 @@ def execute_scenario(
                     if isinstance(code, str) and code:
                         observed_codes.append(code)
 
-    matched = any(code in observed_codes for code in expected_codes)
+    matched = all(code in observed_codes for code in expected_codes)
     passed = (proc.returncode != 0) and matched
     return ScenarioResult(
         name=name,
@@ -155,6 +175,7 @@ def main() -> int:
     cfg_dir = case_root / "configs"
     data_dir = case_root / "data"
     evidence_dir = case_root / "evidence"
+    keys_dir = case_root / "keys"
     request_path = cfg_dir / "request.json"
     if not request_path.exists():
         raise SystemExit(
@@ -797,6 +818,98 @@ def main() -> int:
             ["publication_policy_disabled"],
             cmd19,
             report19,
+        )
+    )
+
+    # 20) Cross-role distinctness policy downgrade.
+    attestation_spec_distinct_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_distinct_policy = absolutize_attestation_paths(attestation_spec_distinct_policy, cfg_dir)
+    assurance_policy_distinct = attestation_abs_distinct_policy.get("assurance_policy")
+    if not isinstance(assurance_policy_distinct, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy_distinct["require_distinct_authority_roles"] = False
+    attestation_distinct_policy_bad = tmp_root / "execution_attestation.distinct_roles.policy.bad.json"
+    write_json(attestation_distinct_policy_bad, attestation_abs_distinct_policy)
+    report20 = tmp_root / "execution_attestation.distinct_roles.policy.bad.report.json"
+    cmd20 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_distinct_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report20),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "distinct_authority_roles_policy_disabled",
+            ["publication_policy_disabled"],
+            cmd20,
+            report20,
+        )
+    )
+
+    # 21) Cross-role authority/key overlap (timestamp and execution receipt share the same authority/key).
+    attestation_spec_roles = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_roles = absolutize_attestation_paths(attestation_spec_roles, cfg_dir)
+    timestamp_block_roles = attestation_abs_roles.get("timestamp_trust")
+    execution_block_roles = attestation_abs_roles.get("execution_receipt")
+    if not isinstance(timestamp_block_roles, dict) or not isinstance(execution_block_roles, dict):
+        raise RuntimeError("timestamp_trust/execution_receipt block missing in attestation spec.")
+
+    timestamp_authority_id = str(timestamp_block_roles.get("authority_id", "")).strip()
+    timestamp_pub = Path(str(timestamp_block_roles.get("public_key_file", "")))
+    timestamp_fp = str(timestamp_block_roles.get("public_key_fingerprint_sha256", "")).strip()
+    timestamp_priv = (keys_dir / "timestamp_priv.pem").resolve()
+    if not timestamp_authority_id or not timestamp_fp or not timestamp_pub.exists() or not timestamp_priv.exists():
+        raise RuntimeError("timestamp authority key material missing for cross-role overlap scenario.")
+
+    execution_record_src = Path(str(execution_block_roles.get("record_file", "")))
+    if not execution_record_src.exists():
+        raise RuntimeError("execution_receipt record_file missing in attestation spec.")
+    execution_record_tampered = load_json(execution_record_src)
+    execution_record_tampered["authority_id"] = timestamp_authority_id
+    execution_record_overlap = tmp_root / "attestation_execution_receipt_record.role_overlap.json"
+    write_json(execution_record_overlap, execution_record_tampered)
+    execution_sig_overlap = tmp_root / "attestation_execution_receipt_record.role_overlap.sig"
+    sign_file(timestamp_priv, execution_record_overlap, execution_sig_overlap)
+
+    execution_block_roles["authority_id"] = timestamp_authority_id
+    execution_block_roles["record_file"] = str(execution_record_overlap)
+    execution_block_roles["signature_file"] = str(execution_sig_overlap)
+    execution_block_roles["public_key_file"] = str(timestamp_pub)
+    execution_block_roles["public_key_fingerprint_sha256"] = timestamp_fp
+
+    attestation_roles_bad = tmp_root / "execution_attestation.role_overlap.bad.json"
+    write_json(attestation_roles_bad, attestation_abs_roles)
+    report21 = tmp_root / "execution_attestation.role_overlap.bad.report.json"
+    cmd21 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_roles_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report21),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "cross_role_authority_overlap",
+            ["authority_roles_not_distinct"],
+            cmd21,
+            report21,
         )
     )
 

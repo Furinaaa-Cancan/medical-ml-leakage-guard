@@ -75,6 +75,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Enforce minimum validated witness count with independent witness authorities/keys.
 - [ ] Require independent key custody for payload signer, execution receipt, and execution-log authorities.
 - [ ] Require witness keys to be independent from the payload signing key.
+- [ ] Enforce cross-role authority/key distinctness across timestamp/transparency/execution-receipt/execution-log/witness roles.
 - [ ] Compare current manifest against a locked baseline manifest and require exact match before publication-grade claim.
 - [ ] Ensure end-to-end rerun reproduces results within tolerance.
 

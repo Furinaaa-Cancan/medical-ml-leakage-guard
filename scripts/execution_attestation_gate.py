@@ -215,6 +215,7 @@ def enforce_publication_policy_requirements(
         "require_independent_timestamp_authority",
         "require_independent_execution_authority",
         "require_independent_log_authority",
+        "require_distinct_authority_roles",
         "require_witness_quorum",
         "require_independent_witness_keys",
         "require_witness_independence_from_signing",
@@ -712,6 +713,13 @@ def validate_key_assurance(
         "assurance_policy",
         default=False,
     )
+    require_distinct_authority_roles = require_bool(
+        policy,
+        "require_distinct_authority_roles",
+        failures,
+        "assurance_policy",
+        default=True,
+    )
     require_witness_quorum = require_bool(
         policy, "require_witness_quorum", failures, "assurance_policy", default=False
     )
@@ -895,6 +903,7 @@ def validate_key_assurance(
             "require_independent_timestamp_authority": bool(require_independent_timestamp_authority),
             "require_independent_execution_authority": bool(require_independent_execution_authority),
             "require_independent_log_authority": bool(require_independent_log_authority),
+            "require_distinct_authority_roles": bool(require_distinct_authority_roles),
             "require_witness_quorum": bool(require_witness_quorum),
             "min_witness_count": min_witness_count,
             "require_independent_witness_keys": bool(require_independent_witness_keys),
@@ -2127,6 +2136,122 @@ def validate_witness_quorum(
     }
 
 
+def enforce_distinct_authority_roles(
+    key_assurance: Dict[str, Any],
+    timestamp_summary: Dict[str, Any],
+    transparency_summary: Dict[str, Any],
+    execution_receipt_summary: Dict[str, Any],
+    execution_log_summary: Dict[str, Any],
+    witness_quorum_summary: Dict[str, Any],
+    failures: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    policy = key_assurance.get("policy") if isinstance(key_assurance, dict) else None
+    require_distinct = True
+    if isinstance(policy, dict):
+        require_distinct = bool(policy.get("require_distinct_authority_roles", True))
+
+    role_entries: List[Dict[str, str]] = []
+    missing_identity_roles: List[str] = []
+
+    def add_role(role: str, authority_id: Any, fingerprint: Any) -> None:
+        authority_norm = authority_id.strip().lower() if isinstance(authority_id, str) and authority_id.strip() else ""
+        fp_norm = fingerprint.strip().lower() if isinstance(fingerprint, str) and fingerprint.strip() else ""
+        if not authority_norm or not fp_norm:
+            missing_identity_roles.append(role)
+            return
+        role_entries.append(
+            {
+                "role": role,
+                "authority_id": authority_norm,
+                "public_key_fingerprint_sha256": fp_norm,
+            }
+        )
+
+    if isinstance(timestamp_summary, dict) and timestamp_summary.get("present") is True:
+        add_role(
+            "timestamp_trust",
+            timestamp_summary.get("authority_id"),
+            timestamp_summary.get("public_key_fingerprint_observed_sha256"),
+        )
+    if isinstance(transparency_summary, dict) and transparency_summary.get("present") is True:
+        add_role(
+            "transparency_log",
+            transparency_summary.get("log_id"),
+            transparency_summary.get("public_key_fingerprint_observed_sha256"),
+        )
+    if isinstance(execution_receipt_summary, dict) and execution_receipt_summary.get("present") is True:
+        add_role(
+            "execution_receipt",
+            execution_receipt_summary.get("authority_id"),
+            execution_receipt_summary.get("public_key_fingerprint_observed_sha256"),
+        )
+    if isinstance(execution_log_summary, dict) and execution_log_summary.get("present") is True:
+        add_role(
+            "execution_log_attestation",
+            execution_log_summary.get("authority_id"),
+            execution_log_summary.get("public_key_fingerprint_observed_sha256"),
+        )
+    if isinstance(witness_quorum_summary, dict) and witness_quorum_summary.get("present") is True:
+        witnesses = witness_quorum_summary.get("witnesses")
+        if isinstance(witnesses, list):
+            for idx, witness in enumerate(witnesses):
+                if isinstance(witness, dict) and witness.get("validated") is True:
+                    add_role(
+                        f"witness[{idx}]",
+                        witness.get("authority_id"),
+                        witness.get("public_key_fingerprint_observed_sha256"),
+                    )
+
+    duplicate_authority_ids: List[Dict[str, Any]] = []
+    duplicate_fingerprints: List[Dict[str, Any]] = []
+    if require_distinct:
+        if missing_identity_roles:
+            add_issue(
+                failures,
+                "authority_role_identity_missing",
+                "Authority role identity is incomplete, cannot verify cross-role independence.",
+                {"roles": sorted(set(missing_identity_roles))},
+            )
+
+        by_authority: Dict[str, List[str]] = {}
+        by_fp: Dict[str, List[str]] = {}
+        for entry in role_entries:
+            by_authority.setdefault(entry["authority_id"], []).append(entry["role"])
+            by_fp.setdefault(entry["public_key_fingerprint_sha256"], []).append(entry["role"])
+
+        for authority_id, roles in by_authority.items():
+            if len(roles) > 1:
+                duplicate_authority_ids.append({"authority_id": authority_id, "roles": sorted(roles)})
+        for fingerprint, roles in by_fp.items():
+            if len(roles) > 1:
+                duplicate_fingerprints.append({"public_key_fingerprint_sha256": fingerprint, "roles": sorted(roles)})
+
+        if duplicate_authority_ids or duplicate_fingerprints:
+            add_issue(
+                failures,
+                "authority_roles_not_distinct",
+                "Authority roles must use distinct authority IDs and signing keys across timestamp/transparency/execution/log/witness records.",
+                {
+                    "duplicate_authority_ids": duplicate_authority_ids,
+                    "duplicate_public_key_fingerprints": duplicate_fingerprints,
+                },
+            )
+
+    return {
+        "enforced": bool(require_distinct),
+        "status": (
+            "fail"
+            if (require_distinct and (missing_identity_roles or duplicate_authority_ids or duplicate_fingerprints))
+            else "pass"
+        ),
+        "role_count": len(role_entries),
+        "roles": role_entries,
+        "missing_identity_roles": sorted(set(missing_identity_roles)),
+        "duplicate_authority_ids": duplicate_authority_ids,
+        "duplicate_public_key_fingerprints": duplicate_fingerprints,
+    }
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -2429,6 +2554,15 @@ def main() -> int:
         failures=failures,
         warnings=warnings,
     )
+    authority_role_distinctness = enforce_distinct_authority_roles(
+        key_assurance=key_assurance,
+        timestamp_summary=timestamp_summary,
+        transparency_summary=transparency_summary,
+        execution_receipt_summary=execution_receipt_summary,
+        execution_log_summary=execution_log_summary,
+        witness_quorum_summary=witness_quorum_summary,
+        failures=failures,
+    )
 
     summary = {
         "attestation_spec": str(spec_path),
@@ -2446,6 +2580,7 @@ def main() -> int:
         "execution_receipt": execution_receipt_summary,
         "execution_log_attestation": execution_log_summary,
         "witness_quorum": witness_quorum_summary,
+        "authority_role_distinctness": authority_role_distinctness,
     }
 
     return finish(

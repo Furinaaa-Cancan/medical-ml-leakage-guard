@@ -46,6 +46,8 @@
 - Added trusted timestamp record verification and transparency-log record verification.
 - Added signed execution-log attestation verification (`execution_log_attestation`) that binds `training_log` hash to signed payload hash and run identity.
 - Added independent-authority policy enforcement for execution-log attestation.
+- Added cross-role authority distinctness enforcement (`require_distinct_authority_roles`) so timestamp/transparency/execution/execution-log/witness roles cannot reuse authority IDs or signing keys.
+- Added publication-gate contract checks that require `authority_role_distinctness` summary to be enforced and passing.
 
 ## Implemented Improvement (Witness Quorum)
 - Added `witness_quorum` support in execution attestation spec and strict gate.
