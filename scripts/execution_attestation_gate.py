@@ -155,6 +155,102 @@ def require_number(
     return parsed
 
 
+def check_authority_not_revoked(
+    role: str,
+    authority_id: Optional[str],
+    observed_fp: Optional[str],
+    revoked_key_ids: Set[str],
+    revoked_key_fps: Set[str],
+    failures: List[Dict[str, Any]],
+    extra_details: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not revoked_key_ids and not revoked_key_fps:
+        return
+
+    authority_id_norm = authority_id.strip() if isinstance(authority_id, str) else ""
+    observed_fp_norm = observed_fp.lower() if isinstance(observed_fp, str) else ""
+    id_revoked = bool(authority_id_norm and authority_id_norm in revoked_key_ids)
+    fp_revoked = bool(observed_fp_norm and observed_fp_norm in revoked_key_fps)
+    if not id_revoked and not fp_revoked:
+        return
+
+    details: Dict[str, Any] = {
+        "role": role,
+        "authority_id": authority_id_norm or None,
+        "public_key_fingerprint_sha256": observed_fp_norm or None,
+        "revoked_by_key_id": bool(id_revoked),
+        "revoked_by_fingerprint": bool(fp_revoked),
+    }
+    if isinstance(extra_details, dict):
+        details.update(extra_details)
+    add_issue(
+        failures,
+        f"{role}_key_revoked",
+        f"{role} key is revoked by revocation list.",
+        details,
+    )
+
+
+def enforce_publication_policy_requirements(
+    key_assurance: Dict[str, Any],
+    failures: List[Dict[str, Any]],
+) -> None:
+    policy = key_assurance.get("policy")
+    if not isinstance(policy, dict):
+        add_issue(
+            failures,
+            "publication_policy_missing",
+            "Strict mode requires assurance_policy summary for publication-grade attestation.",
+            {},
+        )
+        return
+
+    required_true_flags = (
+        "require_revocation_list",
+        "require_timestamp_trust",
+        "require_transparency_log",
+        "require_transparency_log_signature",
+        "require_execution_receipt",
+        "require_execution_log_attestation",
+        "require_independent_timestamp_authority",
+        "require_independent_execution_authority",
+        "require_independent_log_authority",
+        "require_witness_quorum",
+        "require_independent_witness_keys",
+        "require_witness_independence_from_signing",
+    )
+    for field in required_true_flags:
+        if policy.get(field) is not True:
+            add_issue(
+                failures,
+                "publication_policy_disabled",
+                "Strict publication policy requires assurance_policy flag to be true.",
+                {"field": field, "value": policy.get(field)},
+            )
+
+    min_witness_count_raw = policy.get("min_witness_count")
+    min_witness_count = None
+    if isinstance(min_witness_count_raw, bool):
+        min_witness_count_raw = None
+    if isinstance(min_witness_count_raw, int):
+        min_witness_count = int(min_witness_count_raw)
+    elif isinstance(min_witness_count_raw, float) and math.isfinite(min_witness_count_raw) and float(min_witness_count_raw).is_integer():
+        min_witness_count = int(min_witness_count_raw)
+    if min_witness_count is None:
+        add_issue(
+            failures,
+            "publication_min_witness_count_invalid",
+            "Strict publication policy requires numeric assurance_policy.min_witness_count.",
+            {"value": min_witness_count_raw},
+        )
+    elif min_witness_count < 2:
+        add_issue(
+            failures,
+            "publication_min_witness_count_too_low",
+            "Strict publication policy requires assurance_policy.min_witness_count >= 2.",
+            {"min_witness_count": min_witness_count},
+        )
+
 def load_json_obj(path: Path, failures: List[Dict[str, Any]], code_prefix: str) -> Optional[Dict[str, Any]]:
     if not path.exists():
         add_issue(
@@ -735,6 +831,8 @@ def validate_key_assurance(
         )
 
     revocation_list_path = None
+    revoked_ids_clean: Set[str] = set()
+    revoked_fps_clean: Set[str] = set()
     revocation_list_raw = signing.get("revocation_list_file")
     if isinstance(revocation_list_raw, str) and revocation_list_raw.strip():
         revocation_list_path = resolve_path(spec_base, revocation_list_raw.strip())
@@ -807,6 +905,8 @@ def validate_key_assurance(
         "public_key_fingerprint_observed_sha256": observed_fp,
         "public_key_bits_observed": observed_bits,
         "revocation_list_file": str(revocation_list_path) if revocation_list_path is not None else None,
+        "revoked_key_ids": sorted(revoked_ids_clean),
+        "revoked_public_key_fingerprints_sha256": sorted(revoked_fps_clean),
     }
 
 
@@ -819,6 +919,8 @@ def validate_timestamp_trust(
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
+    revoked_key_ids: Set[str],
+    revoked_key_fps: Set[str],
     failures: List[Dict[str, Any]],
     warnings: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -970,6 +1072,14 @@ def validate_timestamp_trust(
             "assurance_policy requires independent timestamp authority key.",
             {"signing_key_fingerprint": signing_fp.lower(), "timestamp_key_fingerprint": observed_fp.lower()},
         )
+    check_authority_not_revoked(
+        role="timestamp_authority",
+        authority_id=authority_id,
+        observed_fp=observed_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
+        failures=failures,
+    )
     return {
         "present": True,
         "mode": mode,
@@ -990,6 +1100,8 @@ def validate_transparency_log(
     payload_run_id: Optional[str],
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
+    revoked_key_ids: Set[str],
+    revoked_key_fps: Set[str],
     failures: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     policy = spec.get("assurance_policy", {})
@@ -1133,6 +1245,15 @@ def validate_transparency_log(
                 {"recorded_at_utc": recorded_at.isoformat(), "issued_at_utc": issued_at_ts.isoformat()},
             )
 
+    check_authority_not_revoked(
+        role="transparency_log_authority",
+        authority_id=log_id,
+        observed_fp=observed_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
+        failures=failures,
+    )
+
     return {
         "present": True,
         "log_id": log_id,
@@ -1157,6 +1278,8 @@ def validate_execution_receipt(
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
+    revoked_key_ids: Set[str],
+    revoked_key_fps: Set[str],
     failures: List[Dict[str, Any]],
     warnings: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -1407,6 +1530,14 @@ def validate_execution_receipt(
             "assurance_policy requires independent execution receipt authority key.",
             {"signing_key_fingerprint": signing_fp.lower(), "execution_key_fingerprint": observed_fp.lower()},
         )
+    check_authority_not_revoked(
+        role="execution_authority",
+        authority_id=authority_id,
+        observed_fp=observed_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
+        failures=failures,
+    )
 
     return {
         "present": True,
@@ -1429,6 +1560,8 @@ def validate_execution_log_attestation(
     payload_run_id: Optional[str],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
+    revoked_key_ids: Set[str],
+    revoked_key_fps: Set[str],
     artifacts_summary: Dict[str, Any],
     failures: List[Dict[str, Any]],
     warnings: List[Dict[str, Any]],
@@ -1673,6 +1806,14 @@ def validate_execution_log_attestation(
             "assurance_policy requires independent execution-log authority key.",
             {"signing_key_fingerprint": signing_fp.lower(), "log_key_fingerprint": observed_fp.lower()},
         )
+    check_authority_not_revoked(
+        role="execution_log_authority",
+        authority_id=authority_id,
+        observed_fp=observed_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
+        failures=failures,
+    )
 
     return {
         "present": True,
@@ -1695,6 +1836,8 @@ def validate_witness_quorum(
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
+    revoked_key_ids: Set[str],
+    revoked_key_fps: Set[str],
     failures: List[Dict[str, Any]],
     warnings: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -1842,6 +1985,16 @@ def validate_witness_quorum(
                     "Witness public key fingerprint mismatch.",
                     {"index": idx, "expected": expected_fp.lower(), "observed": observed_fp.lower()},
                 )
+
+        check_authority_not_revoked(
+            role="witness_authority",
+            authority_id=authority_id,
+            observed_fp=observed_fp,
+            revoked_key_ids=revoked_key_ids,
+            revoked_key_fps=revoked_key_fps,
+            failures=failures,
+            extra_details={"index": idx},
+        )
 
         if record_file and signature_file and public_key_file:
             verify_result = verify_detached_signature(
@@ -2185,6 +2338,20 @@ def main() -> int:
         failures=failures,
         warnings=warnings,
     )
+    revoked_key_ids_raw = key_assurance.get("revoked_key_ids")
+    revoked_key_fps_raw = key_assurance.get("revoked_public_key_fingerprints_sha256")
+    revoked_key_ids: Set[str] = (
+        {str(x).strip() for x in revoked_key_ids_raw if isinstance(x, str) and str(x).strip()}
+        if isinstance(revoked_key_ids_raw, list)
+        else set()
+    )
+    revoked_key_fps: Set[str] = (
+        {str(x).strip().lower() for x in revoked_key_fps_raw if isinstance(x, str) and str(x).strip()}
+        if isinstance(revoked_key_fps_raw, list)
+        else set()
+    )
+    if args.strict:
+        enforce_publication_policy_requirements(key_assurance=key_assurance, failures=failures)
     signing_fp = key_assurance.get("public_key_fingerprint_observed_sha256")
     if signing_fp is not None and not isinstance(signing_fp, str):
         signing_fp = None
@@ -2198,6 +2365,8 @@ def main() -> int:
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
         failures=failures,
         warnings=warnings,
     )
@@ -2210,6 +2379,8 @@ def main() -> int:
         payload_run_id=payload_run_id,
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
         failures=failures,
     )
     execution_receipt_summary = validate_execution_receipt(
@@ -2225,6 +2396,8 @@ def main() -> int:
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
         failures=failures,
         warnings=warnings,
     )
@@ -2236,6 +2409,8 @@ def main() -> int:
         payload_run_id=payload_run_id,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
         artifacts_summary=artifacts_summary,
         failures=failures,
         warnings=warnings,
@@ -2249,6 +2424,8 @@ def main() -> int:
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
+        revoked_key_ids=revoked_key_ids,
+        revoked_key_fps=revoked_key_fps,
         failures=failures,
         warnings=warnings,
     )

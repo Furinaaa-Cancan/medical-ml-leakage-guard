@@ -624,6 +624,182 @@ def main() -> int:
         )
     )
 
+    # 15) Timestamp trust policy downgrade.
+    attestation_spec_ts_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_ts_policy = absolutize_attestation_paths(attestation_spec_ts_policy, cfg_dir)
+    assurance_policy_ts = attestation_abs_ts_policy.get("assurance_policy")
+    if not isinstance(assurance_policy_ts, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy_ts["require_timestamp_trust"] = False
+    attestation_abs_ts_policy.pop("timestamp_trust", None)
+    attestation_ts_policy_bad = tmp_root / "execution_attestation.timestamp.policy.bad.json"
+    write_json(attestation_ts_policy_bad, attestation_abs_ts_policy)
+    report15 = tmp_root / "execution_attestation.timestamp.policy.bad.report.json"
+    cmd15 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_ts_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report15),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "timestamp_policy_disabled",
+            ["publication_policy_disabled"],
+            cmd15,
+            report15,
+        )
+    )
+
+    # 16) Transparency log policy downgrade.
+    attestation_spec_tr_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_tr_policy = absolutize_attestation_paths(attestation_spec_tr_policy, cfg_dir)
+    assurance_policy_tr = attestation_abs_tr_policy.get("assurance_policy")
+    if not isinstance(assurance_policy_tr, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy_tr["require_transparency_log"] = False
+    assurance_policy_tr["require_transparency_log_signature"] = False
+    attestation_abs_tr_policy.pop("transparency_log", None)
+    attestation_tr_policy_bad = tmp_root / "execution_attestation.transparency.policy.bad.json"
+    write_json(attestation_tr_policy_bad, attestation_abs_tr_policy)
+    report16 = tmp_root / "execution_attestation.transparency.policy.bad.report.json"
+    cmd16 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_tr_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report16),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "transparency_policy_disabled",
+            ["publication_policy_disabled"],
+            cmd16,
+            report16,
+        )
+    )
+
+    # 17) Execution receipt policy downgrade.
+    attestation_spec_er_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_er_policy = absolutize_attestation_paths(attestation_spec_er_policy, cfg_dir)
+    assurance_policy_er = attestation_abs_er_policy.get("assurance_policy")
+    if not isinstance(assurance_policy_er, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy_er["require_execution_receipt"] = False
+    attestation_abs_er_policy.pop("execution_receipt", None)
+    attestation_er_policy_bad = tmp_root / "execution_attestation.execution_receipt.policy.bad.json"
+    write_json(attestation_er_policy_bad, attestation_abs_er_policy)
+    report17 = tmp_root / "execution_attestation.execution_receipt.policy.bad.report.json"
+    cmd17 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_er_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report17),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "execution_receipt_policy_disabled",
+            ["publication_policy_disabled"],
+            cmd17,
+            report17,
+        )
+    )
+
+    # 18) Execution-log policy downgrade.
+    attestation_spec_log_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_log_policy = absolutize_attestation_paths(attestation_spec_log_policy, cfg_dir)
+    assurance_policy_log = attestation_abs_log_policy.get("assurance_policy")
+    if not isinstance(assurance_policy_log, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy_log["require_execution_log_attestation"] = False
+    attestation_abs_log_policy.pop("execution_log_attestation", None)
+    attestation_log_policy_bad = tmp_root / "execution_attestation.execution_log.policy.bad.json"
+    write_json(attestation_log_policy_bad, attestation_abs_log_policy)
+    report18 = tmp_root / "execution_attestation.execution_log.policy.bad.report.json"
+    cmd18 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_log_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report18),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "execution_log_policy_disabled",
+            ["publication_policy_disabled"],
+            cmd18,
+            report18,
+        )
+    )
+
+    # 19) Witness independence policy downgrade.
+    attestation_spec_wi_policy = load_json(cfg_dir / "execution_attestation.json")
+    attestation_abs_wi_policy = absolutize_attestation_paths(attestation_spec_wi_policy, cfg_dir)
+    assurance_policy_wi = attestation_abs_wi_policy.get("assurance_policy")
+    if not isinstance(assurance_policy_wi, dict):
+        raise RuntimeError("assurance_policy block missing in attestation spec.")
+    assurance_policy_wi["require_independent_witness_keys"] = False
+    assurance_policy_wi["require_witness_independence_from_signing"] = False
+    attestation_wi_policy_bad = tmp_root / "execution_attestation.witness_independence.policy.bad.json"
+    write_json(attestation_wi_policy_bad, attestation_abs_wi_policy)
+    report19 = tmp_root / "execution_attestation.witness_independence.policy.bad.report.json"
+    cmd19 = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "execution_attestation_gate.py"),
+        "--attestation-spec",
+        str(attestation_wi_policy_bad),
+        "--evaluation-report",
+        str(evidence_dir / "evaluation_report.json"),
+        "--study-id",
+        study_id,
+        "--run-id",
+        run_id,
+        "--strict",
+        "--report",
+        str(report19),
+    ]
+    scenarios.append(
+        execute_scenario(
+            "witness_independence_policy_disabled",
+            ["publication_policy_disabled"],
+            cmd19,
+            report19,
+        )
+    )
+
     summary = {
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "case_id": args.case_id,

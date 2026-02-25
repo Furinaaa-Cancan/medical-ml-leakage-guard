@@ -105,6 +105,155 @@ def validate_component_status(
         )
 
 
+def parse_int_like(value: Any) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
+        return int(value)
+    return None
+
+
+def enforce_execution_attestation_publication_contract(
+    execution_attestation_report: Optional[Dict[str, Any]],
+    failures: List[Dict[str, Any]],
+) -> None:
+    if not isinstance(execution_attestation_report, dict):
+        add_issue(
+            failures,
+            "execution_attestation_summary_missing",
+            "Execution attestation report is missing or invalid.",
+            {},
+        )
+        return
+
+    summary = execution_attestation_report.get("summary")
+    if not isinstance(summary, dict):
+        add_issue(
+            failures,
+            "execution_attestation_summary_missing",
+            "Execution attestation report must contain summary object.",
+            {},
+        )
+        return
+
+    key_assurance = summary.get("key_assurance")
+    policy = key_assurance.get("policy") if isinstance(key_assurance, dict) else None
+    if not isinstance(policy, dict):
+        add_issue(
+            failures,
+            "execution_attestation_policy_missing",
+            "Execution attestation summary must include key_assurance.policy.",
+            {},
+        )
+        return
+
+    required_true_flags = (
+        "require_revocation_list",
+        "require_timestamp_trust",
+        "require_transparency_log",
+        "require_transparency_log_signature",
+        "require_execution_receipt",
+        "require_execution_log_attestation",
+        "require_independent_timestamp_authority",
+        "require_independent_execution_authority",
+        "require_independent_log_authority",
+        "require_witness_quorum",
+        "require_independent_witness_keys",
+        "require_witness_independence_from_signing",
+    )
+    for field in required_true_flags:
+        if policy.get(field) is not True:
+            add_issue(
+                failures,
+                "execution_attestation_policy_disabled",
+                "Publication gate requires execution attestation policy flag to be true.",
+                {"field": field, "value": policy.get(field)},
+            )
+
+    min_witness_count = parse_int_like(policy.get("min_witness_count"))
+    if min_witness_count is None:
+        add_issue(
+            failures,
+            "execution_attestation_min_witness_count_invalid",
+            "Publication gate requires numeric key_assurance.policy.min_witness_count.",
+            {"value": policy.get("min_witness_count")},
+        )
+        min_witness_count = 0
+    elif min_witness_count < 2:
+        add_issue(
+            failures,
+            "execution_attestation_min_witness_count_too_low",
+            "Publication gate requires key_assurance.policy.min_witness_count >= 2.",
+            {"min_witness_count": min_witness_count},
+        )
+
+    for block_name in ("timestamp_trust", "transparency_log", "execution_receipt", "execution_log_attestation"):
+        block = summary.get(block_name)
+        if not isinstance(block, dict) or block.get("present") is not True:
+            add_issue(
+                failures,
+                "execution_attestation_required_block_missing",
+                "Publication gate requires execution attestation block to be present.",
+                {"block": block_name, "present": block.get("present") if isinstance(block, dict) else None},
+            )
+
+    witness_quorum = summary.get("witness_quorum")
+    if not isinstance(witness_quorum, dict):
+        add_issue(
+            failures,
+            "execution_attestation_witness_summary_missing",
+            "Publication gate requires witness_quorum summary block.",
+            {},
+        )
+        return
+
+    if witness_quorum.get("present") is not True:
+        add_issue(
+            failures,
+            "execution_attestation_witness_not_present",
+            "Publication gate requires witness quorum block to be present.",
+            {"present": witness_quorum.get("present")},
+        )
+    if witness_quorum.get("required") is not True:
+        add_issue(
+            failures,
+            "execution_attestation_witness_not_required",
+            "Publication gate requires witness quorum to be required.",
+            {"required": witness_quorum.get("required")},
+        )
+    validated_witnesses = parse_int_like(witness_quorum.get("validated_witnesses"))
+    reported_min_count = parse_int_like(witness_quorum.get("min_witness_count"))
+    if validated_witnesses is None:
+        add_issue(
+            failures,
+            "execution_attestation_validated_witnesses_invalid",
+            "Publication gate requires numeric witness_quorum.validated_witnesses.",
+            {"value": witness_quorum.get("validated_witnesses")},
+        )
+        validated_witnesses = 0
+    if reported_min_count is None:
+        add_issue(
+            failures,
+            "execution_attestation_witness_min_count_invalid",
+            "Publication gate requires numeric witness_quorum.min_witness_count.",
+            {"value": witness_quorum.get("min_witness_count")},
+        )
+        reported_min_count = 0
+    if validated_witnesses < max(min_witness_count, reported_min_count):
+        add_issue(
+            failures,
+            "execution_attestation_witness_quorum_not_met",
+            "Publication gate requires validated witness count to meet quorum minimum.",
+            {
+                "validated_witnesses": validated_witnesses,
+                "policy_min_witness_count": min_witness_count,
+                "reported_min_witness_count": reported_min_count,
+            },
+        )
+
+
 def main() -> int:
     args = parse_args()
 
@@ -199,6 +348,11 @@ def main() -> int:
         "permutation_report",
     ):
         validate_component_status(component, loaded.get(component), failures, warnings, args.strict)
+
+    enforce_execution_attestation_publication_contract(
+        execution_attestation_report=loaded.get("execution_attestation_report"),
+        failures=failures,
+    )
 
     metric_report = loaded.get("metric_report")
     if isinstance(metric_report, dict):
