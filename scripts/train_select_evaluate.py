@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--calibration-method",
         default="none",
-        choices=["sigmoid", "isotonic", "power", "none"],
+        choices=["sigmoid", "isotonic", "power", "beta", "none"],
         help="Probability calibration method fit on leakage-safe split.",
     )
     parser.add_argument("--cv-splits", type=int, default=5, help="CV folds for candidate scoring.")
@@ -528,7 +528,7 @@ def fit_probability_calibrator(
     token = str(method).strip().lower()
     if token in {"", "none"}:
         return None
-    if token not in {"sigmoid", "isotonic", "power"}:
+    if token not in {"sigmoid", "isotonic", "power", "beta"}:
         raise ValueError(f"Unsupported calibration method: {method}")
     y = np.asarray(y_true, dtype=int)
     s = np.asarray(proba_raw, dtype=float)
@@ -581,6 +581,22 @@ def fit_probability_calibrator(
             "valid_ece": float(best[0]),
             "valid_brier": float(best[1]),
         }
+    if token == "beta":
+        beta_features = np.column_stack([np.log(s), np.log(1.0 - s)])
+        beta_model = LogisticRegression(
+            max_iter=4000,
+            solver="lbfgs",
+            random_state=int(seed),
+        )
+        beta_model.fit(beta_features, y)
+        coef = np.asarray(beta_model.coef_, dtype=float).reshape(-1)
+        intercept = float(np.asarray(beta_model.intercept_, dtype=float).reshape(-1)[0])
+        return {
+            "kind": "beta",
+            "coef_log_p": float(coef[0]) if coef.shape[0] >= 1 else 0.0,
+            "coef_log_one_minus_p": float(coef[1]) if coef.shape[0] >= 2 else 0.0,
+            "intercept": intercept,
+        }
     calibrator = LogisticRegression(
         max_iter=2000,
         solver="lbfgs",
@@ -600,6 +616,12 @@ def apply_probability_calibrator(calibrator: Optional[Any], proba_raw: np.ndarra
         if kind == "power":
             alpha = float(calibrator.get("alpha", 1.0))
             return np.clip(np.power(s, alpha), 1e-6, 1.0 - 1e-6)
+        if kind == "beta":
+            coef_log_p = float(calibrator.get("coef_log_p", 0.0))
+            coef_log_one_minus_p = float(calibrator.get("coef_log_one_minus_p", 0.0))
+            intercept = float(calibrator.get("intercept", 0.0))
+            logits = (coef_log_p * np.log(s)) + (coef_log_one_minus_p * np.log(1.0 - s)) + intercept
+            return np.clip(1.0 / (1.0 + np.exp(-logits)), 1e-6, 1.0 - 1e-6)
         raise ValueError(f"Unsupported calibrator kind: {kind}")
     if hasattr(calibrator, "predict_proba"):
         out = calibrator.predict_proba(s.reshape(-1, 1))
@@ -725,12 +747,31 @@ def choose_threshold(
     quantiles = np.linspace(0.01, 0.99, 299)
     thresholds = sorted(set(float(np.quantile(proba_valid, q)) for q in quantiles) | {0.5})
     candidates: List[Dict[str, Any]] = []
+
+    def floor_margin(metrics: Dict[str, float]) -> Dict[str, float]:
+        sens_margin = float(metrics["sensitivity"]) - float(sensitivity_floor)
+        npv_margin = float(metrics["npv"]) - float(npv_floor)
+        spec_margin = float(metrics["specificity"]) - float(specificity_floor)
+        ppv_margin = float(metrics["ppv"]) - float(ppv_floor)
+        all_margins = [sens_margin, npv_margin, spec_margin, ppv_margin]
+        return {
+            "sensitivity": sens_margin,
+            "npv": npv_margin,
+            "specificity": spec_margin,
+            "ppv": ppv_margin,
+            "min": float(min(all_margins)),
+            "primary_sum": float(sens_margin + npv_margin),
+            "secondary_sum": float(spec_margin + ppv_margin),
+        }
+
     for threshold in thresholds:
         metrics, cm = metric_panel(y_valid, proba_valid, threshold, beta=beta)
+        margin = floor_margin(metrics)
         candidate = {
             "threshold": float(threshold),
             "metrics": metrics,
             "confusion_matrix": cm,
+            "floor_margin": margin,
             "feasible": bool(
                 metrics["sensitivity"] >= sensitivity_floor
                 and metrics["npv"] >= npv_floor
@@ -743,16 +784,13 @@ def choose_threshold(
     selected: Optional[Dict[str, Any]] = None
     feasible = [c for c in candidates if bool(c.get("feasible"))]
     if feasible:
-        max_f2 = max(float(c["metrics"]["f2_beta"]) for c in feasible)
-        # Prefer clinically safer operating points among near-optimal F2 candidates.
-        epsilon = 0.02
-        shortlist = [c for c in feasible if float(c["metrics"]["f2_beta"]) >= (max_f2 - epsilon)]
+        threshold_pool = feasible
         if (
             guard_y is not None
             and guard_proba is not None
             and int(np.asarray(guard_y).shape[0]) == int(np.asarray(guard_proba).shape[0])
         ):
-            for candidate in shortlist:
+            for candidate in threshold_pool:
                 guard_metrics, _ = metric_panel(
                     np.asarray(guard_y, dtype=int),
                     np.asarray(guard_proba, dtype=float),
@@ -760,27 +798,31 @@ def choose_threshold(
                     beta=beta,
                 )
                 candidate["guard_metrics"] = guard_metrics
+                candidate["guard_floor_margin"] = floor_margin(guard_metrics)
                 candidate["guard_feasible"] = bool(
                     guard_metrics["sensitivity"] >= sensitivity_floor
                     and guard_metrics["npv"] >= npv_floor
                     and guard_metrics["specificity"] >= specificity_floor
                     and guard_metrics["ppv"] >= ppv_floor
                 )
-            guard_feasible = [c for c in shortlist if bool(c.get("guard_feasible"))]
+            guard_feasible = [c for c in threshold_pool if bool(c.get("guard_feasible"))]
             if guard_feasible:
                 selected = sorted(
                     guard_feasible,
                     key=lambda c: (
-                        float(c["guard_metrics"]["specificity"]),
-                        float(c["guard_metrics"]["ppv"]),
-                        float(c["guard_metrics"]["f2_beta"]),
-                        float(c["guard_metrics"]["sensitivity"]),
-                        float(c["guard_metrics"]["npv"]),
-                        float(c["metrics"]["specificity"]),
-                        float(c["metrics"]["ppv"]),
+                        -float(c["guard_floor_margin"]["min"]),
+                        -float(c["guard_floor_margin"]["primary_sum"]),
+                        -float(c["guard_metrics"]["f2_beta"]),
+                        -float(c["floor_margin"]["min"]),
+                        -float(c["floor_margin"]["primary_sum"]),
+                        -float(c["guard_floor_margin"]["secondary_sum"]),
+                        -float(c["floor_margin"]["secondary_sum"]),
+                        -float(c["guard_metrics"]["sensitivity"]),
+                        -float(c["guard_metrics"]["npv"]),
+                        -float(c["guard_metrics"]["specificity"]),
+                        -float(c["guard_metrics"]["ppv"]),
                         float(c["threshold"]),
                     ),
-                    reverse=True,
                 )[0]
             else:
                 spec_target = min(1.0, float(specificity_floor) + 0.05)
@@ -789,11 +831,11 @@ def choose_threshold(
                 guard_min_npv = max(0.0, float(npv_floor) - 0.15)
                 stability_pool = [
                     c
-                    for c in shortlist
+                    for c in threshold_pool
                     if float(c["guard_metrics"]["sensitivity"]) >= guard_min_sensitivity
                     and float(c["guard_metrics"]["npv"]) >= guard_min_npv
                 ]
-                ranked_candidates = stability_pool if stability_pool else shortlist
+                ranked_candidates = stability_pool if stability_pool else threshold_pool
                 for candidate in ranked_candidates:
                     gm = candidate["guard_metrics"]
                     deficit_sens = max(0.0, float(sensitivity_floor) - float(gm["sensitivity"]))
@@ -828,15 +870,18 @@ def choose_threshold(
                 )[0]
         else:
             selected = sorted(
-                shortlist,
+                threshold_pool,
                 key=lambda c: (
-                    float(c["metrics"]["specificity"]),
-                    float(c["metrics"]["ppv"]),
-                    float(c["metrics"]["npv"]),
-                    float(c["metrics"]["sensitivity"]),
+                    -float(c["floor_margin"]["min"]),
+                    -float(c["floor_margin"]["primary_sum"]),
+                    -float(c["metrics"]["f2_beta"]),
+                    -float(c["floor_margin"]["secondary_sum"]),
+                    -float(c["metrics"]["sensitivity"]),
+                    -float(c["metrics"]["npv"]),
+                    -float(c["metrics"]["specificity"]),
+                    -float(c["metrics"]["ppv"]),
                     float(c["threshold"]),
                 ),
-                reverse=True,
             )[0]
     elif candidates:
         # If no threshold fully satisfies floors on the selection split, pick the
@@ -1467,9 +1512,9 @@ def main() -> int:
         else float(args.ppv_floor)
     )
     calibration_method = str(policy.get("calibration_method", args.calibration_method)).strip().lower()
-    if calibration_method not in {"sigmoid", "isotonic", "power", "none"}:
+    if calibration_method not in {"sigmoid", "isotonic", "power", "beta", "none"}:
         calibration_method = str(args.calibration_method).strip().lower()
-    if calibration_method not in {"sigmoid", "isotonic", "power", "none"}:
+    if calibration_method not in {"sigmoid", "isotonic", "power", "beta", "none"}:
         calibration_method = "none"
     selection_data = str(args.selection_data).strip().lower()
     if selection_data not in {"valid", "cv_inner"}:
@@ -1649,6 +1694,18 @@ def main() -> int:
     if threshold_selection_split == "cv_inner":
         guard_y = y_valid
         guard_proba = apply_probability_calibrator(calibrator, predict_proba_1(selected_estimator, X_valid))
+    else:
+        # When threshold selection is done on valid, use train OOF predictions as
+        # an internal guard split to reduce valid-only threshold overfitting.
+        guard_y = y_train
+        guard_proba_raw = cv_oof_proba(
+            estimator=selected_estimator,
+            X=X_train,
+            y=y_train,
+            n_splits=args.cv_splits,
+            seed=args.random_seed,
+        )
+        guard_proba = apply_probability_calibrator(calibrator, guard_proba_raw)
     threshold_info = choose_threshold(
         y_valid=threshold_y,
         proba_valid=threshold_proba,

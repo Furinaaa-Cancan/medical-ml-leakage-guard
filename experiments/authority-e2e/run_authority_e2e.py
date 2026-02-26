@@ -123,6 +123,27 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
             "calibration_fit_split": "valid",
             "calibration_method": "power",
         },
+        {
+            "profile_id": "cvinner_valid_cvinner_beta",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "beta",
+        },
+        {
+            "profile_id": "valid_valid_cvinner_beta",
+            "selection_data": "valid",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "beta",
+        },
+        {
+            "profile_id": "cvinner_valid_valid_beta",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "valid",
+            "calibration_method": "beta",
+        },
     ]
 }
 
@@ -849,7 +870,7 @@ def get_stress_profiles(profile_set: str) -> List[Dict[str, str]]:
             )
         if calibration_fit_split not in {"valid", "cv_inner"}:
             raise ValueError(f"Invalid calibration_fit_split in stress profile '{profile_id}': {calibration_fit_split}")
-        if calibration_method not in {"none", "sigmoid", "isotonic", "power"}:
+        if calibration_method not in {"none", "sigmoid", "isotonic", "power", "beta"}:
             raise ValueError(f"Invalid calibration_method in stress profile '{profile_id}': {calibration_method}")
         normalized.append(
             {
