@@ -1100,12 +1100,18 @@ def build_candidates(
         if family == "xgboost" and XGBClassifier is None:
             unavailable.append(family)
             if family in explicit_cli_models:
-                raise SystemExit("model_backend_unavailable: xgboost requested but package is not installed.")
+                raise SystemExit(
+                    "model_backend_unavailable: xgboost requested but package is not installed. "
+                    "Install with `pip install xgboost` or run `python3 scripts/env_doctor.py` for diagnostics."
+                )
             continue
         if family == "catboost" and CatBoostClassifier is None:
             unavailable.append(family)
             if family in explicit_cli_models:
-                raise SystemExit("model_backend_unavailable: catboost requested but package is not installed.")
+                raise SystemExit(
+                    "model_backend_unavailable: catboost requested but package is not installed. "
+                    "Install with `pip install catboost` or run `python3 scripts/env_doctor.py` for diagnostics."
+                )
             continue
 
         full_grid = _family_grid(family)

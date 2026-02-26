@@ -188,6 +188,22 @@ python3 scripts/run_strict_pipeline.py \
   --strict
 ```
 
+Productized one-command wrapper:
+
+```bash
+python3 scripts/run_productized_workflow.py \
+  --request configs/request.json \
+  --evidence-dir evidence \
+  --allow-missing-compare \
+  --strict
+```
+
+This wrapper runs:
+1. `env_doctor.py`
+2. `schema_preflight.py`
+3. `run_strict_pipeline.py`
+4. `render_user_summary.py`
+
 For first-run baseline bootstrap, you may omit `--compare-manifest` only with:
 - `--allow-missing-compare`
 - `run_strict_pipeline.py` always enforces `--strict` for publication-grade execution.
@@ -348,6 +364,11 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/train_select_evaluate.py`: terminal-ready training, model selection, threshold selection, and evaluation artifact generator.
 - `scripts/train_select_evaluate.py` model-pool controls: `--model-pool`, `--include-optional-models`, `--max-trials-per-family`, `--hyperparam-search`, `--n-jobs`.
 - `scripts/train_select_evaluate.py` optional model backends: `xgboost` and `catboost` are auto-detected and fail-closed when explicitly requested but unavailable.
+- `scripts/init_project.py`: one-command initialization for `configs/`, `data/`, `evidence/`, `models/`, `keys/`, plus `configs/request.json`.
+- `scripts/schema_preflight.py`: train/valid/test schema checks with semantic column auto-mapping report.
+- `scripts/env_doctor.py`: dependency and environment diagnostics with optional-backend checks.
+- `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
+- `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
 
 ### references/
 - `references/request-schema.example.json`: structured request template.
