@@ -369,6 +369,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/env_doctor.py`: dependency and environment diagnostics with optional-backend checks.
 - `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
 - `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
+- `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### references/
 - `references/request-schema.example.json`: structured request template.
@@ -421,6 +422,8 @@ If any step returns non-zero, stop and block claim release.
   - `root_failure_code_primary`
   - `root_failure_codes`
   - `failed_steps`
+- Summary rows now also include `clinical_floor_gap_summary` with internal/external floor margins
+  (`observed - required_min`) for `sensitivity/npv/specificity/ppv`.
 - `stress_seed_search_report` v2 contract requires:
   - `contract_version`
   - `run_tag`

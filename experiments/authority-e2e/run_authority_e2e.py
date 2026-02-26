@@ -308,6 +308,131 @@ def extract_pipeline_root_failures(pipeline_report: Dict[str, Any]) -> Tuple[Lis
     return dedup_steps, dedup_codes
 
 
+def to_float_or_none(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        fv = float(value)
+        return fv if np.isfinite(fv) else None
+    if isinstance(value, str):
+        token = value.strip()
+        if not token:
+            return None
+        try:
+            fv = float(token)
+        except Exception:
+            return None
+        return fv if np.isfinite(fv) else None
+    return None
+
+
+def load_clinical_floor_policy(performance_policy_path: Path) -> Dict[str, float]:
+    floors: Dict[str, float] = {
+        "sensitivity_min": 0.85,
+        "npv_min": 0.90,
+        "specificity_min": 0.40,
+        "ppv_min": 0.55,
+    }
+    try:
+        policy = load_json(performance_policy_path)
+    except Exception:
+        return floors
+    if not isinstance(policy, dict):
+        return floors
+    clinical = policy.get("clinical_floors")
+    if isinstance(clinical, dict):
+        for key in list(floors.keys()):
+            value = to_float_or_none(clinical.get(key))
+            if value is not None and 0.0 <= value <= 1.0:
+                floors[key] = float(value)
+    threshold_policy = policy.get("threshold_policy")
+    if isinstance(threshold_policy, dict):
+        clinical_nested = threshold_policy.get("clinical_floors")
+        if isinstance(clinical_nested, dict):
+            for key in list(floors.keys()):
+                value = to_float_or_none(clinical_nested.get(key))
+                if value is not None and 0.0 <= value <= 1.0:
+                    floors[key] = float(value)
+    return floors
+
+
+def build_floor_gap_rows(metrics: Dict[str, Any], floors: Dict[str, float]) -> Dict[str, Dict[str, Any]]:
+    metric_keys = {
+        "sensitivity_min": "sensitivity",
+        "npv_min": "npv",
+        "specificity_min": "specificity",
+        "ppv_min": "ppv",
+    }
+    rows: Dict[str, Dict[str, Any]] = {}
+    for floor_key, metric_name in metric_keys.items():
+        required = float(floors.get(floor_key, 0.0))
+        observed = to_float_or_none(metrics.get(metric_name))
+        if observed is None:
+            rows[metric_name] = {
+                "required_min": required,
+                "observed": None,
+                "margin": None,
+                "met": False,
+            }
+            continue
+        margin = float(observed) - required
+        rows[metric_name] = {
+            "required_min": required,
+            "observed": float(observed),
+            "margin": margin,
+            "met": bool(margin >= 0.0),
+        }
+    return rows
+
+
+def build_clinical_floor_gap_summary(
+    metrics: Dict[str, Any],
+    external_validation_report_path: Path,
+    performance_policy_path: Path,
+) -> Dict[str, Any]:
+    floors = load_clinical_floor_policy(performance_policy_path)
+    internal_rows = build_floor_gap_rows(metrics if isinstance(metrics, dict) else {}, floors)
+    external_rows: List[Dict[str, Any]] = []
+    try:
+        external_payload = load_json(external_validation_report_path)
+    except Exception:
+        external_payload = {}
+    cohorts = external_payload.get("cohorts") if isinstance(external_payload, dict) else None
+    if isinstance(cohorts, list):
+        for row in cohorts:
+            if not isinstance(row, dict):
+                continue
+            cohort_id = str(row.get("cohort_id", "")).strip()
+            cohort_type = str(row.get("cohort_type", "")).strip() or None
+            cohort_metrics = row.get("metrics")
+            metric_rows = build_floor_gap_rows(cohort_metrics if isinstance(cohort_metrics, dict) else {}, floors)
+            external_rows.append(
+                {
+                    "cohort_id": cohort_id or None,
+                    "cohort_type": cohort_type,
+                    "floor_metrics": metric_rows,
+                }
+            )
+    all_margins: List[float] = []
+    for entry in list(internal_rows.values()):
+        margin = entry.get("margin")
+        if isinstance(margin, (int, float)):
+            all_margins.append(float(margin))
+    for cohort in external_rows:
+        for entry in cohort.get("floor_metrics", {}).values():
+            margin = entry.get("margin")
+            if isinstance(margin, (int, float)):
+                all_margins.append(float(margin))
+    min_margin = min(all_margins) if all_margins else None
+    return {
+        "floors": floors,
+        "internal_test": {"floor_metrics": internal_rows},
+        "external_cohorts": external_rows,
+        "all_floor_checks_met": bool(all_margins and min_margin is not None and min_margin >= 0.0),
+        "minimum_margin": min_margin,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run authoritative publication-grade E2E checks for ml-leakage-guard."
@@ -335,7 +460,10 @@ def parse_args() -> argparse.Namespace:
         "--diabetes-max-rows",
         type=int,
         default=DEFAULT_DIABETES_MAX_ROWS,
-        help=f"Maximum rows retained for Diabetes130 case after patient-level de-duplication (default: {DEFAULT_DIABETES_MAX_ROWS}).",
+        help=(
+            "Maximum rows retained for Diabetes130 case after patient-level de-duplication "
+            f"(default: {DEFAULT_DIABETES_MAX_ROWS}; set 0 for full dataset)."
+        ),
     )
     parser.add_argument(
         "--diabetes-target-mode",
@@ -2283,16 +2411,16 @@ def prepare_case_artifacts(
         max_rows: Optional[int] = DEFAULT_CKD_MAX_ROWS
         if isinstance(case.options, dict):
             raw_max_rows = case.options.get("max_rows")
-            if isinstance(raw_max_rows, int) and raw_max_rows > 0:
-                max_rows = int(raw_max_rows)
+            if isinstance(raw_max_rows, int):
+                max_rows = int(raw_max_rows) if int(raw_max_rows) > 0 else None
         df, feature_cols = load_ckd_dataset(raw_path, max_rows=max_rows)
     elif case.case_id == "uci-diabetes-130-readmission":
         max_rows: Optional[int] = DEFAULT_DIABETES_MAX_ROWS
         target_mode = DEFAULT_DIABETES_TARGET_MODE
         if isinstance(case.options, dict):
             raw_max_rows = case.options.get("max_rows")
-            if isinstance(raw_max_rows, int) and raw_max_rows > 0:
-                max_rows = int(raw_max_rows)
+            if isinstance(raw_max_rows, int):
+                max_rows = int(raw_max_rows) if int(raw_max_rows) > 0 else None
             raw_target_mode = case.options.get("target_mode")
             if isinstance(raw_target_mode, str) and raw_target_mode.strip():
                 target_mode = str(raw_target_mode).strip().lower()
@@ -2856,6 +2984,11 @@ def prepare_case_artifacts(
         if (evidence_dir / "calibration_dca_report.json").exists()
         else {"status": "not_run"}
     )
+    clinical_floor_gap_summary = build_clinical_floor_gap_summary(
+        metrics=metrics if isinstance(metrics, dict) else {},
+        external_validation_report_path=external_validation_report_path,
+        performance_policy_path=cfg_dir / "performance_policy.json",
+    )
 
     failed_steps, root_failure_codes = extract_pipeline_root_failures(pipeline_report)
     final_status = "pass" if int(final_proc.returncode) == 0 and str(pipeline_report.get("status")) == "pass" else "fail"
@@ -2882,6 +3015,7 @@ def prepare_case_artifacts(
             "external_cross_institution": int(len(external_institution_df)),
         },
         "metrics": metrics,
+        "clinical_floor_gap_summary": clinical_floor_gap_summary,
         "gap_summary": gap_report.get("summary", {}),
         "bootstrap_exit_code": int(bootstrap_proc.returncode),
         "pipeline_status": pipeline_report.get("status"),
