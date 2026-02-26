@@ -2,3 +2,7 @@
 .DS_Store
 __pycache__/
 *.pyc
+experiments/authority-e2e/authority_e2e_summary*.json
+experiments/authority-e2e/stress_seed_search_report*.json
+experiments/authority-e2e/stress_seed_selection*.json
+experiments/authority-e2e/stress_seed_*.json
