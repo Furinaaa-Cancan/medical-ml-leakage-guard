@@ -37,6 +37,7 @@ class DatasetCase:
     raw_filename: str
     target_name: str
     source_name: str
+    options: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -56,6 +57,7 @@ REFERENCES_ROOT = REPO_ROOT / "references"
 SPLIT_RANDOM_SEED_BY_CASE: Dict[str, int] = {
     "uci-heart-disease": 20250003,
     "uci-breast-cancer-wdbc": 20260224,
+    "uci-diabetes-130-readmission": 20260226,
 }
 EXTERNAL_SPLIT_RATIO_BY_CASE: Dict[str, float] = {
     # With independent external-institution cohorts available, keep a moderate
@@ -63,28 +65,47 @@ EXTERNAL_SPLIT_RATIO_BY_CASE: Dict[str, float] = {
     # while still satisfying cross-period external minimum sample requirements.
     "uci-heart-disease": 0.20,
     "uci-breast-cancer-wdbc": 0.20,
+    "uci-diabetes-130-readmission": 0.20,
 }
 THRESHOLD_SELECTION_SPLIT_BY_CASE: Dict[str, str] = {
     "uci-heart-disease": "valid",
     "uci-breast-cancer-wdbc": "valid",
+    "uci-diabetes-130-readmission": "valid",
 }
 MODEL_SELECTION_DATA_BY_CASE: Dict[str, str] = {
     "uci-heart-disease": "cv_inner",
     "uci-breast-cancer-wdbc": "cv_inner",
+    "uci-diabetes-130-readmission": "cv_inner",
 }
 INTERNAL_SPLIT_FRACTIONS_BY_CASE: Dict[str, Dict[str, float]] = {
     # Heart dataset is small; keep test>=50 and each external cohort >=50 for calibration/DCA minimums.
     "uci-heart-disease": {"train": 0.48, "valid": 0.26, "test": 0.26},
     "uci-breast-cancer-wdbc": {"train": 0.60, "valid": 0.20, "test": 0.20},
+    "uci-diabetes-130-readmission": {"train": 0.60, "valid": 0.20, "test": 0.20},
 }
 ROBUSTNESS_TIME_SLICES_BY_CASE: Dict[str, int] = {
     "uci-heart-disease": 1,
     "uci-breast-cancer-wdbc": 2,
+    "uci-diabetes-130-readmission": 2,
 }
 ROBUSTNESS_GROUP_COUNT_BY_CASE: Dict[str, int] = {
     "uci-heart-disease": 1,
     "uci-breast-cancer-wdbc": 2,
+    "uci-diabetes-130-readmission": 2,
 }
+TRAINING_BUDGET_BY_CASE: Dict[str, Dict[str, int]] = {
+    # Keep publication-style confidence intervals while controlling runtime.
+    "uci-diabetes-130-readmission": {
+        "bootstrap_resamples": 300,
+        "ci_bootstrap_resamples": 400,
+        "permutation_resamples": 100,
+    }
+}
+MISSINGNESS_MICE_MAX_ROWS_OVERRIDE_BY_CASE: Dict[str, int] = {
+    # On larger cohorts, enforce scale-guard fallback to simple_with_indicator for runtime stability.
+    "uci-diabetes-130-readmission": 5000
+}
+DEFAULT_DIABETES_MAX_ROWS = 20000
 HEART_EXTERNAL_INSTITUTION_RAW_FILES: List[Tuple[str, str]] = [
     ("hungarian", "heart_disease_processed.hungarian.data"),
     ("switzerland", "heart_disease_processed.switzerland.data"),
@@ -193,6 +214,17 @@ def parse_args() -> argparse.Namespace:
         "--include-stress-cases",
         action="store_true",
         help="Include stress dataset cases (can also set MLLG_INCLUDE_STRESS_CASES=1).",
+    )
+    parser.add_argument(
+        "--include-large-cases",
+        action="store_true",
+        help="Include larger benchmark dataset cases (can also set MLLG_INCLUDE_LARGE_CASES=1).",
+    )
+    parser.add_argument(
+        "--diabetes-max-rows",
+        type=int,
+        default=DEFAULT_DIABETES_MAX_ROWS,
+        help=f"Maximum rows retained for Diabetes130 case after patient-level de-duplication (default: {DEFAULT_DIABETES_MAX_ROWS}).",
     )
     parser.add_argument(
         "--stress-seed-search",
@@ -605,6 +637,65 @@ def load_breast_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(axis=0).reset_index(drop=True)
     return df[feature_cols + ["y"]], feature_cols
+
+
+def load_diabetes_130_dataset(
+    raw_path: Path,
+    max_rows: Optional[int] = DEFAULT_DIABETES_MAX_ROWS,
+    random_seed: int = 20260226,
+) -> Tuple[pd.DataFrame, List[str]]:
+    na_tokens = ["?", "Unknown/Invalid", "None", "NULL", ""]
+    df = pd.read_csv(raw_path, na_values=na_tokens, low_memory=False)
+    required_cols = {"encounter_id", "patient_nbr", "readmitted"}
+    if not required_cols.issubset(set(df.columns)):
+        missing = sorted(required_cols - set(df.columns))
+        raise ValueError(f"Diabetes130 raw file missing required columns: {missing}")
+
+    encounter_num = pd.to_numeric(df["encounter_id"], errors="coerce")
+    patient_raw = df["patient_nbr"].astype(str).str.strip()
+    readmitted = df["readmitted"].astype(str).str.strip()
+    keep_mask = encounter_num.notna() & patient_raw.ne("") & readmitted.ne("")
+    df = df.loc[keep_mask].copy().reset_index(drop=True)
+    df["_encounter_num"] = pd.to_numeric(df["encounter_id"], errors="coerce")
+    df["_patient_raw"] = df["patient_nbr"].astype(str).str.strip()
+    df["y"] = (df["readmitted"].astype(str).str.strip() == "<30").astype(int)
+
+    # Prevent patient-level leakage: keep earliest encounter per patient.
+    df = df.sort_values("_encounter_num", kind="mergesort").drop_duplicates("_patient_raw", keep="first")
+    if df["y"].nunique() < 2:
+        raise ValueError("Diabetes130 target must contain both positive and negative labels after de-duplication.")
+
+    if isinstance(max_rows, int) and max_rows > 0 and int(df.shape[0]) > int(max_rows):
+        sampled_idx, _ = train_test_split(
+            df.index.to_numpy(),
+            train_size=int(max_rows),
+            random_state=int(random_seed),
+            stratify=df["y"].to_numpy(),
+        )
+        df = df.loc[np.asarray(sampled_idx)].copy()
+
+    drop_cols = {"readmitted", "encounter_id", "patient_nbr", "_encounter_num", "_patient_raw", "y"}
+    feature_cols: List[str] = [c for c in df.columns if c not in drop_cols]
+    encoded = pd.DataFrame(index=df.index)
+    for col in feature_cols:
+        series = df[col]
+        numeric = pd.to_numeric(series, errors="coerce")
+        numeric_ratio = float(numeric.notna().mean())
+        if numeric_ratio >= 0.90:
+            encoded[col] = numeric.astype(float)
+            continue
+        token = series.astype(str).str.strip()
+        token = token.replace({"": np.nan, "?": np.nan, "Unknown/Invalid": np.nan, "None": np.nan, "NULL": np.nan})
+        categories = sorted(str(v) for v in token.dropna().unique().tolist())
+        mapping = {value: idx for idx, value in enumerate(categories)}
+        encoded[col] = token.map(mapping).astype(float)
+
+    non_empty = encoded.notna().any(axis=1)
+    out = encoded.loc[non_empty].copy()
+    out["y"] = df.loc[non_empty, "y"].astype(int).to_numpy()
+    if out["y"].nunique() < 2:
+        raise ValueError("Diabetes130 labels collapsed after feature filtering.")
+    return out[feature_cols + ["y"]].reset_index(drop=True), feature_cols
 
 
 def compute_risk_proxy(frame: pd.DataFrame, feature_cols: List[str]) -> Optional[pd.Series]:
@@ -1094,7 +1185,12 @@ def copy_reference(src_name: str, dst_path: Path) -> None:
     shutil.copy2(src, dst_path)
 
 
-def update_missingness_policy(path: Path, train_rows: int, feature_count: int) -> None:
+def update_missingness_policy(
+    path: Path,
+    train_rows: int,
+    feature_count: int,
+    mice_max_rows_override: Optional[int] = None,
+) -> None:
     policy = load_json(path)
     strategy = str(policy.get("strategy", "")).strip().lower()
     if strategy != "mice_with_scale_guard":
@@ -1105,6 +1201,8 @@ def update_missingness_policy(path: Path, train_rows: int, feature_count: int) -
         write_json(path, policy)
         return
 
+    if isinstance(mice_max_rows_override, int) and mice_max_rows_override > 0:
+        policy["mice_max_rows"] = int(mice_max_rows_override)
     mice_max_rows = int(policy.get("mice_max_rows", 200000))
     mice_max_cols = int(policy.get("mice_max_cols", 200))
     large_rows = int(policy.get("large_data_row_threshold", 1_000_000))
@@ -1301,6 +1399,7 @@ def evaluate_heart_seed_feasibility(
         cfg_dir / "missingness_policy.json",
         train_rows=int(len(splits["train"])),
         feature_count=int(len(feature_cols)),
+        mice_max_rows_override=MISSINGNESS_MICE_MAX_ROWS_OVERRIDE_BY_CASE.get(case.case_id),
     )
     external_cohort_spec = {
         "cohorts": [
@@ -1759,6 +1858,13 @@ def prepare_case_artifacts(
         df, feature_cols = load_heart_dataset(raw_path)
     elif case.case_id == "uci-breast-cancer-wdbc":
         df, feature_cols = load_breast_dataset(raw_path)
+    elif case.case_id == "uci-diabetes-130-readmission":
+        max_rows: Optional[int] = DEFAULT_DIABETES_MAX_ROWS
+        if isinstance(case.options, dict):
+            raw_max_rows = case.options.get("max_rows")
+            if isinstance(raw_max_rows, int) and raw_max_rows > 0:
+                max_rows = int(raw_max_rows)
+        df, feature_cols = load_diabetes_130_dataset(raw_path, max_rows=max_rows)
     else:
         raise ValueError(f"Unsupported case_id: {case.case_id}")
 
@@ -1882,7 +1988,12 @@ def prepare_case_artifacts(
         cfg_dir / "missingness_policy.json",
         train_rows=int(len(splits["train"])),
         feature_count=int(len(feature_cols)),
+        mice_max_rows_override=MISSINGNESS_MICE_MAX_ROWS_OVERRIDE_BY_CASE.get(case.case_id),
     )
+    case_budget = TRAINING_BUDGET_BY_CASE.get(case.case_id, {})
+    bootstrap_resamples = int(case_budget.get("bootstrap_resamples", 500))
+    ci_bootstrap_resamples = int(case_budget.get("ci_bootstrap_resamples", 2000))
+    permutation_resamples = int(case_budget.get("permutation_resamples", 300))
 
     external_cohort_spec = {
         "cohorts": [
@@ -1963,6 +2074,12 @@ def prepare_case_artifacts(
             threshold_split,
             "--primary-metric",
             "pr_auc",
+            "--bootstrap-resamples",
+            str(bootstrap_resamples),
+            "--ci-bootstrap-resamples",
+            str(ci_bootstrap_resamples),
+            "--permutation-resamples",
+            str(permutation_resamples),
             "--random-seed",
             "20260224",
             "--model-selection-report-out",
@@ -2326,6 +2443,7 @@ def main() -> int:
     args = parse_args()
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     summary_path = resolve_output_path(args.summary_file)
+    include_large_cases = bool(args.include_large_cases or parse_bool_env("MLLG_INCLUDE_LARGE_CASES", default=False))
     cases = [
         DatasetCase(
             case_id="uci-breast-cancer-wdbc",
@@ -2334,6 +2452,16 @@ def main() -> int:
             source_name="UCI Breast Cancer Wisconsin (Diagnostic)",
         ),
     ]
+    if include_large_cases:
+        cases.append(
+            DatasetCase(
+                case_id="uci-diabetes-130-readmission",
+                raw_filename="diabetes_130_us_hospitals/diabetic_data.csv",
+                target_name="diabetes_readmission_lt30d",
+                source_name="UCI Diabetes 130-US Hospitals (1999-2008)",
+                options={"max_rows": int(args.diabetes_max_rows)},
+            )
+        )
     include_stress_cases = bool(args.include_stress_cases or parse_bool_env("MLLG_INCLUDE_STRESS_CASES", default=False))
     if args.stress_seed_search and not include_stress_cases:
         include_stress_cases = True
@@ -2523,6 +2651,8 @@ def main() -> int:
         "run_tag": run_tag,
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "repo_root": str(REPO_ROOT),
+        "include_large_cases": bool(include_large_cases),
+        "diabetes_max_rows": int(args.diabetes_max_rows),
         "include_stress_cases": bool(include_stress_cases),
         "stress_seed_search_enabled": bool(stress_seed_search_enabled),
         "stress_profile_set": stress_profile_set,
