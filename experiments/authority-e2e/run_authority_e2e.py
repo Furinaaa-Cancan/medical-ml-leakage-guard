@@ -144,6 +144,27 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
             "calibration_fit_split": "valid",
             "calibration_method": "beta",
         },
+        {
+            "profile_id": "cvinner_valid_cvinner_isotonic",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "isotonic",
+        },
+        {
+            "profile_id": "valid_valid_cvinner_isotonic",
+            "selection_data": "valid",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "isotonic",
+        },
+        {
+            "profile_id": "cvinner_valid_valid_isotonic",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "valid",
+            "calibration_method": "isotonic",
+        },
     ]
 }
 
@@ -1203,6 +1224,8 @@ def evaluate_heart_seed_feasibility(
             str(model_selection_report_path),
             "--evaluation-report-out",
             str(evaluation_report_path),
+            "--ci-matrix-report-out",
+            str(ci_matrix_report_path),
             "--prediction-trace-out",
             str(prediction_trace_path),
             "--external-cohort-spec",
@@ -1219,6 +1242,7 @@ def evaluate_heart_seed_feasibility(
     gap_report = evidence_dir / "generalization_gap_report.search.json"
     external_gate_report = evidence_dir / "external_validation_gate_report.search.json"
     calibration_dca_gate_report = evidence_dir / "calibration_dca_report.search_release.json"
+    ci_matrix_gate_report = evidence_dir / "ci_matrix_report.search_release.json"
     clinical_proc = run_cmd(
         [
             sys.executable,
@@ -1288,6 +1312,7 @@ def evaluate_heart_seed_feasibility(
         and bool(external_split_meta.get("minimum_requirements_met"))
     )
     calibration_proc: Optional[subprocess.CompletedProcess[str]] = None
+    ci_proc: Optional[subprocess.CompletedProcess[str]] = None
     release_ready = False
     if feasible:
         calibration_proc = run_cmd(
@@ -1308,12 +1333,34 @@ def evaluate_heart_seed_feasibility(
             ],
             allow_fail=True,
         )
-        release_ready = bool(calibration_proc.returncode == 0)
+        if calibration_proc.returncode == 0:
+            ci_proc = run_cmd(
+                [
+                    sys.executable,
+                    str(SCRIPTS_ROOT / "ci_matrix_gate.py"),
+                    "--evaluation-report",
+                    str(evaluation_report_path),
+                    "--prediction-trace",
+                    str(prediction_trace_path),
+                    "--external-validation-report",
+                    str(external_validation_report_path),
+                    "--performance-policy",
+                    str(cfg_dir / "performance_policy.json"),
+                    "--ci-matrix-report",
+                    str(evidence_dir / "ci_matrix_report.json"),
+                    "--strict",
+                    "--report",
+                    str(ci_matrix_gate_report),
+                ],
+                allow_fail=True,
+            )
+        release_ready = bool(calibration_proc.returncode == 0 and ci_proc is not None and ci_proc.returncode == 0)
     gate_reports = {
         "clinical_metrics_gate": str(clinical_report),
         "generalization_gap_gate": str(gap_report),
         "external_validation_gate": str(external_gate_report),
         "calibration_dca_gate": str(calibration_dca_gate_report) if feasible else None,
+        "ci_matrix_gate": str(ci_matrix_gate_report) if feasible else None,
     }
     calibration_gap_components = calibration_gap_diagnostics(calibration_dca_gate_report) if feasible else {}
     calibration_gap_total = float(calibration_gap_components.get("total_excess", 0.0)) if calibration_gap_components else 0.0
@@ -1323,6 +1370,7 @@ def evaluate_heart_seed_feasibility(
         + failure_gap_score(gap_report)
         + failure_gap_score(external_gate_report)
         + (failure_gap_score(calibration_dca_gate_report) if feasible else 0.0)
+        + (failure_gap_score(ci_matrix_gate_report) if feasible and ci_proc is not None else 0.0)
         + calibration_gap_total
         + (0.0 if bool(external_split_meta.get("minimum_requirements_met")) else 10.0)
     )
@@ -1346,12 +1394,14 @@ def evaluate_heart_seed_feasibility(
             "generalization_gap_gate": int(gap_proc.returncode),
             "external_validation_gate": int(external_proc.returncode),
             "calibration_dca_gate": int(calibration_proc.returncode) if calibration_proc is not None else None,
+            "ci_matrix_gate": int(ci_proc.returncode) if ci_proc is not None else None,
         },
         "gate_failures": {
             "clinical_metrics_gate": extract_failure_codes(clinical_report),
             "generalization_gap_gate": extract_failure_codes(gap_report),
             "external_validation_gate": extract_failure_codes(external_gate_report),
             "calibration_dca_gate": extract_failure_codes(calibration_dca_gate_report) if feasible else [],
+            "ci_matrix_gate": extract_failure_codes(ci_matrix_gate_report) if feasible and ci_proc is not None else [],
         },
         "gate_reports": gate_reports,
         "calibration_gap_components": calibration_gap_components,

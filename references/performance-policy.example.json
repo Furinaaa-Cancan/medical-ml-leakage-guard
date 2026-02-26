@@ -120,6 +120,7 @@
     "min_rows": 50,
     "min_positives": 10,
     "ece_bins": 10,
+    "ece_min_bin_size": 15,
     "threshold_grid": {
       "start": 0.05,
       "end": 0.50,

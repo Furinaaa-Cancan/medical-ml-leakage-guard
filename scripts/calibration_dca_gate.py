@@ -121,13 +121,19 @@ def fit_calibration_slope_intercept(y_true: np.ndarray, y_score: np.ndarray) -> 
     return {"intercept": float(beta[0]), "slope": float(beta[1])}
 
 
-def expected_calibration_error(y_true: np.ndarray, y_score: np.ndarray, n_bins: int) -> float:
+def expected_calibration_error(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    n_bins: int,
+    min_bin_size: int,
+) -> float:
     n = int(y_true.shape[0])
     if n <= 0:
         return 1.0
-    # Equal-frequency bins reduce sparse-bin variance for small cohorts.
+    # Equal-frequency bins with a minimum bin-size guard reduce sparse-bin variance
+    # for small cohorts (publication gate minimum is often around n=50).
     requested_bins = max(2, int(n_bins))
-    effective_bins = max(2, n // 10)
+    effective_bins = max(2, n // max(1, int(min_bin_size)))
     n_bins = min(requested_bins, effective_bins)
     order = np.argsort(y_score.astype(float))
     blocks = np.array_split(order, n_bins)
@@ -168,6 +174,7 @@ def parse_policy_thresholds(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "min_rows": 50,
         "min_positives": 10,
         "ece_bins": 10,
+        "ece_min_bin_size": 15,
         "threshold_grid": {"start": 0.05, "end": 0.50, "step": 0.05},
         "min_advantage_coverage": 0.50,
         "min_average_advantage": 0.0,
@@ -187,6 +194,7 @@ def parse_policy_thresholds(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "min_rows",
         "min_positives",
         "ece_bins",
+        "ece_min_bin_size",
         "min_advantage_coverage",
         "min_average_advantage",
         "min_net_benefit_advantage",
@@ -194,7 +202,7 @@ def parse_policy_thresholds(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         value = to_float(block.get(key))
         if value is None:
             continue
-        if key in {"min_rows", "min_positives", "ece_bins"}:
+        if key in {"min_rows", "min_positives", "ece_bins", "ece_min_bin_size"}:
             if value >= 1:
                 out[key] = int(value)
         elif key in {"ece_max", "intercept_abs_max"}:
@@ -248,7 +256,13 @@ def evaluate_cohort(
     grid: np.ndarray,
 ) -> Dict[str, Any]:
     ece_bins = int(thresholds["ece_bins"])
-    ece = expected_calibration_error(y_true, y_score, n_bins=ece_bins)
+    ece_min_bin_size = int(thresholds.get("ece_min_bin_size", 15))
+    ece = expected_calibration_error(
+        y_true,
+        y_score,
+        n_bins=ece_bins,
+        min_bin_size=ece_min_bin_size,
+    )
     cal = fit_calibration_slope_intercept(y_true, y_score)
     if cal is None:
         raise ValueError("Unable to fit calibration slope/intercept.")
@@ -290,6 +304,7 @@ def evaluate_cohort(
             "slope": slope,
             "intercept": intercept,
             "ece_bins": ece_bins,
+            "ece_min_bin_size": int(ece_min_bin_size),
         },
         "dca": {
             "threshold_count": int(len(dca_rows)),

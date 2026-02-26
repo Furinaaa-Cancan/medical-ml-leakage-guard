@@ -545,12 +545,17 @@ def fit_probability_calibrator(
         return calibrator
     if token == "power":
         # Smooth monotonic calibration that preserves ranking while controlling over/under-confidence.
-        def calibration_ece_local(labels: np.ndarray, scores: np.ndarray, n_bins: int = 10) -> float:
+        def calibration_ece_local(
+            labels: np.ndarray,
+            scores: np.ndarray,
+            n_bins: int = 10,
+            min_bin_size: int = 15,
+        ) -> float:
             n = int(labels.shape[0])
             if n <= 0:
                 return 1.0
             requested_bins = max(2, int(n_bins))
-            effective_bins = max(2, n // 10)
+            effective_bins = max(2, n // max(1, int(min_bin_size)))
             bin_count = min(requested_bins, effective_bins)
             order = np.argsort(scores.astype(float))
             blocks = np.array_split(order, bin_count)
