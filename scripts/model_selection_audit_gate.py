@@ -6,6 +6,7 @@ Fail-closed model-selection audit gate for publication-grade medical prediction.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -18,6 +19,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate model-selection evidence for leakage-safe selection.")
     parser.add_argument("--model-selection-report", required=True, help="Path to model_selection_report.json.")
     parser.add_argument("--tuning-spec", required=True, help="Path to tuning protocol JSON.")
+    parser.add_argument("--train", help="Optional train split CSV path for fingerprint verification.")
+    parser.add_argument("--valid", help="Optional valid split CSV path for fingerprint verification.")
+    parser.add_argument("--test", help="Optional test split CSV path for fingerprint verification.")
     parser.add_argument("--expected-primary-metric", default="pr_auc", help="Expected primary selection metric.")
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
@@ -69,6 +73,42 @@ def finite_int(value: Any) -> Optional[int]:
     return None
 
 
+def finite_float_list(value: Any) -> Optional[List[float]]:
+    if not isinstance(value, list) or not value:
+        return None
+    out: List[float] = []
+    for item in value:
+        parsed = finite_float(item)
+        if parsed is None:
+            return None
+        out.append(float(parsed))
+    return out
+
+
+def in_unit_interval(value: float, eps: float = 1e-12) -> bool:
+    v = float(value)
+    return (-eps) <= v <= (1.0 + eps)
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def csv_row_count(path: Path) -> int:
+    total = -1
+    with path.open("r", encoding="utf-8-sig", errors="replace") as fh:
+        for total, _ in enumerate(fh):
+            pass
+    return max(total, 0)
+
+
 def scan_candidate_for_test_usage(node: Any, path: str, hits: List[str]) -> None:
     if isinstance(node, dict):
         for key, value in node.items():
@@ -85,17 +125,20 @@ def scan_candidate_for_test_usage(node: Any, path: str, hits: List[str]) -> None
             scan_candidate_for_test_usage(value, f"{path}[{idx}]", hits)
 
 
-def extract_selection_tuple(candidate: Dict[str, Any], expected_metric: str) -> Tuple[Optional[float], Optional[float], Optional[int]]:
+def extract_selection_tuple(
+    candidate: Dict[str, Any], expected_metric: str
+) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[List[float]]]:
     metrics = candidate.get("selection_metrics")
     if not isinstance(metrics, dict):
-        return None, None, None
+        return None, None, None, None
     metric_block = metrics.get(expected_metric)
     if not isinstance(metric_block, dict):
-        return None, None, None
+        return None, None, None, None
     mean_value = finite_float(metric_block.get("mean"))
     std_value = finite_float(metric_block.get("std"))
     n_folds = finite_int(metric_block.get("n_folds"))
-    return mean_value, std_value, n_folds
+    fold_scores = finite_float_list(metric_block.get("fold_scores"))
+    return mean_value, std_value, n_folds, fold_scores
 
 
 def main() -> int:
@@ -228,6 +271,13 @@ def main() -> int:
             "tuning_spec model_selection_data references test.",
             {"model_selection_data": model_selection_data},
         )
+    if selection_data and model_selection_data and selection_data != model_selection_data:
+        add_issue(
+            failures,
+            "selection_data_spec_mismatch",
+            "model_selection_report.selection_policy.selection_data must match tuning_spec.model_selection_data.",
+            {"selection_data_report": selection_data, "selection_data_tuning_spec": model_selection_data},
+        )
 
     one_se_rule = selection_policy.get("one_se_rule")
     if one_se_rule is not True:
@@ -259,6 +309,8 @@ def main() -> int:
     has_logistic = False
     suspicious_test_paths: List[str] = []
     candidate_rows: List[Dict[str, Any]] = []
+    seen_model_ids: Dict[str, int] = {}
+    selected_true_ids: List[str] = []
     for idx, raw_candidate in enumerate(candidates):
         if not isinstance(raw_candidate, dict):
             add_issue(
@@ -271,7 +323,17 @@ def main() -> int:
         model_id = str(raw_candidate.get("model_id", "")).strip()
         family = str(raw_candidate.get("family", "")).strip().lower()
         complexity_rank = finite_int(raw_candidate.get("complexity_rank"))
-        mean_value, std_value, n_folds = extract_selection_tuple(raw_candidate, "pr_auc")
+        selected_flag = raw_candidate.get("selected")
+        if selected_flag is not None and not isinstance(selected_flag, bool):
+            add_issue(
+                failures,
+                "invalid_candidate_entry",
+                "Candidate selected flag must be boolean when present.",
+                {"candidate": model_id or f"index-{idx}", "selected": selected_flag},
+            )
+        if selected_flag is True and model_id:
+            selected_true_ids.append(model_id)
+        mean_value, std_value, n_folds, fold_scores = extract_selection_tuple(raw_candidate, "pr_auc")
         candidate_rows.append(
             {
                 "index": idx,
@@ -281,11 +343,24 @@ def main() -> int:
                 "mean": mean_value,
                 "std": std_value,
                 "n_folds": n_folds,
+                "fold_scores": fold_scores,
+                "selected_flag": selected_flag,
             }
         )
+        if model_id:
+            seen_model_ids[model_id] = seen_model_ids.get(model_id, 0) + 1
         if "logistic" in family or "logistic" in model_id.lower():
             has_logistic = True
         scan_candidate_for_test_usage(raw_candidate, f"candidates[{idx}]", suspicious_test_paths)
+
+    duplicate_model_ids = sorted([mid for mid, count in seen_model_ids.items() if count > 1])
+    if duplicate_model_ids:
+        add_issue(
+            failures,
+            "duplicate_candidate_model_id",
+            "Candidate model_id values must be unique.",
+            {"duplicate_model_ids": duplicate_model_ids},
+        )
 
     if not has_logistic:
         add_issue(
@@ -311,30 +386,246 @@ def main() -> int:
             "model_selection_report must include selected_model_id.",
             {},
         )
+    elif selected_model_id not in seen_model_ids:
+        add_issue(
+            failures,
+            "selected_model_not_in_candidates",
+            "selected_model_id must reference one of the candidate model_id values.",
+            {"selected_model_id": selected_model_id},
+        )
+    if selected_true_ids:
+        if len(selected_true_ids) != 1:
+            add_issue(
+                failures,
+                "invalid_selected_candidate_flags",
+                "Exactly one candidate should be marked selected=true when selected flags are present.",
+                {"selected_true_ids": selected_true_ids},
+            )
+        elif selected_model_id and selected_true_ids[0] != selected_model_id:
+            add_issue(
+                failures,
+                "selected_model_flag_mismatch",
+                "selected_model_id must match candidate selected=true marker.",
+                {"selected_model_id": selected_model_id, "selected_true_id": selected_true_ids[0]},
+            )
 
     valid_candidates: List[Dict[str, Any]] = []
     for row in candidate_rows:
-        if not row["model_id"] or row["complexity_rank"] is None or row["mean"] is None or row["std"] is None or row["n_folds"] is None:
+        if (
+            not row["model_id"]
+            or row["complexity_rank"] is None
+            or row["mean"] is None
+            or row["std"] is None
+            or row["n_folds"] is None
+            or row["fold_scores"] is None
+        ):
             add_issue(
                 failures,
                 "selection_replay_missing_fields",
                 "Candidate is missing required replay fields for one-SE audit.",
                 {
                     "candidate": row.get("model_id") or f"index-{row.get('index')}",
-                    "required_fields": ["model_id", "complexity_rank", "selection_metrics.pr_auc.mean/std/n_folds"],
+                    "required_fields": [
+                        "model_id",
+                        "complexity_rank",
+                        "selection_metrics.pr_auc.mean/std/n_folds/fold_scores",
+                    ],
                     "migration_hint": "Emit deterministic candidate fields to replay selection.",
                 },
             )
             continue
-        if int(row["n_folds"]) < 2:
+        if int(row["complexity_rank"]) < 1:
+            add_issue(
+                failures,
+                "invalid_candidate_complexity_rank",
+                "complexity_rank must be integer >= 1.",
+                {"candidate": row["model_id"], "complexity_rank": row["complexity_rank"]},
+            )
+            continue
+        if not in_unit_interval(float(row["mean"])):
+            add_issue(
+                failures,
+                "selection_metric_out_of_range",
+                "selection_metrics.pr_auc.mean must be in [0,1].",
+                {"candidate": row["model_id"], "mean": row["mean"]},
+            )
+            continue
+        if not in_unit_interval(float(row["std"])):
+            add_issue(
+                failures,
+                "selection_metric_out_of_range",
+                "selection_metrics.pr_auc.std must be in [0,1].",
+                {"candidate": row["model_id"], "std": row["std"]},
+            )
+            continue
+        fold_scores = list(row["fold_scores"])
+        if any(not in_unit_interval(float(x)) for x in fold_scores):
+            add_issue(
+                failures,
+                "selection_metric_out_of_range",
+                "selection_metrics.pr_auc.fold_scores values must be in [0,1].",
+                {"candidate": row["model_id"], "fold_scores": fold_scores},
+            )
+            continue
+        n_folds = int(row["n_folds"])
+        if len(fold_scores) != n_folds:
+            add_issue(
+                failures,
+                "selection_replay_fold_count_mismatch",
+                "selection_metrics.pr_auc.n_folds must equal len(fold_scores).",
+                {"candidate": row["model_id"], "n_folds": n_folds, "fold_score_count": len(fold_scores)},
+            )
+            continue
+        if selection_data == "valid":
+            if n_folds != 1:
+                add_issue(
+                    failures,
+                    "selection_replay_invalid_n_folds",
+                    "selection_data=valid requires n_folds=1.",
+                    {"candidate": row["model_id"], "n_folds": n_folds},
+                )
+                continue
+        elif n_folds < 2:
             add_issue(
                 failures,
                 "selection_replay_invalid_n_folds",
-                "selection_metrics.pr_auc.n_folds must be >= 2.",
-                {"candidate": row["model_id"], "n_folds": row["n_folds"]},
+                "selection_metrics.pr_auc.n_folds must be >= 2 for CV-based selection.",
+                {"candidate": row["model_id"], "n_folds": n_folds},
+            )
+            continue
+
+        scores_arr = [float(x) for x in fold_scores]
+        calc_mean = float(sum(scores_arr) / len(scores_arr))
+        if len(scores_arr) > 1:
+            mean = calc_mean
+            calc_std = float(math.sqrt(sum((x - mean) ** 2 for x in scores_arr) / (len(scores_arr) - 1)))
+        else:
+            calc_std = 0.0
+        if abs(calc_mean - float(row["mean"])) > 1e-9:
+            add_issue(
+                failures,
+                "selection_metric_summary_mismatch",
+                "selection_metrics.pr_auc.mean does not match fold_scores average.",
+                {
+                    "candidate": row["model_id"],
+                    "reported_mean": row["mean"],
+                    "computed_mean": calc_mean,
+                },
+            )
+            continue
+        if abs(calc_std - float(row["std"])) > 1e-9:
+            add_issue(
+                failures,
+                "selection_metric_summary_mismatch",
+                "selection_metrics.pr_auc.std does not match fold_scores sample std.",
+                {
+                    "candidate": row["model_id"],
+                    "reported_std": row["std"],
+                    "computed_std": calc_std,
+                },
             )
             continue
         valid_candidates.append(row)
+
+    fingerprint_summary: Dict[str, Any] = {}
+    split_paths = {
+        "train": args.train,
+        "valid": args.valid,
+        "test": args.test,
+    }
+    required_split_paths = {"train", "test"}
+    if selection_data == "valid" or model_selection_data == "valid":
+        required_split_paths.add("valid")
+    if args.strict:
+        for split_name in sorted(required_split_paths):
+            raw_path = split_paths.get(split_name)
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                add_issue(
+                    failures,
+                    "missing_split_file_for_fingerprint_verification",
+                    "Strict mode requires split files for fingerprint verification.",
+                    {"required_split": split_name, "provided_split_paths": {k: bool(v) for k, v in split_paths.items()}},
+                )
+
+    declared_fingerprints = model_selection.get("data_fingerprints")
+    if args.strict and isinstance(declared_fingerprints, dict):
+        for split_name in ("train", "valid", "test"):
+            if split_name in declared_fingerprints:
+                raw_path = split_paths.get(split_name)
+                if not isinstance(raw_path, str) or not raw_path.strip():
+                    add_issue(
+                        failures,
+                        "missing_split_file_for_fingerprint_verification",
+                        "Declared fingerprint split cannot be verified without matching split CSV path.",
+                        {"declared_split": split_name},
+                    )
+    if any(isinstance(v, str) and v.strip() for v in split_paths.values()):
+        if not isinstance(declared_fingerprints, dict):
+            add_issue(
+                failures,
+                "missing_data_fingerprints",
+                "model_selection_report must include data_fingerprints for split provenance.",
+                {"required_splits": [k for k, v in split_paths.items() if isinstance(v, str) and v.strip()]},
+            )
+        else:
+            for split_name, raw_path in split_paths.items():
+                if not isinstance(raw_path, str) or not raw_path.strip():
+                    continue
+                split_path = Path(raw_path).expanduser().resolve()
+                if not split_path.exists() or not split_path.is_file():
+                    add_issue(
+                        failures,
+                        "split_file_missing_for_fingerprint_verification",
+                        "Split file for fingerprint verification is missing or invalid.",
+                        {"split": split_name, "path": str(split_path)},
+                    )
+                    continue
+                block = declared_fingerprints.get(split_name)
+                if not isinstance(block, dict):
+                    add_issue(
+                        failures,
+                        "missing_data_fingerprint_split",
+                        "Missing fingerprint entry for split.",
+                        {"split": split_name},
+                    )
+                    continue
+                declared_sha = str(block.get("sha256", "")).strip().lower()
+                declared_rows = finite_int(block.get("row_count"))
+                if not re.fullmatch(r"[0-9a-f]{64}", declared_sha):
+                    add_issue(
+                        failures,
+                        "invalid_data_fingerprint",
+                        "Fingerprint sha256 must be 64-char lowercase hex.",
+                        {"split": split_name, "sha256": block.get("sha256")},
+                    )
+                    continue
+                actual_sha = sha256_file(split_path).lower()
+                actual_rows = csv_row_count(split_path)
+                fingerprint_summary[split_name] = {
+                    "path": str(split_path),
+                    "declared_sha256": declared_sha,
+                    "actual_sha256": actual_sha,
+                    "declared_row_count": declared_rows,
+                    "actual_row_count": actual_rows,
+                }
+                if declared_sha != actual_sha:
+                    add_issue(
+                        failures,
+                        "data_fingerprint_mismatch",
+                        "Split fingerprint sha256 does not match report.",
+                        {"split": split_name, "declared_sha256": declared_sha, "actual_sha256": actual_sha},
+                    )
+                if declared_rows is None or int(declared_rows) != int(actual_rows):
+                    add_issue(
+                        failures,
+                        "data_fingerprint_row_count_mismatch",
+                        "Split row_count does not match report fingerprint block.",
+                        {
+                            "split": split_name,
+                            "declared_row_count": declared_rows,
+                            "actual_row_count": actual_rows,
+                        },
+                    )
 
     replay_summary: Dict[str, Any] = {}
     if valid_candidates:
@@ -389,6 +680,7 @@ def main() -> int:
             "one_se_rule": one_se_rule,
         },
         "replay": replay_summary,
+        "fingerprint_verification": fingerprint_summary,
     }
     return finish(args, failures, warnings, summary)
 

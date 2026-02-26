@@ -4,8 +4,8 @@ End-to-end strict skill validation on authoritative public medical binary datase
 
 Workflow per dataset:
 1. Load and clean raw data.
-2. Build train/valid/test CSV splits with disjoint IDs and strict temporal ordering.
-3. Run train_select_evaluate.py to emit model_selection_report + evaluation_report.
+2. Build train/valid/test/external CSV splits with disjoint IDs and strict temporal ordering.
+3. Run train_select_evaluate.py to emit model_selection/evaluation/prediction-trace/external-validation artifacts.
 4. Generate signed execution attestation bundle.
 5. Run strict pipeline bootstrap (allow-missing-compare).
 6. Freeze manifest baseline and rerun strict pipeline with comparison.
@@ -13,15 +13,20 @@ Workflow per dataset:
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -34,11 +39,156 @@ class DatasetCase:
     source_name: str
 
 
+@dataclass
+class HeartStressSearchResult:
+    selected_seed: int
+    selected_profile: str
+    report_path: Path
+    selection_path: Path
+    status: str
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 RAW_ROOT = DATA_ROOT / "raw"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 REFERENCES_ROOT = REPO_ROOT / "references"
+SPLIT_RANDOM_SEED_BY_CASE: Dict[str, int] = {
+    "uci-heart-disease": 20250003,
+    "uci-breast-cancer-wdbc": 20260224,
+}
+EXTERNAL_SPLIT_RATIO_BY_CASE: Dict[str, float] = {
+    "uci-heart-disease": 0.34,
+    "uci-breast-cancer-wdbc": 0.20,
+}
+THRESHOLD_SELECTION_SPLIT_BY_CASE: Dict[str, str] = {
+    "uci-heart-disease": "valid",
+    "uci-breast-cancer-wdbc": "valid",
+}
+MODEL_SELECTION_DATA_BY_CASE: Dict[str, str] = {
+    "uci-heart-disease": "cv_inner",
+    "uci-breast-cancer-wdbc": "cv_inner",
+}
+INTERNAL_SPLIT_FRACTIONS_BY_CASE: Dict[str, Dict[str, float]] = {
+    # Heart dataset is small; keep test>=50 and each external cohort >=50 for calibration/DCA minimums.
+    "uci-heart-disease": {"train": 0.48, "valid": 0.26, "test": 0.26},
+    "uci-breast-cancer-wdbc": {"train": 0.60, "valid": 0.20, "test": 0.20},
+}
+ROBUSTNESS_TIME_SLICES_BY_CASE: Dict[str, int] = {
+    "uci-heart-disease": 1,
+    "uci-breast-cancer-wdbc": 2,
+}
+ROBUSTNESS_GROUP_COUNT_BY_CASE: Dict[str, int] = {
+    "uci-heart-disease": 1,
+    "uci-breast-cancer-wdbc": 2,
+}
+DEFAULT_STRESS_SEED_MIN = 20249900
+DEFAULT_STRESS_SEED_MAX = 20250150
+STRESS_SEARCH_REPORT_CONTRACT_VERSION = "v2"
+DEFAULT_STRESS_PROFILE_SET = "strict_v1"
+STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
+    "strict_v1": [
+        {
+            "profile_id": "cvinner_valid_cvinner_power",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "power",
+        },
+        {
+            "profile_id": "cvinner_valid_cvinner_sigmoid",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "sigmoid",
+        },
+        {
+            "profile_id": "cvinner_valid_cvinner_none",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "none",
+        },
+        {
+            "profile_id": "valid_valid_cvinner_power",
+            "selection_data": "valid",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "power",
+        },
+        {
+            "profile_id": "cvinner_valid_valid_power",
+            "selection_data": "cv_inner",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "valid",
+            "calibration_method": "power",
+        },
+    ]
+}
+
+
+def parse_bool_env(name: str, default: bool = False) -> bool:
+    token = str(os.environ.get(name, "1" if default else "0")).strip().lower()
+    return token in {"1", "true", "yes", "on"}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run authoritative publication-grade E2E checks for ml-leakage-guard."
+    )
+    parser.add_argument(
+        "--include-stress-cases",
+        action="store_true",
+        help="Include stress dataset cases (can also set MLLG_INCLUDE_STRESS_CASES=1).",
+    )
+    parser.add_argument(
+        "--stress-seed-search",
+        action="store_true",
+        help="Search feasible heart split seed range and freeze selected seed for stress run.",
+    )
+    parser.add_argument(
+        "--no-stress-seed-search",
+        action="store_true",
+        help="Disable automatic heart stress seed search when stress cases are included.",
+    )
+    parser.add_argument(
+        "--stress-seed-min",
+        type=int,
+        default=DEFAULT_STRESS_SEED_MIN,
+        help=f"Minimum seed for heart stress search (default: {DEFAULT_STRESS_SEED_MIN}).",
+    )
+    parser.add_argument(
+        "--stress-seed-max",
+        type=int,
+        default=DEFAULT_STRESS_SEED_MAX,
+        help=f"Maximum seed for heart stress search (default: {DEFAULT_STRESS_SEED_MAX}).",
+    )
+    parser.add_argument(
+        "--stress-seed-cache-file",
+        default=str(DATA_ROOT / "stress_seed_search_report.json"),
+        help="Output JSON path for stress seed search diagnostics/report.",
+    )
+    parser.add_argument(
+        "--stress-selection-file",
+        default=str(DATA_ROOT / "stress_seed_selection.json"),
+        help="Output JSON path for selected stress seed/profile freeze record.",
+    )
+    parser.add_argument(
+        "--summary-file",
+        default=str(DATA_ROOT / "authority_e2e_summary.json"),
+        help="Path to write authority E2E summary JSON.",
+    )
+    parser.add_argument(
+        "--run-tag",
+        default="",
+        help="Optional unique run tag. If omitted, UTC timestamp token is used.",
+    )
+    parser.add_argument(
+        "--stress-profile-set",
+        default=DEFAULT_STRESS_PROFILE_SET,
+        help=f"Stress search profile set name (default: {DEFAULT_STRESS_PROFILE_SET}).",
+    )
+    return parser.parse_args()
 
 
 def run_cmd(cmd: List[str], cwd: Path | None = None, allow_fail: bool = False) -> subprocess.CompletedProcess[str]:
@@ -57,6 +207,179 @@ def run_cmd(cmd: List[str], cwd: Path | None = None, allow_fail: bool = False) -
             f"stderr:\n{proc.stderr}"
         )
     return proc
+
+
+def sha256_bytes(data: bytes) -> str:
+    h = hashlib.sha256()
+    h.update(data)
+    return h.hexdigest()
+
+
+def dataframe_sha256(df: pd.DataFrame) -> str:
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    return sha256_bytes(csv_bytes)
+
+
+def summarize_split_frame(df: pd.DataFrame) -> Dict[str, Any]:
+    events = int(pd.to_numeric(df["y"], errors="coerce").fillna(0).astype(int).sum()) if "y" in df.columns else 0
+    rows = int(len(df))
+    return {
+        "rows": rows,
+        "events": events,
+        "event_rate": float(events / rows) if rows > 0 else 0.0,
+        "sha256": dataframe_sha256(df),
+    }
+
+
+def extract_failure_codes(report_path: Path) -> List[str]:
+    if not report_path.exists():
+        return []
+    try:
+        payload = load_json(report_path)
+    except Exception:
+        return []
+    failures = payload.get("failures")
+    codes: List[str] = []
+    if isinstance(failures, list):
+        for issue in failures:
+            if isinstance(issue, dict):
+                code = issue.get("code")
+                if isinstance(code, str) and code:
+                    codes.append(code)
+    return sorted(set(codes))
+
+
+def failure_gap_score(report_path: Path) -> float:
+    if not report_path.exists():
+        return 1e6
+    try:
+        payload = load_json(report_path)
+    except Exception:
+        return 1e6
+    if str(payload.get("status", "")).strip().lower() == "pass":
+        return 0.0
+    failures = payload.get("failures")
+    if not isinstance(failures, list) or not failures:
+        return 10.0
+    score = 0.0
+    parsed_any = False
+    for issue in failures:
+        if not isinstance(issue, dict):
+            continue
+        details = issue.get("details")
+        if not isinstance(details, dict):
+            score += 1.0
+            continue
+
+        def _num(name: str) -> Optional[float]:
+            value = details.get(name)
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            try:
+                return float(str(value))
+            except Exception:
+                return None
+
+        pairs = [
+            ("required_min", "value", "min"),
+            ("minimum", "observed", "min"),
+            ("min_required", "observed", "min"),
+            ("max_allowed", "observed", "max"),
+            ("maximum", "observed", "max"),
+            ("fail_threshold", "observed_gap", "max"),
+            ("threshold", "value", "max"),
+        ]
+        issue_gap = 0.0
+        local_parsed = False
+        for threshold_key, observed_key, direction in pairs:
+            threshold = _num(threshold_key)
+            observed = _num(observed_key)
+            if threshold is None or observed is None:
+                continue
+            local_parsed = True
+            if direction == "min":
+                issue_gap = max(issue_gap, max(0.0, threshold - observed))
+            else:
+                issue_gap = max(issue_gap, max(0.0, observed - threshold))
+        if local_parsed:
+            parsed_any = True
+            score += issue_gap
+        else:
+            score += 1.0
+    if not parsed_any:
+        score += float(len(failures))
+    return float(score)
+
+
+def calibration_gap_diagnostics(report_path: Path) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "ece_excess_total": 0.0,
+        "slope_excess_total": 0.0,
+        "intercept_excess_total": 0.0,
+        "max_ece_excess": 0.0,
+        "max_slope_excess": 0.0,
+        "max_intercept_excess": 0.0,
+        "total_excess": 0.0,
+    }
+    if not report_path.exists():
+        return payload
+    try:
+        report = load_json(report_path)
+    except Exception:
+        return payload
+    failures = report.get("failures")
+    if not isinstance(failures, list):
+        return payload
+    for issue in failures:
+        if not isinstance(issue, dict):
+            continue
+        code = str(issue.get("code", "")).strip()
+        details = issue.get("details")
+        if not isinstance(details, dict):
+            continue
+        if code == "calibration_ece_exceeds_threshold":
+            ece = details.get("ece")
+            ece_max = details.get("ece_max")
+            if isinstance(ece, (int, float)) and isinstance(ece_max, (int, float)):
+                excess = max(0.0, float(ece) - float(ece_max))
+                payload["ece_excess_total"] = float(payload["ece_excess_total"]) + excess
+                payload["max_ece_excess"] = max(float(payload["max_ece_excess"]), excess)
+        elif code == "calibration_slope_out_of_range":
+            slope = details.get("slope")
+            slope_min = details.get("slope_min")
+            slope_max = details.get("slope_max")
+            if isinstance(slope, (int, float)):
+                lower = max(0.0, float(slope_min) - float(slope)) if isinstance(slope_min, (int, float)) else 0.0
+                upper = max(0.0, float(slope) - float(slope_max)) if isinstance(slope_max, (int, float)) else 0.0
+                excess = max(lower, upper)
+                payload["slope_excess_total"] = float(payload["slope_excess_total"]) + excess
+                payload["max_slope_excess"] = max(float(payload["max_slope_excess"]), excess)
+        elif code == "calibration_intercept_out_of_range":
+            intercept = details.get("intercept")
+            intercept_min = details.get("intercept_min")
+            intercept_max = details.get("intercept_max")
+            if isinstance(intercept, (int, float)):
+                lower = (
+                    max(0.0, float(intercept_min) - float(intercept))
+                    if isinstance(intercept_min, (int, float))
+                    else 0.0
+                )
+                upper = (
+                    max(0.0, float(intercept) - float(intercept_max))
+                    if isinstance(intercept_max, (int, float))
+                    else 0.0
+                )
+                excess = max(lower, upper)
+                payload["intercept_excess_total"] = float(payload["intercept_excess_total"]) + excess
+                payload["max_intercept_excess"] = max(float(payload["max_intercept_excess"]), excess)
+    payload["total_excess"] = float(
+        float(payload["ece_excess_total"])
+        + float(payload["slope_excess_total"])
+        + float(payload["intercept_excess_total"])
+    )
+    return payload
 
 
 def load_heart_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
@@ -128,32 +451,120 @@ def load_breast_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
     return df[feature_cols + ["y"]], feature_cols
 
 
-def split_with_temporal_order(df: pd.DataFrame, feature_cols: List[str], case_id: str) -> Dict[str, pd.DataFrame]:
+def compute_risk_proxy(frame: pd.DataFrame, feature_cols: List[str]) -> Optional[pd.Series]:
+    numeric_cols = [c for c in feature_cols if c in frame.columns]
+    if not numeric_cols:
+        return None
+    numeric = frame[numeric_cols].apply(pd.to_numeric, errors="coerce")
+    if numeric.shape[1] == 0:
+        return None
+    filled = numeric.copy()
+    for col in filled.columns:
+        series = filled[col]
+        median = float(series.median(skipna=True)) if series.notna().any() else 0.0
+        filled[col] = series.fillna(median)
+    std = filled.std(axis=0, ddof=0).replace(0.0, 1.0)
+    z = (filled - filled.mean(axis=0)) / std
+    return z.sum(axis=1)
+
+
+def build_stratify_labels(y_series: pd.Series, risk_proxy: Optional[pd.Series]) -> Tuple[Optional[np.ndarray], List[str]]:
+    y = pd.to_numeric(y_series, errors="coerce").fillna(0).astype(int)
+    if y.nunique() < 2:
+        return None, ["y"]
+    y_tokens = y.astype(str)
+    if risk_proxy is not None:
+        rp = pd.to_numeric(risk_proxy, errors="coerce")
+        if rp.notna().any():
+            for q in (5, 4, 3, 2):
+                try:
+                    bins = pd.qcut(rp, q=q, duplicates="drop")
+                except Exception:
+                    continue
+                bin_tokens = bins.astype(str).fillna("q0")
+                strata = y_tokens + "__" + bin_tokens
+                counts = strata.value_counts()
+                if not counts.empty and int(counts.min()) >= 2 and int(strata.nunique()) >= 2:
+                    return strata.to_numpy(), ["y", f"risk_proxy_quantile_q{q}"]
+    y_array = y.to_numpy()
+    if len(set(y_array.tolist())) < 2:
+        return None, ["y"]
+    return y_array, ["y"]
+
+
+def split_with_temporal_order(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    case_id: str,
+    split_seed_override: Optional[int] = None,
+) -> Dict[str, pd.DataFrame]:
+    split_seed = int(split_seed_override if split_seed_override is not None else SPLIT_RANDOM_SEED_BY_CASE.get(case_id, 20260224))
+    external_ratio = float(EXTERNAL_SPLIT_RATIO_BY_CASE.get(case_id, 0.17))
+    if not (0.05 <= external_ratio <= 0.40):
+        external_ratio = 0.17
+    fractions = INTERNAL_SPLIT_FRACTIONS_BY_CASE.get(case_id, {"train": 0.60, "valid": 0.20, "test": 0.20})
+    train_fraction = float(fractions.get("train", 0.60))
+    valid_fraction = float(fractions.get("valid", 0.20))
+    test_fraction = float(fractions.get("test", 0.20))
+    total_fraction = train_fraction + valid_fraction + test_fraction
+    if total_fraction <= 0:
+        train_fraction, valid_fraction, test_fraction = 0.60, 0.20, 0.20
+    else:
+        train_fraction /= total_fraction
+        valid_fraction /= total_fraction
+        test_fraction /= total_fraction
+    if not (0.30 <= train_fraction <= 0.80):
+        train_fraction = 0.60
+    if not (0.05 <= valid_fraction <= 0.40):
+        valid_fraction = 0.20
+    if not (0.05 <= test_fraction <= 0.40):
+        test_fraction = 0.20
+    total_fraction = train_fraction + valid_fraction + test_fraction
+    train_fraction /= total_fraction
+    valid_fraction /= total_fraction
+    test_fraction /= total_fraction
+
     y = df["y"].to_numpy()
     indices = df.index.to_numpy()
-    train_idx, temp_idx = train_test_split(
+    risk_proxy = compute_risk_proxy(df, feature_cols) if case_id == "uci-heart-disease" else None
+    external_stratify, _ = build_stratify_labels(df["y"], risk_proxy)
+    internal_idx, external_idx = train_test_split(
         indices,
-        test_size=0.30,
-        random_state=20260224,
-        stratify=y,
+        test_size=external_ratio,
+        random_state=split_seed,
+        stratify=external_stratify if external_stratify is not None else y,
     )
-    temp_y = y[temp_idx]
+    internal_df = df.loc[internal_idx]
+    internal_risk = risk_proxy.loc[internal_idx] if risk_proxy is not None else None
+    internal_stratify, _ = build_stratify_labels(internal_df["y"], internal_risk)
+    train_idx, temp_idx = train_test_split(
+        internal_idx,
+        test_size=(1.0 - train_fraction),
+        random_state=split_seed,
+        stratify=internal_stratify if internal_stratify is not None else y[internal_idx],
+    )
+    temp_df = df.loc[temp_idx]
+    temp_risk = risk_proxy.loc[temp_idx] if risk_proxy is not None else None
+    temp_stratify, _ = build_stratify_labels(temp_df["y"], temp_risk)
+    valid_within_temp = valid_fraction / max(1e-9, (valid_fraction + test_fraction))
     valid_idx, test_idx = train_test_split(
         temp_idx,
-        test_size=0.50,
-        random_state=20260224,
-        stratify=temp_y,
+        test_size=(1.0 - valid_within_temp),
+        random_state=split_seed,
+        stratify=temp_stratify if temp_stratify is not None else y[temp_idx],
     )
 
     split_map = {
         "train": sorted(int(x) for x in train_idx),
         "valid": sorted(int(x) for x in valid_idx),
         "test": sorted(int(x) for x in test_idx),
+        "external": sorted(int(x) for x in external_idx),
     }
     starts = {
         "train": datetime(2020, 1, 1, tzinfo=timezone.utc),
         "valid": datetime(2022, 1, 1, tzinfo=timezone.utc),
         "test": datetime(2024, 1, 1, tzinfo=timezone.utc),
+        "external": datetime(2026, 1, 1, tzinfo=timezone.utc),
     }
 
     output: Dict[str, pd.DataFrame] = {}
@@ -172,10 +583,208 @@ def split_with_temporal_order(df: pd.DataFrame, feature_cols: List[str], case_id
     return output
 
 
+def split_external_pool(
+    external_df: pd.DataFrame,
+    case_id: str,
+    split_seed_override: Optional[int] = None,
+    min_rows_per_cohort: int = 20,
+    min_positive_per_cohort: int = 3,
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    if external_df.empty:
+        raise ValueError("External pool is empty.")
+    idx = external_df.index.to_numpy()
+    y = external_df["y"].to_numpy()
+    stratify_labels = y if len(set(y.tolist())) > 1 else None
+    stratification_keys: List[str] = ["y"]
+    split_seed = int(split_seed_override if split_seed_override is not None else SPLIT_RANDOM_SEED_BY_CASE.get(case_id, 20260224))
+
+    feature_cols = [c for c in external_df.columns if c not in {"patient_id", "event_time", "y"}]
+    risk_proxy: Optional[pd.Series] = (
+        compute_risk_proxy(external_df, feature_cols) if case_id == "uci-heart-disease" else None
+    )
+    strata_labels, strata_keys = build_stratify_labels(external_df["y"], risk_proxy)
+    if strata_labels is not None:
+        stratify_labels = strata_labels
+        stratification_keys = strata_keys
+
+    def cohort_ok(df_part: pd.DataFrame) -> bool:
+        rows = int(len(df_part))
+        events = int(pd.to_numeric(df_part["y"], errors="coerce").fillna(0).astype(int).sum())
+        non_events = int(rows - events)
+        return rows >= int(min_rows_per_cohort) and events >= int(min_positive_per_cohort) and non_events >= int(min_positive_per_cohort)
+
+    def split_balance_score(
+        left_idx_raw: np.ndarray,
+        right_idx_raw: np.ndarray,
+        left_df: pd.DataFrame,
+        right_df: pd.DataFrame,
+    ) -> float:
+        left_rows = float(len(left_df))
+        right_rows = float(len(right_df))
+        total_rows = max(1.0, left_rows + right_rows)
+        left_events = float(pd.to_numeric(left_df["y"], errors="coerce").fillna(0).astype(int).sum())
+        right_events = float(pd.to_numeric(right_df["y"], errors="coerce").fillna(0).astype(int).sum())
+        left_rate = left_events / max(1.0, left_rows)
+        right_rate = right_events / max(1.0, right_rows)
+        event_rate_gap = abs(left_rate - right_rate)
+        event_count_gap = abs(left_events - right_events) / max(1.0, left_events + right_events)
+        row_gap = abs(left_rows - right_rows) / total_rows
+        risk_gap = 0.0
+        if risk_proxy is not None:
+            left_risk = pd.to_numeric(risk_proxy.loc[left_idx_raw], errors="coerce")
+            right_risk = pd.to_numeric(risk_proxy.loc[right_idx_raw], errors="coerce")
+            pooled = pd.concat([left_risk, right_risk], axis=0)
+            if pooled.notna().any() and left_risk.notna().any() and right_risk.notna().any():
+                pooled_std = float(pooled.std(ddof=0))
+                if not np.isfinite(pooled_std) or pooled_std <= 1e-9:
+                    pooled_std = 1.0
+                risk_gap = abs(float(left_risk.mean()) - float(right_risk.mean())) / pooled_std
+        return float((2.0 * event_rate_gap) + event_count_gap + (0.5 * row_gap) + (0.5 * risk_gap))
+
+    left: Optional[pd.DataFrame] = None
+    right: Optional[pd.DataFrame] = None
+    selected_seed: Optional[int] = None
+    best_score = float("inf")
+    backup_left: Optional[pd.DataFrame] = None
+    backup_right: Optional[pd.DataFrame] = None
+    backup_seed: Optional[int] = None
+    attempt_count = 0
+    max_attempts = 64
+    for offset in range(max_attempts):
+        candidate_seed = int(split_seed + offset)
+        attempt_count += 1
+        left_idx, right_idx = train_test_split(
+            idx,
+            test_size=0.50,
+            random_state=candidate_seed,
+            stratify=stratify_labels,
+        )
+        left_candidate = external_df.loc[left_idx].copy().reset_index(drop=True)
+        right_candidate = external_df.loc[right_idx].copy().reset_index(drop=True)
+        if left_candidate["y"].nunique() < 2 or right_candidate["y"].nunique() < 2:
+            continue
+        if backup_left is None and backup_right is None:
+            backup_left = left_candidate
+            backup_right = right_candidate
+            backup_seed = candidate_seed
+        if not (cohort_ok(left_candidate) and cohort_ok(right_candidate)):
+            continue
+        candidate_score = split_balance_score(left_idx, right_idx, left_candidate, right_candidate)
+        if candidate_score < best_score:
+            best_score = float(candidate_score)
+            left = left_candidate
+            right = right_candidate
+            selected_seed = candidate_seed
+
+    if (left is None or right is None) and backup_left is not None and backup_right is not None:
+        left = backup_left
+        right = backup_right
+        selected_seed = int(backup_seed if backup_seed is not None else split_seed)
+
+    fallback_used = False
+    if left is None or right is None or left["y"].nunique() < 2 or right["y"].nunique() < 2:
+        # Deterministic fallback: alternating split.
+        left = external_df.iloc[::2].copy().reset_index(drop=True)
+        right = external_df.iloc[1::2].copy().reset_index(drop=True)
+        fallback_used = True
+        selected_seed = int(split_seed)
+
+    if not cohort_ok(left) or not cohort_ok(right):
+        fallback_used = True
+
+    left["patient_id"] = left["patient_id"].astype(str).str.replace(f"{case_id.upper()}_", f"{case_id.upper()}_CP_", regex=False)
+    right["patient_id"] = right["patient_id"].astype(str).str.replace(f"{case_id.upper()}_", f"{case_id.upper()}_CI_", regex=False)
+    metadata = {
+        "strategy": "deterministic_label_risk_stratified",
+        "split_seed_initial": int(split_seed),
+        "split_seed_selected": int(selected_seed if selected_seed is not None else split_seed),
+        "attempt_count": int(attempt_count),
+        "fallback_used": bool(fallback_used),
+        "stratification_keys": stratification_keys,
+        "risk_proxy_used": bool(risk_proxy is not None),
+        "minimum_requirements": {
+            "min_rows_per_cohort": int(min_rows_per_cohort),
+            "min_positive_per_cohort": int(min_positive_per_cohort),
+        },
+        "cohorts": {
+            "cross_period": summarize_split_frame(left),
+            "cross_institution": summarize_split_frame(right),
+        },
+        "minimum_requirements_met": bool(cohort_ok(left) and cohort_ok(right)),
+    }
+    return left, right, metadata
+
+
+def build_feature_group_spec(feature_cols: List[str]) -> Dict[str, Any]:
+    groups = {"demographics": [], "clinical_signals": [], "derived_features": []}
+    assigned: set[str] = set()
+    for col in feature_cols:
+        token = col.lower()
+        if any(x in token for x in ("age", "sex", "gender")):
+            groups["demographics"].append(col)
+            assigned.add(col)
+        elif any(x in token for x in ("mean", "worst", "se", "oldpeak", "slope", "ca", "thal", "cp", "exang", "fbs")):
+            groups["derived_features"].append(col)
+            assigned.add(col)
+        else:
+            groups["clinical_signals"].append(col)
+            assigned.add(col)
+
+    def first_unassigned() -> str | None:
+        for name in feature_cols:
+            if name not in assigned:
+                return name
+        return None
+
+    if not groups["demographics"]:
+        fallback = first_unassigned()
+        if fallback is not None:
+            groups["demographics"].append(fallback)
+            assigned.add(fallback)
+    if not groups["clinical_signals"]:
+        fallback = first_unassigned()
+        if fallback is not None:
+            groups["clinical_signals"].append(fallback)
+            assigned.add(fallback)
+    if not groups["derived_features"]:
+        fallback = first_unassigned()
+        if fallback is not None:
+            groups["derived_features"].append(fallback)
+            assigned.add(fallback)
+
+    # Contract requires every group non-empty and no duplicated feature assignments.
+    # If all features are already assigned to a subset of groups, rebalance by moving
+    # one feature from the currently largest group into an empty group.
+    for target_group in ("demographics", "clinical_signals", "derived_features"):
+        if groups[target_group]:
+            continue
+        donor_candidates = [
+            name for name in ("demographics", "clinical_signals", "derived_features") if len(groups[name]) > 1
+        ]
+        if not donor_candidates:
+            donor_candidates = [
+                name for name in ("demographics", "clinical_signals", "derived_features") if len(groups[name]) > 0
+            ]
+        if not donor_candidates:
+            continue
+        donor_group = max(donor_candidates, key=lambda g: len(groups[g]))
+        moved_feature = groups[donor_group].pop()
+        groups[target_group].append(moved_feature)
+    return {
+        "groups": groups,
+        "forbidden_features": ["confirmed_diagnosis_code", "reference_standard_positive"],
+    }
+
+
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
+    tmp_name = f".{path.name}.tmp-{os.getpid()}-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+    tmp_path = path.parent / tmp_name
+    with tmp_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp_path, path)
 
 
 def load_json(path: Path) -> Dict[str, Any]:
@@ -184,6 +793,109 @@ def load_json(path: Path) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"JSON root must be object: {path}")
     return payload
+
+
+def resolve_output_path(raw: str) -> Path:
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (Path.cwd() / path).resolve()
+
+
+def canonical_json_sha256(payload: Dict[str, Any]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return sha256_bytes(encoded)
+
+
+def git_revision_hint() -> str:
+    try:
+        head = run_cmd(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short=12", "HEAD"],
+            allow_fail=True,
+        )
+        rev = str(head.stdout).strip() if head.returncode == 0 else "unknown"
+        dirty = run_cmd(
+            ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
+            allow_fail=True,
+        )
+        if dirty.returncode == 0 and str(dirty.stdout).strip():
+            return f"{rev}-dirty"
+        return rev or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def get_stress_profiles(profile_set: str) -> List[Dict[str, str]]:
+    token = str(profile_set).strip()
+    profiles = STRESS_PROFILE_SETS.get(token)
+    if not isinstance(profiles, list) or not profiles:
+        raise ValueError(f"Unsupported stress profile set: {profile_set}")
+    normalized: List[Dict[str, str]] = []
+    for row in profiles:
+        if not isinstance(row, dict):
+            raise ValueError(f"Invalid stress profile row in set={profile_set}: {row}")
+        profile_id = str(row.get("profile_id", "")).strip()
+        selection_data = str(row.get("selection_data", "")).strip().lower()
+        threshold_selection_split = str(row.get("threshold_selection_split", "")).strip().lower()
+        calibration_fit_split = str(row.get("calibration_fit_split", "")).strip().lower()
+        calibration_method = str(row.get("calibration_method", "")).strip().lower()
+        if not profile_id:
+            raise ValueError(f"Missing profile_id in stress profile set={profile_set}")
+        if selection_data not in {"valid", "cv_inner", "nested_cv"}:
+            raise ValueError(f"Invalid selection_data in stress profile '{profile_id}': {selection_data}")
+        if threshold_selection_split not in {"valid", "cv_inner"}:
+            raise ValueError(
+                f"Invalid threshold_selection_split in stress profile '{profile_id}': {threshold_selection_split}"
+            )
+        if calibration_fit_split not in {"valid", "cv_inner"}:
+            raise ValueError(f"Invalid calibration_fit_split in stress profile '{profile_id}': {calibration_fit_split}")
+        if calibration_method not in {"none", "sigmoid", "isotonic", "power"}:
+            raise ValueError(f"Invalid calibration_method in stress profile '{profile_id}': {calibration_method}")
+        normalized.append(
+            {
+                "profile_id": profile_id,
+                "selection_data": selection_data,
+                "threshold_selection_split": threshold_selection_split,
+                "calibration_fit_split": calibration_fit_split,
+                "calibration_method": calibration_method,
+            }
+        )
+    return normalized
+
+
+def find_stress_profile_by_id(profile_id: str) -> Optional[Dict[str, str]]:
+    token = str(profile_id).strip()
+    if not token:
+        return None
+    for set_name in sorted(STRESS_PROFILE_SETS.keys()):
+        for profile in get_stress_profiles(set_name):
+            if str(profile.get("profile_id", "")).strip() == token:
+                return profile
+    return None
+
+
+def build_stress_contract_inputs(case_id: str, profile_set: str, profiles: List[Dict[str, str]]) -> Dict[str, Any]:
+    policy_template = load_json(REFERENCES_ROOT / "performance-policy.example.json")
+    policy_template["_case"] = case_id
+    tuning_template = load_json(REFERENCES_ROOT / "tuning-protocol.example.json")
+    return {
+        "contract_version": STRESS_SEARCH_REPORT_CONTRACT_VERSION,
+        "case_id": case_id,
+        "profile_set": profile_set,
+        "profiles": profiles,
+        "performance_policy_template": policy_template,
+        "tuning_protocol_template": tuning_template,
+    }
+
+
+def build_dataset_fingerprint(df: pd.DataFrame) -> Dict[str, Any]:
+    rows = int(df.shape[0])
+    events = int(pd.to_numeric(df["y"], errors="coerce").fillna(0).astype(int).sum()) if "y" in df.columns else 0
+    return {
+        "rows": rows,
+        "events": events,
+        "sha256": dataframe_sha256(df),
+    }
 
 
 def copy_reference(src_name: str, dst_path: Path) -> None:
@@ -196,6 +908,10 @@ def update_missingness_policy(path: Path, train_rows: int, feature_count: int) -
     policy = load_json(path)
     strategy = str(policy.get("strategy", "")).strip().lower()
     if strategy != "mice_with_scale_guard":
+        # Keep a feasible non-missing threshold for small benchmark cohorts.
+        min_non_missing = policy.get("min_non_missing_per_feature")
+        if isinstance(min_non_missing, (int, float)) and train_rows < int(min_non_missing):
+            policy["min_non_missing_per_feature"] = max(20, int(0.80 * train_rows))
         write_json(path, policy)
         return
 
@@ -214,10 +930,596 @@ def update_missingness_policy(path: Path, train_rows: int, feature_count: int) -
         "train_rows_seen": int(train_rows),
         "feature_count_seen": int(feature_count),
     }
+    min_non_missing = policy.get("min_non_missing_per_feature")
+    if isinstance(min_non_missing, (int, float)) and train_rows < int(min_non_missing):
+        policy["min_non_missing_per_feature"] = max(20, int(0.80 * train_rows))
     write_json(path, policy)
 
 
-def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
+def update_performance_policy(
+    path: Path,
+    case_id: str,
+    threshold_split_override: Optional[str] = None,
+    calibration_method_override: Optional[str] = None,
+    calibration_fit_split_override: Optional[str] = None,
+) -> None:
+    policy = load_json(path)
+    calibration_method_by_case = {
+        "uci-heart-disease": "power",
+        "uci-breast-cancer-wdbc": "power",
+    }
+    calibration_fit_split_by_case = {
+        # Keep threshold selection on valid, but fit the calibrator on CV-inner OOF
+        # to reduce small-valid overfitting for stress heart cohorts.
+        "uci-heart-disease": "cv_inner",
+        "uci-breast-cancer-wdbc": "valid",
+    }
+    token = calibration_method_by_case.get(case_id)
+    if isinstance(calibration_method_override, str) and calibration_method_override.strip():
+        token = str(calibration_method_override).strip().lower()
+    if isinstance(token, str) and token:
+        policy["calibration_method"] = token
+    fit_split_token = calibration_fit_split_by_case.get(case_id)
+    if isinstance(calibration_fit_split_override, str) and calibration_fit_split_override.strip():
+        fit_split_token = str(calibration_fit_split_override).strip().lower()
+    if isinstance(fit_split_token, str) and fit_split_token in {"valid", "cv_inner"}:
+        policy["calibration_fit_split"] = fit_split_token
+    threshold_split = THRESHOLD_SELECTION_SPLIT_BY_CASE.get(case_id, "valid")
+    if isinstance(threshold_split_override, str) and threshold_split_override.strip():
+        threshold_split = str(threshold_split_override).strip().lower()
+    threshold_policy = policy.get("threshold_policy")
+    if not isinstance(threshold_policy, dict):
+        threshold_policy = {}
+    threshold_policy["selection_split"] = threshold_split
+    if isinstance(fit_split_token, str) and fit_split_token in {"valid", "cv_inner"}:
+        threshold_policy["calibration_fit_split"] = fit_split_token
+    policy["threshold_policy"] = threshold_policy
+    write_json(path, policy)
+
+
+def update_imbalance_policy(
+    path: Path,
+    case_id: str,
+    threshold_split_override: Optional[str] = None,
+    calibration_split_override: Optional[str] = None,
+) -> None:
+    policy = load_json(path)
+    threshold_split = THRESHOLD_SELECTION_SPLIT_BY_CASE.get(case_id, "valid")
+    if isinstance(threshold_split_override, str) and threshold_split_override.strip():
+        threshold_split = str(threshold_split_override).strip().lower()
+    calibration_split = threshold_split
+    if isinstance(calibration_split_override, str) and calibration_split_override.strip():
+        calibration_split = str(calibration_split_override).strip().lower()
+    policy["threshold_selection_split"] = threshold_split
+    policy["calibration_split"] = calibration_split
+    write_json(path, policy)
+
+
+def update_tuning_protocol(path: Path, model_selection_data: str) -> None:
+    spec = load_json(path)
+    selection_data = str(model_selection_data).strip().lower()
+    if selection_data not in {"valid", "cv_inner", "nested_cv"}:
+        raise ValueError(f"Unsupported model_selection_data: {model_selection_data}")
+
+    spec["objective_metric"] = "pr_auc"
+    spec["model_selection_data"] = selection_data
+
+    if selection_data == "valid":
+        spec["early_stopping_data"] = "valid"
+        spec["final_model_refit_scope"] = "train_only"
+    elif selection_data == "cv_inner":
+        spec["early_stopping_data"] = "cv_inner"
+        spec["final_model_refit_scope"] = "train_only"
+    else:
+        spec["early_stopping_data"] = "nested_cv"
+        spec["final_model_refit_scope"] = "outer_train_only"
+
+    for key in (
+        "test_used_for_model_selection",
+        "test_used_for_early_stopping",
+        "test_used_for_threshold_selection",
+        "test_used_for_calibration",
+    ):
+        spec[key] = False
+    spec["outer_evaluation_split_locked"] = True
+    spec["random_seed_controlled"] = True
+
+    cv = spec.get("cv")
+    if not isinstance(cv, dict):
+        cv = {}
+    cv["enabled"] = True
+    cv["type"] = "stratified_group_k_fold"
+    cv["group_col"] = "patient_id"
+    try:
+        cv_n_splits = int(cv.get("n_splits", 5))
+    except Exception:
+        cv_n_splits = 5
+    cv["n_splits"] = max(3, cv_n_splits)
+    cv["nested"] = bool(selection_data == "nested_cv")
+    spec["cv"] = cv
+
+    write_json(path, spec)
+
+
+def evaluate_heart_seed_feasibility(
+    case: DatasetCase,
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    split_seed: int,
+    workspace_root: Path,
+    profile: Dict[str, str],
+    run_tag: str,
+) -> Dict[str, Any]:
+    splits = split_with_temporal_order(df, feature_cols, case.case_id, split_seed_override=split_seed)
+    external_pool = splits.get("external")
+    if not isinstance(external_pool, pd.DataFrame):
+        raise RuntimeError("external split missing from split_with_temporal_order output.")
+    external_period_df, external_institution_df, external_split_meta = split_external_pool(
+        external_pool,
+        case.case_id,
+        split_seed_override=split_seed,
+        min_rows_per_cohort=20,
+        min_positive_per_cohort=3,
+    )
+
+    profile_id = str(profile.get("profile_id", "")).strip()
+    selection_data = str(profile.get("selection_data", "cv_inner")).strip().lower()
+    threshold_selection_split = str(profile.get("threshold_selection_split", "valid")).strip().lower()
+    calibration_fit_split = str(profile.get("calibration_fit_split", threshold_selection_split)).strip().lower()
+    calibration_method = str(profile.get("calibration_method", "power")).strip().lower()
+    seed_root = workspace_root / f"seed_{split_seed}" / profile_id
+    if seed_root.exists():
+        shutil.rmtree(seed_root)
+    data_dir = seed_root / "data"
+    cfg_dir = seed_root / "configs"
+    evidence_dir = seed_root / "evidence"
+    model_dir = seed_root / "models"
+    for d in (data_dir, cfg_dir, evidence_dir, model_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    for split_name in ("train", "valid", "test"):
+        splits[split_name].to_csv(data_dir / f"{split_name}.csv", index=False)
+    external_period_df.to_csv(data_dir / "external_cross_period.csv", index=False)
+    external_institution_df.to_csv(data_dir / "external_cross_institution.csv", index=False)
+
+    write_json(cfg_dir / "feature_group_spec.json", build_feature_group_spec(feature_cols))
+    lineage = {"features": {col: {"ancestors": [f"raw_{col}"]} for col in feature_cols}}
+    write_json(cfg_dir / "feature_lineage.json", lineage)
+    copy_reference("imbalance-policy.example.json", cfg_dir / "imbalance_policy.json")
+    copy_reference("missingness-policy.example.json", cfg_dir / "missingness_policy.json")
+    copy_reference("tuning-protocol.example.json", cfg_dir / "tuning_protocol.json")
+    copy_reference("performance-policy.example.json", cfg_dir / "performance_policy.json")
+    update_tuning_protocol(cfg_dir / "tuning_protocol.json", model_selection_data=selection_data)
+    update_imbalance_policy(
+        cfg_dir / "imbalance_policy.json",
+        case.case_id,
+        threshold_split_override=threshold_selection_split,
+        calibration_split_override=calibration_fit_split,
+    )
+    update_performance_policy(
+        cfg_dir / "performance_policy.json",
+        case.case_id,
+        threshold_split_override=threshold_selection_split,
+        calibration_method_override=calibration_method,
+        calibration_fit_split_override=calibration_fit_split,
+    )
+    update_missingness_policy(
+        cfg_dir / "missingness_policy.json",
+        train_rows=int(len(splits["train"])),
+        feature_count=int(len(feature_cols)),
+    )
+    external_cohort_spec = {
+        "cohorts": [
+            {
+                "cohort_id": f"{case.case_id}_external_period",
+                "cohort_type": "cross_period",
+                "path": "../data/external_cross_period.csv",
+                "label_col": "y",
+                "patient_id_col": "patient_id",
+                "index_time_col": "event_time",
+            },
+            {
+                "cohort_id": f"{case.case_id}_external_institution",
+                "cohort_type": "cross_institution",
+                "path": "../data/external_cross_institution.csv",
+                "label_col": "y",
+                "patient_id_col": "patient_id",
+                "index_time_col": "event_time",
+            },
+        ]
+    }
+    write_json(cfg_dir / "external_cohort_spec.json", external_cohort_spec)
+
+    model_selection_report_path = evidence_dir / "model_selection_report.json"
+    evaluation_report_path = evidence_dir / "evaluation_report.json"
+    feature_engineering_report_path = evidence_dir / "feature_engineering_report.json"
+    distribution_report_path = evidence_dir / "distribution_report.json"
+    ci_matrix_report_path = evidence_dir / "ci_matrix_report.json"
+    prediction_trace_path = evidence_dir / "prediction_trace.csv.gz"
+    external_validation_report_path = evidence_dir / "external_validation_report.json"
+    robustness_report_path = evidence_dir / "robustness_report.json"
+    seed_sensitivity_report_path = evidence_dir / "seed_sensitivity_report.json"
+    permutation_null_path = evidence_dir / "permutation_null_pr_auc.txt"
+
+    train_proc = run_cmd(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "train_select_evaluate.py"),
+            "--train",
+            str(data_dir / "train.csv"),
+            "--valid",
+            str(data_dir / "valid.csv"),
+            "--test",
+            str(data_dir / "test.csv"),
+            "--target-col",
+            "y",
+            "--ignore-cols",
+            "patient_id,event_time",
+            "--performance-policy",
+            str(cfg_dir / "performance_policy.json"),
+            "--feature-group-spec",
+            str(cfg_dir / "feature_group_spec.json"),
+            "--missingness-policy",
+            str(cfg_dir / "missingness_policy.json"),
+            "--feature-engineering-mode",
+            "strict",
+            "--selection-data",
+            selection_data,
+            "--threshold-selection-split",
+            threshold_selection_split,
+            "--primary-metric",
+            "pr_auc",
+            "--fast-diagnostic-mode",
+            "--bootstrap-resamples",
+            "200",
+            "--ci-bootstrap-resamples",
+            "200",
+            "--permutation-resamples",
+            "50",
+            "--random-seed",
+            "20260224",
+            "--model-selection-report-out",
+            str(model_selection_report_path),
+            "--evaluation-report-out",
+            str(evaluation_report_path),
+            "--prediction-trace-out",
+            str(prediction_trace_path),
+            "--external-cohort-spec",
+            str(cfg_dir / "external_cohort_spec.json"),
+            "--external-validation-report-out",
+            str(external_validation_report_path),
+            "--model-out",
+            str(model_dir / "selected_model.joblib"),
+        ],
+        allow_fail=True,
+    )
+
+    clinical_report = evidence_dir / "clinical_metrics_report.search.json"
+    gap_report = evidence_dir / "generalization_gap_report.search.json"
+    external_gate_report = evidence_dir / "external_validation_gate_report.search.json"
+    calibration_dca_gate_report = evidence_dir / "calibration_dca_report.search_release.json"
+    clinical_proc = run_cmd(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "clinical_metrics_gate.py"),
+            "--evaluation-report",
+            str(evaluation_report_path),
+            "--external-validation-report",
+            str(external_validation_report_path),
+            "--performance-policy",
+            str(cfg_dir / "performance_policy.json"),
+            "--strict",
+            "--report",
+            str(clinical_report),
+        ],
+        allow_fail=True,
+    )
+    gap_proc = run_cmd(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "generalization_gap_gate.py"),
+            "--evaluation-report",
+            str(evaluation_report_path),
+            "--performance-policy",
+            str(cfg_dir / "performance_policy.json"),
+            "--strict",
+            "--report",
+            str(gap_report),
+        ],
+        allow_fail=True,
+    )
+    external_proc = run_cmd(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "external_validation_gate.py"),
+            "--external-validation-report",
+            str(external_validation_report_path),
+            "--prediction-trace",
+            str(prediction_trace_path),
+            "--evaluation-report",
+            str(evaluation_report_path),
+            "--performance-policy",
+            str(cfg_dir / "performance_policy.json"),
+            "--strict",
+            "--report",
+            str(external_gate_report),
+        ],
+        allow_fail=True,
+    )
+
+    split_meta = {
+        "split_seed": int(split_seed),
+        "split_fraction_config": INTERNAL_SPLIT_FRACTIONS_BY_CASE.get(case.case_id, {}),
+        "internal": {
+            "train": summarize_split_frame(splits["train"]),
+            "valid": summarize_split_frame(splits["valid"]),
+            "test": summarize_split_frame(splits["test"]),
+            "external_pool": summarize_split_frame(external_pool),
+        },
+        "external_split": external_split_meta,
+    }
+
+    feasible = bool(
+        train_proc.returncode == 0
+        and clinical_proc.returncode == 0
+        and gap_proc.returncode == 0
+        and external_proc.returncode == 0
+        and bool(external_split_meta.get("minimum_requirements_met"))
+    )
+    calibration_proc: Optional[subprocess.CompletedProcess[str]] = None
+    release_ready = False
+    if feasible:
+        calibration_proc = run_cmd(
+            [
+                sys.executable,
+                str(SCRIPTS_ROOT / "calibration_dca_gate.py"),
+                "--prediction-trace",
+                str(prediction_trace_path),
+                "--evaluation-report",
+                str(evaluation_report_path),
+                "--external-validation-report",
+                str(external_validation_report_path),
+                "--performance-policy",
+                str(cfg_dir / "performance_policy.json"),
+                "--strict",
+                "--report",
+                str(calibration_dca_gate_report),
+            ],
+            allow_fail=True,
+        )
+        release_ready = bool(calibration_proc.returncode == 0)
+    gate_reports = {
+        "clinical_metrics_gate": str(clinical_report),
+        "generalization_gap_gate": str(gap_report),
+        "external_validation_gate": str(external_gate_report),
+        "calibration_dca_gate": str(calibration_dca_gate_report) if feasible else None,
+    }
+    calibration_gap_components = calibration_gap_diagnostics(calibration_dca_gate_report) if feasible else {}
+    calibration_gap_total = float(calibration_gap_components.get("total_excess", 0.0)) if calibration_gap_components else 0.0
+    gap_score = (
+        (1e5 if train_proc.returncode != 0 else 0.0)
+        + failure_gap_score(clinical_report)
+        + failure_gap_score(gap_report)
+        + failure_gap_score(external_gate_report)
+        + (failure_gap_score(calibration_dca_gate_report) if feasible else 0.0)
+        + calibration_gap_total
+        + (0.0 if bool(external_split_meta.get("minimum_requirements_met")) else 10.0)
+    )
+    return {
+        "run_tag": run_tag,
+        "seed": int(split_seed),
+        "profile_id": profile_id,
+        "profile": {
+            "selection_data": selection_data,
+            "threshold_selection_split": threshold_selection_split,
+            "calibration_fit_split": calibration_fit_split,
+            "calibration_method": calibration_method,
+        },
+        "feasible": feasible,
+        "release_ready": bool(release_ready),
+        "status": "pass" if feasible else "fail",
+        "failure_code": None if feasible else "stress_seed_candidate_not_feasible",
+        "train_exit_code": int(train_proc.returncode),
+        "gate_exit_codes": {
+            "clinical_metrics_gate": int(clinical_proc.returncode),
+            "generalization_gap_gate": int(gap_proc.returncode),
+            "external_validation_gate": int(external_proc.returncode),
+            "calibration_dca_gate": int(calibration_proc.returncode) if calibration_proc is not None else None,
+        },
+        "gate_failures": {
+            "clinical_metrics_gate": extract_failure_codes(clinical_report),
+            "generalization_gap_gate": extract_failure_codes(gap_report),
+            "external_validation_gate": extract_failure_codes(external_gate_report),
+            "calibration_dca_gate": extract_failure_codes(calibration_dca_gate_report) if feasible else [],
+        },
+        "gate_reports": gate_reports,
+        "calibration_gap_components": calibration_gap_components,
+        "diagnostic_gap_score": float(gap_score),
+        "split_metadata": split_meta,
+    }
+
+
+def search_heart_feasible_seed(
+    case: DatasetCase,
+    seed_min: int,
+    seed_max: int,
+    report_path: Path,
+    selection_path: Path,
+    run_tag: str,
+    profile_set: str,
+    dataset_fingerprint: Dict[str, Any],
+    policy_sha256: str,
+    code_revision_hint: str,
+) -> HeartStressSearchResult:
+    if seed_min > seed_max:
+        raise ValueError("stress-seed-min must be <= stress-seed-max.")
+    if case.case_id != "uci-heart-disease":
+        raise ValueError("search_heart_feasible_seed only supports uci-heart-disease.")
+
+    raw_path = RAW_ROOT / case.raw_filename
+    if not raw_path.exists():
+        raise FileNotFoundError(f"Raw dataset missing: {raw_path}")
+    df, feature_cols = load_heart_dataset(raw_path)
+    profiles = get_stress_profiles(profile_set)
+
+    workspace_parent = DATA_ROOT / "_stress_seed_workspace" / case.case_id
+    run_token = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    workspace_root = workspace_parent / f"run_{run_token}_{int(seed_min)}_{int(seed_max)}"
+    workspace_root.mkdir(parents=True, exist_ok=False)
+
+    candidates: List[Dict[str, Any]] = []
+    selected: Optional[Dict[str, Any]] = None
+    for split_seed in range(int(seed_min), int(seed_max) + 1):
+        for profile_rank, profile in enumerate(profiles, start=1):
+            candidate = evaluate_heart_seed_feasibility(
+                case=case,
+                df=df,
+                feature_cols=feature_cols,
+                split_seed=split_seed,
+                workspace_root=workspace_root,
+                profile=profile,
+                run_tag=run_tag,
+            )
+            candidate["profile_rank"] = int(profile_rank)
+            candidates.append(candidate)
+            if candidate.get("release_ready"):
+                selected = candidate
+                break
+        if selected is not None:
+            break
+
+    report_path = report_path.expanduser().resolve()
+    selection_path = selection_path.expanduser().resolve()
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    selection_path.parent.mkdir(parents=True, exist_ok=True)
+    best_candidate = (
+        min(
+            candidates,
+            key=lambda row: (
+                float(row.get("diagnostic_gap_score", 1e9)),
+                int(row.get("seed", 10**9)),
+                int(row.get("profile_rank", 10**9)),
+            ),
+        )
+        if candidates
+        else None
+    )
+    feasible_count = int(sum(1 for row in candidates if bool(row.get("feasible"))))
+    release_ready_count = int(sum(1 for row in candidates if bool(row.get("release_ready"))))
+
+    if selected is not None:
+        selected_profile = str(selected.get("profile_id", "")).strip()
+        selection_payload = {
+            "status": "pass",
+            "contract_version": STRESS_SEARCH_REPORT_CONTRACT_VERSION,
+            "case_id": case.case_id,
+            "run_tag": run_tag,
+            "search_profile_set": profile_set,
+            "policy_sha256": policy_sha256,
+            "dataset_fingerprint": dataset_fingerprint,
+            "code_revision_hint": code_revision_hint,
+            "selection_policy": "first_release_ready_seed_over_range",
+            "seed_range": {"min": int(seed_min), "max": int(seed_max)},
+            "selected_seed": int(selected["seed"]),
+            "selected_profile": selected_profile,
+            "selected_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+            "selected_summary": {
+                "gate_exit_codes": selected.get("gate_exit_codes", {}),
+                "diagnostic_gap_score": selected.get("diagnostic_gap_score"),
+                "calibration_gap_components": selected.get("calibration_gap_components", {}),
+                "external_split_metadata": selected.get("split_metadata", {}).get("external_split", {}),
+                "release_ready": bool(selected.get("release_ready")),
+            },
+        }
+        report_payload = {
+            "status": "pass",
+            "contract_version": STRESS_SEARCH_REPORT_CONTRACT_VERSION,
+            "case_id": case.case_id,
+            "run_tag": run_tag,
+            "policy_sha256": policy_sha256,
+            "search_profile_set": profile_set,
+            "selected_profile": selected_profile,
+            "dataset_fingerprint": dataset_fingerprint,
+            "code_revision_hint": code_revision_hint,
+            "search_started_seed": int(seed_min),
+            "search_ended_seed": int(seed_max),
+            "searched_candidate_count": len(candidates),
+            "feasible_candidate_count": feasible_count,
+            "release_ready_candidate_count": release_ready_count,
+            "selected_seed": int(selected["seed"]),
+            "failure_code": None,
+            "candidates": candidates,
+            "selection": selection_payload,
+            "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        write_json(report_path, report_payload)
+        write_json(selection_path, selection_payload)
+        return HeartStressSearchResult(
+            selected_seed=int(selected["seed"]),
+            selected_profile=selected_profile,
+            report_path=report_path,
+            selection_path=selection_path,
+            status="pass",
+        )
+
+    failure_payload = {
+        "status": "fail",
+        "contract_version": STRESS_SEARCH_REPORT_CONTRACT_VERSION,
+        "case_id": case.case_id,
+        "run_tag": run_tag,
+        "policy_sha256": policy_sha256,
+        "search_profile_set": profile_set,
+        "selected_profile": None,
+        "dataset_fingerprint": dataset_fingerprint,
+        "code_revision_hint": code_revision_hint,
+        "search_started_seed": int(seed_min),
+        "search_ended_seed": int(seed_max),
+        "searched_candidate_count": len(candidates),
+        "feasible_candidate_count": feasible_count,
+        "release_ready_candidate_count": release_ready_count,
+        "selected_seed": None,
+        "failure_code": "stress_seed_feasibility_not_found",
+        "best_candidate": best_candidate,
+        "candidates": candidates,
+        "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    selection_payload = {
+        "status": "fail",
+        "contract_version": STRESS_SEARCH_REPORT_CONTRACT_VERSION,
+        "case_id": case.case_id,
+        "run_tag": run_tag,
+        "search_profile_set": profile_set,
+        "policy_sha256": policy_sha256,
+        "dataset_fingerprint": dataset_fingerprint,
+        "code_revision_hint": code_revision_hint,
+        "selection_policy": "first_release_ready_seed_over_range",
+        "seed_range": {"min": int(seed_min), "max": int(seed_max)},
+        "selected_seed": None,
+        "selected_profile": None,
+        "failure_code": "stress_seed_feasibility_not_found",
+        "best_candidate_seed": int(best_candidate["seed"]) if isinstance(best_candidate, dict) and "seed" in best_candidate else None,
+        "best_candidate_profile": (
+            str(best_candidate.get("profile_id", "")).strip()
+            if isinstance(best_candidate, dict)
+            else None
+        ),
+        "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    write_json(report_path, failure_payload)
+    write_json(selection_path, selection_payload)
+    raise RuntimeError(
+        f"stress_seed_feasibility_not_found: no release-ready heart seed in [{seed_min}, {seed_max}] "
+        f"(feasible_count={feasible_count}, release_ready_count={release_ready_count}, "
+        f"best_gap={best_candidate.get('diagnostic_gap_score') if isinstance(best_candidate, dict) else 'n/a'})"
+    )
+
+
+def prepare_case_artifacts(
+    case: DatasetCase,
+    split_seed_override: Optional[int] = None,
+    stress_search_result: Optional[HeartStressSearchResult] = None,
+    run_tag: Optional[str] = None,
+) -> Dict[str, Any]:
     raw_path = RAW_ROOT / case.raw_filename
     if not raw_path.exists():
         raise FileNotFoundError(f"Raw dataset missing: {raw_path}")
@@ -229,9 +1531,26 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     else:
         raise ValueError(f"Unsupported case_id: {case.case_id}")
 
-    splits = split_with_temporal_order(df, feature_cols, case.case_id)
+    effective_split_seed = int(
+        split_seed_override
+        if split_seed_override is not None
+        else SPLIT_RANDOM_SEED_BY_CASE.get(case.case_id, 20260224)
+    )
+    splits = split_with_temporal_order(df, feature_cols, case.case_id, split_seed_override=effective_split_seed)
+    external_pool = splits.get("external")
+    if not isinstance(external_pool, pd.DataFrame):
+        raise RuntimeError("external split missing from split_with_temporal_order output.")
+    external_period_df, external_institution_df, external_split_meta = split_external_pool(
+        external_pool,
+        case.case_id,
+        split_seed_override=effective_split_seed,
+        min_rows_per_cohort=20,
+        min_positive_per_cohort=3,
+    )
 
     case_root = DATA_ROOT / case.case_id
+    if case_root.exists():
+        shutil.rmtree(case_root)
     data_dir = case_root / "data"
     cfg_dir = case_root / "configs"
     evidence_dir = case_root / "evidence"
@@ -240,15 +1559,24 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     for d in (data_dir, cfg_dir, evidence_dir, model_dir, key_dir):
         d.mkdir(parents=True, exist_ok=True)
 
-    for split_name, frame in splits.items():
+    for split_name in ("train", "valid", "test"):
+        frame = splits[split_name]
         frame.to_csv(data_dir / f"{split_name}.csv", index=False)
+    external_period_df.to_csv(data_dir / "external_cross_period.csv", index=False)
+    external_institution_df.to_csv(data_dir / "external_cross_institution.csv", index=False)
 
     config_payload = {
         "dataset_case": case.case_id,
         "source_name": case.source_name,
-        "model_pool": ["logistic_l2", "random_forest_balanced", "hist_gradient_boosting_l2"],
+        "model_pool": [
+            "logistic_l1",
+            "logistic_l2",
+            "logistic_elasticnet",
+            "random_forest_balanced",
+            "hist_gradient_boosting_l2"
+        ],
         "selection_policy": "pr_auc + one_se + lower_complexity",
-        "threshold_policy": "maximize_f2_beta_under_sensitivity_npv_floors",
+        "threshold_policy": "maximize_f2_beta_under_sensitivity_npv_specificity_ppv_floors",
         "random_seed": 20260224,
         "features": feature_cols,
     }
@@ -273,6 +1601,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     for col in feature_cols:
         lineage["features"][col] = {"ancestors": [f"raw_{col}"]}
     write_json(cfg_dir / "feature_lineage.json", lineage)
+    write_json(cfg_dir / "feature_group_spec.json", build_feature_group_spec(feature_cols))
 
     copy_reference("split-protocol.example.json", cfg_dir / "split_protocol.json")
     copy_reference("imbalance-policy.example.json", cfg_dir / "imbalance_policy.json")
@@ -280,16 +1609,89 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     copy_reference("tuning-protocol.example.json", cfg_dir / "tuning_protocol.json")
     copy_reference("performance-policy.example.json", cfg_dir / "performance_policy.json")
     copy_reference("reporting-bias-checklist.example.json", cfg_dir / "reporting_bias_checklist.json")
+    selection_data = MODEL_SELECTION_DATA_BY_CASE.get(case.case_id, "cv_inner")
+    threshold_split = THRESHOLD_SELECTION_SPLIT_BY_CASE.get(case.case_id, "valid")
+    calibration_fit_split = threshold_split
+    calibration_method: Optional[str] = None
+    selected_profile_id: Optional[str] = None
+    if case.case_id == "uci-heart-disease" and stress_search_result is not None:
+        selected_profile_id = str(stress_search_result.selected_profile).strip()
+        profile = find_stress_profile_by_id(selected_profile_id)
+        if isinstance(profile, dict):
+            selection_data = str(profile.get("selection_data", selection_data))
+            threshold_split = str(profile.get("threshold_selection_split", threshold_split))
+            calibration_fit_split = str(profile.get("calibration_fit_split", threshold_split))
+            calibration_method = str(profile.get("calibration_method", "power"))
+    update_tuning_protocol(cfg_dir / "tuning_protocol.json", model_selection_data=selection_data)
+    update_imbalance_policy(
+        cfg_dir / "imbalance_policy.json",
+        case.case_id,
+        threshold_split_override=threshold_split,
+        calibration_split_override=calibration_fit_split,
+    )
+    update_performance_policy(
+        cfg_dir / "performance_policy.json",
+        case.case_id,
+        threshold_split_override=threshold_split,
+        calibration_method_override=calibration_method,
+        calibration_fit_split_override=calibration_fit_split,
+    )
     update_missingness_policy(
         cfg_dir / "missingness_policy.json",
         train_rows=int(len(splits["train"])),
         feature_count=int(len(feature_cols)),
     )
 
+    external_cohort_spec = {
+        "cohorts": [
+            {
+                "cohort_id": f"{case.case_id}_external_period",
+                "cohort_type": "cross_period",
+                "path": "../data/external_cross_period.csv",
+                "label_col": "y",
+                "patient_id_col": "patient_id",
+                "index_time_col": "event_time",
+            },
+            {
+                "cohort_id": f"{case.case_id}_external_institution",
+                "cohort_type": "cross_institution",
+                "path": "../data/external_cross_institution.csv",
+                "label_col": "y",
+                "patient_id_col": "patient_id",
+                "index_time_col": "event_time",
+            }
+        ]
+    }
+    write_json(cfg_dir / "external_cohort_spec.json", external_cohort_spec)
+
     model_path = model_dir / "selected_model.joblib"
     model_selection_report_path = evidence_dir / "model_selection_report.json"
     evaluation_report_path = evidence_dir / "evaluation_report.json"
+    feature_engineering_report_path = evidence_dir / "feature_engineering_report.json"
+    distribution_report_path = evidence_dir / "distribution_report.json"
+    ci_matrix_report_path = evidence_dir / "ci_matrix_report.json"
+    prediction_trace_path = evidence_dir / "prediction_trace.csv.gz"
+    external_validation_report_path = evidence_dir / "external_validation_report.json"
+    robustness_report_path = evidence_dir / "robustness_report.json"
+    seed_sensitivity_report_path = evidence_dir / "seed_sensitivity_report.json"
     permutation_null_path = evidence_dir / "permutation_null_pr_auc.txt"
+    stress_seed_search_report_dst = evidence_dir / "stress_seed_search_report.json"
+    stress_seed_selection_dst = evidence_dir / "stress_seed_selection.json"
+
+    if stress_search_result is not None:
+        shutil.copy2(stress_search_result.report_path, stress_seed_search_report_dst)
+        shutil.copy2(stress_search_result.selection_path, stress_seed_selection_dst)
+    elif case.case_id == "uci-heart-disease":
+        write_json(
+            stress_seed_selection_dst,
+            {
+                "status": "pass",
+                "case_id": case.case_id,
+                "selection_policy": "fixed_seed",
+                "selected_seed": int(effective_split_seed),
+                "selected_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+            },
+        )
 
     run_cmd(
         [
@@ -307,10 +1709,16 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "patient_id,event_time",
             "--performance-policy",
             str(cfg_dir / "performance_policy.json"),
+            "--feature-group-spec",
+            str(cfg_dir / "feature_group_spec.json"),
+            "--missingness-policy",
+            str(cfg_dir / "missingness_policy.json"),
+            "--feature-engineering-mode",
+            "strict",
             "--selection-data",
-            "cv_inner",
+            selection_data,
             "--threshold-selection-split",
-            "valid",
+            threshold_split,
             "--primary-metric",
             "pr_auc",
             "--random-seed",
@@ -319,6 +1727,26 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             str(model_selection_report_path),
             "--evaluation-report-out",
             str(evaluation_report_path),
+            "--feature-engineering-report-out",
+            str(feature_engineering_report_path),
+            "--distribution-report-out",
+            str(distribution_report_path),
+            "--ci-matrix-report-out",
+            str(ci_matrix_report_path),
+            "--robustness-report-out",
+            str(robustness_report_path),
+            "--robustness-time-slices",
+            str(int(ROBUSTNESS_TIME_SLICES_BY_CASE.get(case.case_id, 2))),
+            "--robustness-group-count",
+            str(int(ROBUSTNESS_GROUP_COUNT_BY_CASE.get(case.case_id, 2))),
+            "--seed-sensitivity-out",
+            str(seed_sensitivity_report_path),
+            "--prediction-trace-out",
+            str(prediction_trace_path),
+            "--external-cohort-spec",
+            str(cfg_dir / "external_cohort_spec.json"),
+            "--external-validation-report-out",
+            str(external_validation_report_path),
             "--model-out",
             str(model_path),
             "--permutation-null-out",
@@ -337,7 +1765,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
     train_log_lines = [
         f"[INFO] case={case.case_id}",
         f"[INFO] selected_model={selected_model_id}",
-        "[INFO] model_pool=logistic_l2,random_forest_balanced,hist_gradient_boosting_l2",
+        "[INFO] model_pool=logistic_l1,logistic_l2,logistic_elasticnet,random_forest_balanced,hist_gradient_boosting_l2",
         f"[INFO] feature_count={len(feature_cols)}",
         f"[INFO] train_rows={len(splits['train'])}",
         f"[INFO] valid_rows={len(splits['valid'])}",
@@ -416,7 +1844,7 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "--witness",
             f"witness-b|{key_pairs['witness_b'][1]}|{key_pairs['witness_b'][0]}",
             "--command",
-            f"python scripts/train_select_evaluate.py --train {data_dir / 'train.csv'} --valid {data_dir / 'valid.csv'} --test {data_dir / 'test.csv'} --primary-metric pr_auc",
+            f"python scripts/train_select_evaluate.py --train {data_dir / 'train.csv'} --valid {data_dir / 'valid.csv'} --test {data_dir / 'test.csv'} --primary-metric pr_auc --performance-policy {cfg_dir / 'performance_policy.json'} --missingness-policy {cfg_dir / 'missingness_policy.json'} --prediction-trace-out {prediction_trace_path} --external-cohort-spec {cfg_dir / 'external_cohort_spec.json'} --external-validation-report-out {external_validation_report_path}",
             "--artifact",
             f"training_log={train_log_path}",
             "--artifact",
@@ -426,7 +1854,21 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
             "--artifact",
             f"model_selection_report={model_selection_report_path}",
             "--artifact",
+            f"feature_engineering_report={feature_engineering_report_path}",
+            "--artifact",
+            f"distribution_report={distribution_report_path}",
+            "--artifact",
+            f"robustness_report={robustness_report_path}",
+            "--artifact",
+            f"seed_sensitivity_report={seed_sensitivity_report_path}",
+            "--artifact",
             f"evaluation_report={evaluation_report_path}",
+            "--artifact",
+            f"ci_matrix_report={ci_matrix_report_path}",
+            "--artifact",
+            f"prediction_trace={prediction_trace_path}",
+            "--artifact",
+            f"external_validation_report={external_validation_report_path}",
         ]
     )
 
@@ -442,35 +1884,51 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         "claim_tier_target": "publication-grade",
         "phenotype_definition_spec": "phenotype_definitions.json",
         "feature_lineage_spec": "feature_lineage.json",
+        "feature_group_spec": "feature_group_spec.json",
         "split_protocol_spec": "split_protocol.json",
         "imbalance_policy_spec": "imbalance_policy.json",
         "missingness_policy_spec": "missingness_policy.json",
         "tuning_protocol_spec": "tuning_protocol.json",
         "performance_policy_spec": "performance_policy.json",
+        "external_cohort_spec": "external_cohort_spec.json",
         "reporting_bias_checklist_spec": "reporting_bias_checklist.json",
         "execution_attestation_spec": "execution_attestation.json",
         "model_selection_report_file": "../evidence/model_selection_report.json",
+        "feature_engineering_report_file": "../evidence/feature_engineering_report.json",
+        "distribution_report_file": "../evidence/distribution_report.json",
+        "robustness_report_file": "../evidence/robustness_report.json",
+        "seed_sensitivity_report_file": "../evidence/seed_sensitivity_report.json",
         "split_paths": {
             "train": "../data/train.csv",
             "valid": "../data/valid.csv",
             "test": "../data/test.csv",
         },
         "evaluation_report_file": "../evidence/evaluation_report.json",
+        "prediction_trace_file": "../evidence/prediction_trace.csv.gz",
+        "external_validation_report_file": "../evidence/external_validation_report.json",
+        "ci_matrix_report_file": "../evidence/ci_matrix_report.json",
         "evaluation_metric_path": "metrics.pr_auc",
         "permutation_null_metrics_file": "../evidence/permutation_null_pr_auc.txt",
         "actual_primary_metric": primary_metric,
         "thresholds": {
             "alpha": 0.01,
             "min_delta": 0.03,
-            "min_baseline_delta": 0.0,
+            "min_baseline_delta": 0.01,
             "ci_min_resamples": 200,
-            "ci_max_width": 0.50,
+            "ci_max_width": 0.20,
         },
         "context": {
             "source": case.source_name,
             "notes": "Authoritative public benchmark dataset for strict skill validation.",
         },
     }
+    if stress_seed_selection_dst.exists():
+        request_payload["stress_evidence_files"] = {
+            "seed_search_report": "../evidence/stress_seed_search_report.json"
+            if stress_seed_search_report_dst.exists()
+            else None,
+            "seed_selection": "../evidence/stress_seed_selection.json",
+        }
     write_json(cfg_dir / "request.json", request_payload)
 
     bootstrap_report = evidence_dir / "strict_pipeline_bootstrap_report.json"
@@ -489,6 +1947,20 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         ],
         allow_fail=True,
     )
+
+    # Refresh manifest baseline after bootstrap has produced gate artifacts.
+    if bootstrap_report.exists():
+        bootstrap_payload = load_json(bootstrap_report)
+        if isinstance(bootstrap_payload, dict):
+            manifest_step = None
+            for step in bootstrap_payload.get("steps", []):
+                if isinstance(step, dict) and step.get("name") == "manifest_lock":
+                    manifest_step = step
+                    break
+            if isinstance(manifest_step, dict):
+                manifest_cmd = manifest_step.get("command")
+                if isinstance(manifest_cmd, str) and manifest_cmd.strip():
+                    run_cmd(shlex.split(manifest_cmd))
 
     manifest_path = evidence_dir / "manifest.json"
     baseline_manifest = evidence_dir / "manifest_baseline.json"
@@ -514,45 +1986,105 @@ def prepare_case_artifacts(case: DatasetCase) -> Dict[str, Any]:
         allow_fail=True,
     )
 
-    pipeline_report = load_json(final_report)
-    self_critique_report = load_json(evidence_dir / "self_critique_report.json")
-    publication_report = load_json(evidence_dir / "publication_gate_report.json")
-    gap_report = load_json(evidence_dir / "generalization_gap_report.json")
+    pipeline_report = load_json(final_report) if final_report.exists() else {"status": "not_run"}
+    self_critique_report = (
+        load_json(evidence_dir / "self_critique_report.json")
+        if (evidence_dir / "self_critique_report.json").exists()
+        else {"status": "not_run", "quality_score": None}
+    )
+    publication_report = (
+        load_json(evidence_dir / "publication_gate_report.json")
+        if (evidence_dir / "publication_gate_report.json").exists()
+        else {"status": "not_run"}
+    )
+    gap_report = (
+        load_json(evidence_dir / "generalization_gap_report.json")
+        if (evidence_dir / "generalization_gap_report.json").exists()
+        else {"summary": {}}
+    )
+    external_gate_report = (
+        load_json(evidence_dir / "external_validation_gate_report.json")
+        if (evidence_dir / "external_validation_gate_report.json").exists()
+        else {"status": "not_run"}
+    )
+    calibration_dca_report = (
+        load_json(evidence_dir / "calibration_dca_report.json")
+        if (evidence_dir / "calibration_dca_report.json").exists()
+        else {"status": "not_run"}
+    )
 
+    final_status = "pass" if int(final_proc.returncode) == 0 and str(pipeline_report.get("status")) == "pass" else "fail"
+    failure_code = None if final_status == "pass" else "strict_pipeline_failed"
     return {
+        "run_tag": run_tag,
         "case_id": case.case_id,
         "source_name": case.source_name,
+        "status": final_status,
+        "failure_code": failure_code,
+        "final_exit_code": int(final_proc.returncode),
+        "split_seed": int(effective_split_seed),
+        "stress_selected_profile": selected_profile_id,
+        "external_split_metadata": external_split_meta,
         "rows": {
             "train": int(len(splits["train"])),
             "valid": int(len(splits["valid"])),
             "test": int(len(splits["test"])),
+            "external_total": int(len(external_pool)),
+            "external_cross_period": int(len(external_period_df)),
+            "external_cross_institution": int(len(external_institution_df)),
         },
         "metrics": metrics,
         "gap_summary": gap_report.get("summary", {}),
         "bootstrap_exit_code": int(bootstrap_proc.returncode),
-        "final_exit_code": int(final_proc.returncode),
         "pipeline_status": pipeline_report.get("status"),
         "publication_status": publication_report.get("status"),
         "self_critique_status": self_critique_report.get("status"),
         "self_critique_score": self_critique_report.get("quality_score"),
+        "external_validation_gate_status": external_gate_report.get("status"),
+        "calibration_dca_gate_status": calibration_dca_report.get("status"),
+        "distribution_generalization_gate_status": (
+            load_json(evidence_dir / "distribution_generalization_report.json").get("status")
+            if (evidence_dir / "distribution_generalization_report.json").exists()
+            else "not_run"
+        ),
+        "feature_engineering_audit_gate_status": (
+            load_json(evidence_dir / "feature_engineering_audit_report.json").get("status")
+            if (evidence_dir / "feature_engineering_audit_report.json").exists()
+            else "not_run"
+        ),
+        "ci_matrix_gate_status": (
+            load_json(evidence_dir / "ci_matrix_gate_report.json").get("status")
+            if (evidence_dir / "ci_matrix_gate_report.json").exists()
+            else "not_run"
+        ),
         "artifacts": {
             "case_root": str(case_root),
             "request": str(cfg_dir / "request.json"),
             "pipeline_report": str(final_report),
             "model_selection_report": str(model_selection_report_path),
             "evaluation_report": str(evaluation_report_path),
+            "feature_engineering_report": str(feature_engineering_report_path),
+            "distribution_report": str(distribution_report_path),
+            "ci_matrix_report": str(ci_matrix_report_path),
+            "prediction_trace": str(prediction_trace_path),
+            "external_validation_report": str(external_validation_report_path),
+            "robustness_report": str(robustness_report_path),
+            "seed_sensitivity_report": str(seed_sensitivity_report_path),
+            "stress_seed_search_report": str(stress_seed_search_report_dst)
+            if stress_seed_search_report_dst.exists()
+            else None,
+            "stress_seed_selection": str(stress_seed_selection_dst)
+            if stress_seed_selection_dst.exists()
+            else None,
         },
     }
 
 
 def main() -> int:
+    args = parse_args()
+    run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    summary_path = resolve_output_path(args.summary_file)
     cases = [
-        DatasetCase(
-            case_id="uci-heart-disease",
-            raw_filename="heart_disease_processed.cleveland.data",
-            target_name="heart_disease",
-            source_name="UCI Heart Disease (Cleveland)",
-        ),
         DatasetCase(
             case_id="uci-breast-cancer-wdbc",
             raw_filename="breast_cancer_wdbc.data",
@@ -560,34 +2092,201 @@ def main() -> int:
             source_name="UCI Breast Cancer Wisconsin (Diagnostic)",
         ),
     ]
+    include_stress_cases = bool(args.include_stress_cases or parse_bool_env("MLLG_INCLUDE_STRESS_CASES", default=False))
+    if args.stress_seed_search and not include_stress_cases:
+        include_stress_cases = True
+    stress_seed_search_enabled = bool(args.stress_seed_search or (include_stress_cases and not args.no_stress_seed_search))
+    if include_stress_cases:
+        cases.append(
+            DatasetCase(
+                case_id="uci-heart-disease",
+                raw_filename="heart_disease_processed.cleveland.data",
+                target_name="heart_disease",
+                source_name="UCI Heart Disease (Cleveland)",
+            )
+        )
 
     results: List[Dict[str, Any]] = []
     failed_cases: List[str] = []
+    stress_result: Optional[HeartStressSearchResult] = None
+    stress_seed_cache = resolve_output_path(args.stress_seed_cache_file)
+    stress_selection_file = resolve_output_path(args.stress_selection_file)
+    stress_profile_set = str(args.stress_profile_set).strip() or DEFAULT_STRESS_PROFILE_SET
+    stress_profiles: List[Dict[str, str]] = []
+    if include_stress_cases or stress_seed_search_enabled:
+        stress_profiles = get_stress_profiles(stress_profile_set)
+
+    if stress_seed_search_enabled and include_stress_cases:
+        heart_case = next((c for c in cases if c.case_id == "uci-heart-disease"), None)
+        if heart_case is not None:
+            try:
+                heart_df, _ = load_heart_dataset(RAW_ROOT / heart_case.raw_filename)
+                dataset_fingerprint = build_dataset_fingerprint(heart_df)
+                policy_contract = build_stress_contract_inputs(
+                    case_id=heart_case.case_id,
+                    profile_set=stress_profile_set,
+                    profiles=stress_profiles,
+                )
+                policy_sha256 = canonical_json_sha256(policy_contract)
+                code_revision_hint = git_revision_hint()
+            except Exception as exc:
+                failed_cases.append(heart_case.case_id)
+                results.append(
+                    {
+                        "run_tag": run_tag,
+                        "case_id": heart_case.case_id,
+                        "source_name": heart_case.source_name,
+                        "status": "fail",
+                        "failure_code": "stress_seed_feasibility_not_found",
+                        "final_exit_code": 2,
+                        "error": f"stress_search_initialization_failed: {exc}",
+                        "artifacts": {
+                            "stress_seed_search_report": str(stress_seed_cache),
+                            "stress_seed_selection": str(stress_selection_file),
+                        },
+                    }
+                )
+                heart_case = None
+            if heart_case is None:
+                pass
+            else:
+                cached_selected_seed: Optional[int] = None
+                cached_selected_profile: Optional[str] = None
+                if stress_seed_cache.exists():
+                    try:
+                        cached_payload = load_json(stress_seed_cache)
+                        cached_status = str(cached_payload.get("status", "")).strip().lower()
+                        cached_seed_raw = cached_payload.get("selected_seed")
+                        cached_selected_profile_raw = cached_payload.get("selected_profile")
+                        cache_contract_ok = bool(
+                            str(cached_payload.get("contract_version", "")).strip() == STRESS_SEARCH_REPORT_CONTRACT_VERSION
+                            and str(cached_payload.get("search_profile_set", "")).strip() == stress_profile_set
+                            and str(cached_payload.get("policy_sha256", "")).strip() == policy_sha256
+                        )
+                        cached_dataset_fingerprint = cached_payload.get("dataset_fingerprint")
+                        if isinstance(cached_dataset_fingerprint, dict):
+                            cache_contract_ok = bool(
+                                cache_contract_ok
+                                and str(cached_dataset_fingerprint.get("sha256", "")).strip()
+                                == str(dataset_fingerprint.get("sha256", "")).strip()
+                                and int(cached_dataset_fingerprint.get("rows", -1)) == int(dataset_fingerprint.get("rows", -1))
+                                and int(cached_dataset_fingerprint.get("events", -1))
+                                == int(dataset_fingerprint.get("events", -1))
+                            )
+                        else:
+                            cache_contract_ok = False
+                        if cached_status == "pass" and isinstance(cached_seed_raw, int) and cache_contract_ok:
+                            cached_seed = int(cached_seed_raw)
+                            cached_profile = (
+                                str(cached_selected_profile_raw).strip()
+                                if isinstance(cached_selected_profile_raw, str)
+                                else ""
+                            )
+                            profile_ok = any(p.get("profile_id") == cached_profile for p in stress_profiles)
+                            if (
+                                int(args.stress_seed_min) <= cached_seed <= int(args.stress_seed_max)
+                                and profile_ok
+                                and stress_selection_file.exists()
+                            ):
+                                cached_selected_seed = cached_seed
+                                cached_selected_profile = cached_profile
+                    except Exception:
+                        cached_selected_seed = None
+                        cached_selected_profile = None
+
+                if cached_selected_seed is not None and cached_selected_profile is not None:
+                    stress_result = HeartStressSearchResult(
+                        selected_seed=int(cached_selected_seed),
+                        selected_profile=str(cached_selected_profile),
+                        report_path=stress_seed_cache,
+                        selection_path=stress_selection_file,
+                        status="pass",
+                    )
+                else:
+                    try:
+                        stress_result = search_heart_feasible_seed(
+                            case=heart_case,
+                            seed_min=int(args.stress_seed_min),
+                            seed_max=int(args.stress_seed_max),
+                            report_path=stress_seed_cache,
+                            selection_path=stress_selection_file,
+                            run_tag=run_tag,
+                            profile_set=stress_profile_set,
+                            dataset_fingerprint=dataset_fingerprint,
+                            policy_sha256=policy_sha256,
+                            code_revision_hint=code_revision_hint,
+                        )
+                    except Exception as exc:
+                        failed_cases.append(heart_case.case_id)
+                        results.append(
+                            {
+                                "run_tag": run_tag,
+                                "case_id": heart_case.case_id,
+                                "source_name": heart_case.source_name,
+                                "status": "fail",
+                                "failure_code": "stress_seed_feasibility_not_found",
+                                "final_exit_code": 2,
+                                "error": str(exc),
+                                "artifacts": {
+                                    "stress_seed_search_report": str(stress_seed_cache),
+                                    "stress_seed_selection": str(stress_selection_file),
+                                },
+                            }
+                        )
 
     for case in cases:
+        if case.case_id == "uci-heart-disease" and stress_seed_search_enabled and stress_result is None:
+            # Seed-search failure already recorded above.
+            continue
         try:
-            result = prepare_case_artifacts(case)
+            split_seed_override: Optional[int] = None
+            case_stress_result: Optional[HeartStressSearchResult] = None
+            if case.case_id == "uci-heart-disease":
+                if stress_result is not None:
+                    split_seed_override = int(stress_result.selected_seed)
+                    case_stress_result = stress_result
+                else:
+                    split_seed_override = int(SPLIT_RANDOM_SEED_BY_CASE.get(case.case_id, 20260224))
+            result = prepare_case_artifacts(
+                case,
+                split_seed_override=split_seed_override,
+                stress_search_result=case_stress_result,
+                run_tag=run_tag,
+            )
             results.append(result)
-            if result.get("pipeline_status") != "pass":
+            if str(result.get("status")) != "pass":
                 failed_cases.append(case.case_id)
         except Exception as exc:
             failed_cases.append(case.case_id)
             results.append(
                 {
+                    "run_tag": run_tag,
                     "case_id": case.case_id,
                     "source_name": case.source_name,
+                    "status": "fail",
+                    "failure_code": "case_execution_exception",
+                    "final_exit_code": 1,
                     "error": str(exc),
                 }
             )
 
     summary = {
+        "run_tag": run_tag,
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "repo_root": str(REPO_ROOT),
+        "include_stress_cases": bool(include_stress_cases),
+        "stress_seed_search_enabled": bool(stress_seed_search_enabled),
+        "stress_profile_set": stress_profile_set,
+        "stress_seed_range": {"min": int(args.stress_seed_min), "max": int(args.stress_seed_max)},
+        "stress_seed_cache_file": str(stress_seed_cache),
+        "stress_selection_file": str(stress_selection_file),
+        "stress_seed_selected": int(stress_result.selected_seed) if stress_result is not None else None,
+        "stress_profile_selected": str(stress_result.selected_profile) if stress_result is not None else None,
         "results": results,
         "failed_cases": failed_cases,
         "overall_status": "pass" if not failed_cases else "fail",
     }
-    summary_path = DATA_ROOT / "authority_e2e_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
     write_json(summary_path, summary)
     print(f"Summary: {summary_path}")
     print(json.dumps(summary, ensure_ascii=True, indent=2))

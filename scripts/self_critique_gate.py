@@ -35,8 +35,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--missingness-report", required=True, help="Path to missingness policy report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage report JSON.")
     parser.add_argument("--model-selection-audit-report", required=True, help="Path to model selection audit report JSON.")
+    parser.add_argument("--feature-engineering-audit-report", required=True, help="Path to feature engineering audit report JSON.")
     parser.add_argument("--clinical-metrics-report", required=True, help="Path to clinical metrics report JSON.")
+    parser.add_argument("--prediction-replay-report", required=True, help="Path to prediction replay gate report JSON.")
+    parser.add_argument("--distribution-generalization-report", required=True, help="Path to distribution generalization report JSON.")
     parser.add_argument("--generalization-gap-report", required=True, help="Path to generalization gap report JSON.")
+    parser.add_argument("--robustness-report", required=True, help="Path to robustness report JSON.")
+    parser.add_argument("--seed-stability-report", required=True, help="Path to seed stability report JSON.")
+    parser.add_argument("--external-validation-report", required=True, help="Path to external validation gate report JSON.")
+    parser.add_argument("--calibration-dca-report", required=True, help="Path to calibration/DCA gate report JSON.")
+    parser.add_argument("--ci-matrix-report", required=True, help="Path to CI matrix gate report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
@@ -90,10 +98,26 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Complete TRIPOD+AI/PROBAST+AI/STARD-AI checklist items and rerun reporting_bias_gate.")
     if "model_selection_audit_report" in components:
         recs.append("Repair model-selection evidence (candidate pool, one-SE replay, and test-isolation proof).")
+    if "feature_engineering_audit_report" in components:
+        recs.append("Repair feature-engineering provenance (explicit groups, train-only scope, stability evidence, reproducibility fields).")
     if "clinical_metrics_report" in components:
         recs.append("Regenerate split metrics with full clinical panel and confusion-matrix-consistent values.")
+    if "prediction_replay_report" in components:
+        recs.append("Rebuild prediction_trace from model outputs and verify replayed metrics/hash alignment.")
+    if "distribution_generalization_report" in components:
+        recs.append("Address distribution shift and split separability before asserting transport-ready generalization.")
     if "generalization_gap_report" in components:
         recs.append("Reduce overfitting gap or tighten regularization before publication-grade claims.")
+    if "robustness_report" in components:
+        recs.append("Investigate temporal/group robustness failures before publication-grade claims.")
+    if "seed_stability_report" in components:
+        recs.append("Improve multi-seed robustness or simplify model/hyperparameters to reduce instability.")
+    if "external_validation_report" in components:
+        recs.append("Strengthen external cohort transport performance and ensure cross-period/cross-institution coverage.")
+    if "calibration_dca_report" in components:
+        recs.append("Improve probability calibration and decision-curve net benefit on test and external cohorts.")
+    if "ci_matrix_report" in components:
+        recs.append("Increase bootstrap precision and complete full-matrix CI evidence (including transport-drop CI).")
     if "component_not_strict" in codes:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
     if "evaluation_quality_report" in components:
@@ -136,8 +160,16 @@ def main() -> int:
         "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
         "model_selection_audit_report": args.model_selection_audit_report,
+        "feature_engineering_audit_report": args.feature_engineering_audit_report,
         "clinical_metrics_report": args.clinical_metrics_report,
+        "prediction_replay_report": args.prediction_replay_report,
+        "distribution_generalization_report": args.distribution_generalization_report,
         "generalization_gap_report": args.generalization_gap_report,
+        "robustness_report": args.robustness_report,
+        "seed_stability_report": args.seed_stability_report,
+        "external_validation_report": args.external_validation_report,
+        "calibration_dca_report": args.calibration_dca_report,
+        "ci_matrix_report": args.ci_matrix_report,
         "metric_report": args.metric_report,
         "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
@@ -197,6 +229,7 @@ def main() -> int:
                 {"component": name},
             )
 
+    strict_optional_components = {"distribution_generalization_report"}
     for component in (
         "request_report",
         "execution_attestation_report",
@@ -210,14 +243,22 @@ def main() -> int:
         "missingness_report",
         "tuning_report",
         "model_selection_audit_report",
+        "feature_engineering_audit_report",
         "clinical_metrics_report",
+        "prediction_replay_report",
+        "distribution_generalization_report",
         "generalization_gap_report",
+        "robustness_report",
+        "seed_stability_report",
+        "external_validation_report",
+        "calibration_dca_report",
+        "ci_matrix_report",
         "metric_report",
         "evaluation_quality_report",
         "permutation_report",
         "publication_report",
     ):
-        require_pass(component)
+        require_pass(component, strict_mode_required=(component not in strict_optional_components))
 
     manifest = loaded.get("manifest")
     reproducibility_comparison_evaluated = False
@@ -273,7 +314,7 @@ def main() -> int:
         )
 
     # Weighted score emphasizes phenotype integrity and lineage coverage.
-    weights = {
+    _raw_weights = {
         "request_report": 7.0,
         "manifest": 10.0,
         "execution_attestation_report": 8.0,
@@ -287,13 +328,23 @@ def main() -> int:
         "missingness_report": 8.0,
         "tuning_report": 8.0,
         "model_selection_audit_report": 8.0,
+        "feature_engineering_audit_report": 8.0,
         "clinical_metrics_report": 8.0,
+        "prediction_replay_report": 8.0,
+        "distribution_generalization_report": 8.0,
         "generalization_gap_report": 8.0,
+        "robustness_report": 8.0,
+        "seed_stability_report": 7.0,
+        "external_validation_report": 8.0,
+        "calibration_dca_report": 8.0,
+        "ci_matrix_report": 8.0,
         "metric_report": 7.0,
         "evaluation_quality_report": 8.0,
         "permutation_report": 7.0,
         "publication_report": 8.0,
     }
+    _total_raw = sum(_raw_weights.values())
+    weights = {k: v * 100.0 / _total_raw for k, v in _raw_weights.items()}
     warn_penalty = 1.0
     quality_score = 0.0
     for key, weight in weights.items():

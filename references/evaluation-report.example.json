@@ -87,8 +87,13 @@
     "selected_threshold": 0.37,
     "constraints": {
       "sensitivity_min": 0.85,
-      "npv_min": 0.9
+      "npv_min": 0.9,
+      "specificity_min": 0.4,
+      "ppv_min": 0.55
     },
+    "constraints_satisfied_selection_split": true,
+    "constraints_satisfied_guard_split": false,
+    "constraints_satisfied_overall": false,
     "constraints_satisfied": false
   },
   "uncertainty": {
@@ -116,6 +121,76 @@
         "roc_auc": 0.74,
         "pr_auc": 0.39,
         "brier": 0.14
+      }
+    }
+  },
+  "feature_engineering": {
+    "provenance": {
+      "mode": "strict",
+      "stage0_candidate_count": 52,
+      "stage1_filtered_count": 42,
+      "selected_feature_count": 42,
+      "feature_group_spec": "../configs/feature_group_spec.json",
+      "feature_engineering_report": "../evidence/feature_engineering_report.json",
+      "selected_features": [
+        "age",
+        "sex",
+        "heart_rate",
+        "resp_rate",
+        "spo2"
+      ]
+    }
+  },
+  "distribution_summary": {
+    "split_count": 4,
+    "schema_version": "v4.0"
+  },
+  "ci_matrix_ref": "../evidence/ci_matrix_report.json",
+  "transport_ci_ref": "transport_drop_ci",
+  "metadata": {
+    "feature_count": 42,
+    "features": [
+      "age",
+      "sex",
+      "heart_rate",
+      "resp_rate",
+      "spo2"
+    ],
+    "beta": 2.0,
+    "selection_data": "cv_inner",
+    "threshold_selection_split": "valid",
+    "evaluation_model_fit_split": "train",
+    "prediction_trace_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "external_validation_report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "external_cohort_count": 2,
+    "feature_engineering_report_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "distribution_report_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "ci_matrix_report_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "data_fingerprints": {
+      "train": {
+        "path": "../data/train.csv",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "row_count": 1800
+      },
+      "valid": {
+        "path": "../data/valid.csv",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "row_count": 684
+      },
+      "test": {
+        "path": "../data/test.csv",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "row_count": 478
+      }
+    },
+    "imputation": {
+      "policy_strategy": "mice_with_scale_guard",
+      "executed_strategy": "mice",
+      "fit_scope": "train_only",
+      "scale_guard": {
+        "checked": true,
+        "triggered": false,
+        "fallback_strategy": null
       }
     }
   }

@@ -40,8 +40,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--missingness-report", required=True, help="Path to missingness policy gate report JSON.")
     parser.add_argument("--tuning-report", required=True, help="Path to tuning leakage gate report JSON.")
     parser.add_argument("--model-selection-audit-report", required=True, help="Path to model selection audit report JSON.")
+    parser.add_argument("--feature-engineering-audit-report", required=True, help="Path to feature engineering audit report JSON.")
     parser.add_argument("--clinical-metrics-report", required=True, help="Path to clinical metrics gate report JSON.")
+    parser.add_argument("--prediction-replay-report", required=True, help="Path to prediction replay gate report JSON.")
+    parser.add_argument("--distribution-generalization-report", required=True, help="Path to distribution generalization gate report JSON.")
     parser.add_argument("--generalization-gap-report", required=True, help="Path to generalization gap gate report JSON.")
+    parser.add_argument("--robustness-report", required=True, help="Path to robustness gate report JSON.")
+    parser.add_argument("--seed-stability-report", required=True, help="Path to seed stability gate report JSON.")
+    parser.add_argument("--external-validation-report", required=True, help="Path to external validation gate report JSON.")
+    parser.add_argument("--calibration-dca-report", required=True, help="Path to calibration/DCA gate report JSON.")
+    parser.add_argument("--ci-matrix-report", required=True, help="Path to CI matrix gate report JSON.")
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality gate report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
@@ -69,6 +77,7 @@ def validate_component_status(
     failures: List[Dict[str, Any]],
     warnings: List[Dict[str, Any]],
     strict: bool,
+    strict_mode_required: bool = True,
 ) -> None:
     if report is None:
         add_issue(failures, "missing_component_report", "Missing required component report.", {"component": name})
@@ -83,20 +92,21 @@ def validate_component_status(
             {"component": name, "status": report.get("status")},
         )
 
-    if strict and report.get("strict_mode") is not True:
-        add_issue(
-            failures,
-            "component_not_strict",
-            "Required component report was not generated in strict mode.",
-            {"component": name},
-        )
-    elif report.get("strict_mode") is not True:
-        add_issue(
-            warnings,
-            "component_not_strict",
-            "Component report was not generated in strict mode.",
-            {"component": name},
-        )
+    if strict_mode_required:
+        if strict and report.get("strict_mode") is not True:
+            add_issue(
+                failures,
+                "component_not_strict",
+                "Required component report was not generated in strict mode.",
+                {"component": name},
+            )
+        elif report.get("strict_mode") is not True:
+            add_issue(
+                warnings,
+                "component_not_strict",
+                "Component report was not generated in strict mode.",
+                {"component": name},
+            )
 
     failure_count = report.get("failure_count")
     if isinstance(failure_count, int) and failure_count > 0:
@@ -303,8 +313,16 @@ def main() -> int:
         "missingness_report": args.missingness_report,
         "tuning_report": args.tuning_report,
         "model_selection_audit_report": args.model_selection_audit_report,
+        "feature_engineering_audit_report": args.feature_engineering_audit_report,
         "clinical_metrics_report": args.clinical_metrics_report,
+        "prediction_replay_report": args.prediction_replay_report,
+        "distribution_generalization_report": args.distribution_generalization_report,
         "generalization_gap_report": args.generalization_gap_report,
+        "robustness_report": args.robustness_report,
+        "seed_stability_report": args.seed_stability_report,
+        "external_validation_report": args.external_validation_report,
+        "calibration_dca_report": args.calibration_dca_report,
+        "ci_matrix_report": args.ci_matrix_report,
         "metric_report": args.metric_report,
         "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
@@ -371,6 +389,7 @@ def main() -> int:
                     },
                 )
 
+    strict_optional_components = {"distribution_generalization_report"}
     for component in (
         "request_report",
         "execution_attestation_report",
@@ -384,13 +403,28 @@ def main() -> int:
         "missingness_report",
         "tuning_report",
         "model_selection_audit_report",
+        "feature_engineering_audit_report",
         "clinical_metrics_report",
+        "prediction_replay_report",
+        "distribution_generalization_report",
         "generalization_gap_report",
+        "robustness_report",
+        "seed_stability_report",
+        "external_validation_report",
+        "calibration_dca_report",
+        "ci_matrix_report",
         "metric_report",
         "evaluation_quality_report",
         "permutation_report",
     ):
-        validate_component_status(component, loaded.get(component), failures, warnings, args.strict)
+        validate_component_status(
+            component,
+            loaded.get(component),
+            failures,
+            warnings,
+            args.strict,
+            strict_mode_required=(component not in strict_optional_components),
+        )
 
     enforce_execution_attestation_publication_contract(
         execution_attestation_report=loaded.get("execution_attestation_report"),

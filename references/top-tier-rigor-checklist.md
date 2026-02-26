@@ -41,7 +41,10 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Ensure strict publication-grade objective metric is PR-AUC.
 - [ ] Select threshold/calibration without final test outcomes.
 - [ ] Restrict threshold/calibration split to validation or inner-CV scopes (never train/test).
+- [ ] Record threshold feasibility with three explicit flags: selection split, guard split, and overall.
+- [ ] If `selection_split=cv_inner`, require `constraints_satisfied_guard_split=true` (fail-closed).
 - [ ] Keep tuning protocol spec and prove all `test_used_*` flags are false.
+- [ ] Enforce anti-downgrade policy constraints: threshold/floor configs must not be weaker than publication baseline.
 - [ ] Keep final test unopened until design freeze.
 
 ## F. Evaluation Quality
@@ -53,19 +56,26 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Report full clinical metric panel: accuracy, precision/PPV, NPV, sensitivity, specificity, F1, F2-beta, ROC-AUC, PR-AUC, Brier.
 - [ ] Provide split-level metric panel with confusion matrix for train/valid/test.
 - [ ] Validate precision==PPV and metric formulas against confusion matrix.
+- [ ] Keep row-level de-identified `prediction_trace` and replay PR-AUC/ROC-AUC/Brier + threshold metrics from raw `y_true/y_score`.
+- [ ] Verify replayed metrics exactly match evaluation-report metrics within policy tolerance.
 - [ ] Enforce train-valid, valid-test, and train-test gap thresholds with fail-closed policy.
 - [ ] Extract primary metric from evaluation report artifact (no manual metric injection).
 - [ ] Require evaluation report to declare `split=test` for final primary metric claims.
 - [ ] Pin explicit metric path and confirm no conflicting duplicate metric values in the artifact.
 - [ ] Ensure metric-path leaf is consistent with declared primary metric name.
 - [ ] Reject non-finite metric values (`NaN`, `Inf`) in all evidence files.
+- [ ] Include at least one publication-grade external cohort (`cross_period` or `cross_institution`) with transport-gap checks.
+- [ ] Hard-gate calibration quality on internal test + all external cohorts (ECE/slope/intercept).
+- [ ] Hard-gate decision-curve net benefit on internal test + all external cohorts.
 
 ## G. Robustness and Falsification
 - [ ] Run label permutation test (expect chance-level metrics).
 - [ ] Run split separability (adversarial validation/proxy) and justify if holdout is highly separable.
 - [ ] Run time-slice robustness analysis.
 - [ ] Run group holdout robustness analysis.
+- [ ] Keep machine-checkable robustness artifact and pass `robustness_gate` thresholds.
 - [ ] Run seed sensitivity analysis across multiple seeds.
+- [ ] Keep machine-checkable seed sensitivity artifact and pass `seed_stability_gate` thresholds.
 - [ ] Run ablation for suspect/high-impact features.
 
 ## H. Reproducibility
@@ -79,6 +89,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Verify trusted timestamp record binds to signed payload hash and run identity.
 - [ ] Verify transparency-log record binds to signed payload hash and run identity.
 - [ ] Verify signed execution-log attestation binds to the `training_log` artifact hash and run identity.
+- [ ] Verify execution-log attestation also binds `prediction_trace` and `external_validation_report` hashes.
 - [ ] Verify witness-quorum records bind to signed payload hash and run identity.
 - [ ] Enforce minimum validated witness count with independent witness authorities/keys.
 - [ ] Require independent key custody for payload signer, execution receipt, and execution-log authorities.
@@ -86,6 +97,8 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Enforce cross-role authority/key distinctness across timestamp/transparency/execution-receipt/execution-log/witness roles.
 - [ ] Compare current manifest against a locked baseline manifest and require exact match before publication-grade claim.
 - [ ] Ensure end-to-end rerun reproduces results within tolerance.
+- [ ] For stress-mode datasets, keep `stress_seed_search_report.json` and `stress_seed_selection.json` as reproducibility evidence.
+- [ ] For stress-mode cache reuse, require contract match on `contract_version`, `policy_sha256`, `search_profile_set`, `dataset_fingerprint`, and selected seed/profile range.
 
 ## I. Reporting and Transparency
 - [ ] Document exclusion criteria and missing-data handling.

@@ -32,6 +32,7 @@ DEFAULT_REQUIRED_METRICS = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate clinical binary-classification metrics for all splits.")
     parser.add_argument("--evaluation-report", required=True, help="Path to evaluation report JSON.")
+    parser.add_argument("--external-validation-report", help="Optional external_validation_report JSON path.")
     parser.add_argument("--performance-policy", help="Optional performance policy JSON path.")
     parser.add_argument("--tolerance", type=float, default=1e-6, help="Numeric tolerance for metric consistency checks.")
     parser.add_argument("--report", help="Optional output report JSON path.")
@@ -125,16 +126,22 @@ def metric_in_unit_range(metric_name: str) -> bool:
 
 
 def get_required_metrics(policy: Optional[Dict[str, Any]]) -> List[str]:
+    # Publication-grade base: always enforce the full default clinical panel.
+    required = list(DEFAULT_REQUIRED_METRICS)
+    seen_tokens = {canonical_metric_token(x) for x in required}
     if not isinstance(policy, dict):
-        return list(DEFAULT_REQUIRED_METRICS)
+        return required
     raw = policy.get("required_metrics")
     if not isinstance(raw, list):
-        return list(DEFAULT_REQUIRED_METRICS)
-    out: List[str] = []
+        return required
     for item in raw:
-        if isinstance(item, str) and item.strip():
-            out.append(item.strip())
-    return out if out else list(DEFAULT_REQUIRED_METRICS)
+        if not isinstance(item, str) or not item.strip():
+            continue
+        token = canonical_metric_token(item.strip())
+        if token and token not in seen_tokens:
+            required.append(item.strip())
+            seen_tokens.add(token)
+    return required
 
 
 def parse_beta(policy: Optional[Dict[str, Any]]) -> float:
@@ -144,6 +151,32 @@ def parse_beta(policy: Optional[Dict[str, Any]]) -> float:
     if value is None or value <= 0.0:
         return 2.0
     return float(value)
+
+
+def parse_clinical_floors(policy: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    floors = {
+        "sensitivity_min": 0.85,
+        "npv_min": 0.90,
+        "specificity_min": 0.40,
+        "ppv_min": 0.55,
+    }
+    if not isinstance(policy, dict):
+        return floors
+    clinical = policy.get("clinical_floors")
+    if isinstance(clinical, dict):
+        for key in floors:
+            value = to_float(clinical.get(key))
+            if value is not None and 0.0 <= value <= 1.0:
+                floors[key] = float(value)
+    threshold_policy = policy.get("threshold_policy")
+    if isinstance(threshold_policy, dict):
+        policy_clinical = threshold_policy.get("clinical_floors")
+        if isinstance(policy_clinical, dict):
+            for key in floors:
+                value = to_float(policy_clinical.get(key))
+                if value is not None and 0.0 <= value <= 1.0:
+                    floors[key] = float(value)
+    return floors
 
 
 def main() -> int:
@@ -186,7 +219,42 @@ def main() -> int:
 
     required_metrics = get_required_metrics(policy)
     beta = parse_beta(policy)
+    clinical_floors = parse_clinical_floors(policy)
     allowed_threshold_splits = {"valid", "cv_inner", "nested_cv"}
+    selection_split: Optional[str] = None
+    selected_threshold: Optional[float] = None
+    guard_constraints_satisfied: Optional[bool] = None
+
+    if isinstance(policy, dict):
+        policy_required = policy.get("required_metrics")
+        if isinstance(policy_required, list):
+            policy_tokens = {
+                canonical_metric_token(x.strip())
+                for x in policy_required
+                if isinstance(x, str) and x.strip()
+            }
+            missing_mandatory = [
+                metric for metric in DEFAULT_REQUIRED_METRICS if canonical_metric_token(metric) not in policy_tokens
+            ]
+            if missing_mandatory:
+                add_issue(
+                    failures,
+                    "performance_policy_missing_required_metric",
+                    "performance_policy.required_metrics must include the full mandatory clinical panel.",
+                    {"missing_metrics": missing_mandatory, "mandatory_metrics": DEFAULT_REQUIRED_METRICS},
+                )
+        threshold_policy = policy.get("threshold_policy")
+        if isinstance(threshold_policy, dict):
+            policy_split = str(threshold_policy.get("selection_split", "")).strip().lower()
+            if policy_split and policy_split not in allowed_threshold_splits:
+                add_issue(
+                    failures,
+                    "invalid_performance_policy",
+                    "performance_policy.threshold_policy.selection_split must be valid/cv_inner/nested_cv.",
+                    {"selection_split": policy_split, "allowed": sorted(allowed_threshold_splits)},
+                )
+            elif policy_split:
+                selection_split = policy_split
 
     split_metrics = payload.get("split_metrics")
     if not isinstance(split_metrics, dict):
@@ -222,8 +290,61 @@ def main() -> int:
                 "threshold_selection.selection_split must be valid/cv_inner/nested_cv (never train/test).",
                 {"selection_split": selection_split, "allowed": sorted(allowed_threshold_splits)},
             )
+        else:
+            reported_split = selection_split
+            selection_split = selection_split
+            if isinstance(policy, dict):
+                threshold_policy = policy.get("threshold_policy")
+                if isinstance(threshold_policy, dict):
+                    policy_split = str(threshold_policy.get("selection_split", "")).strip().lower()
+                    if policy_split and policy_split != reported_split:
+                        add_issue(
+                            failures,
+                            "threshold_selection_policy_mismatch",
+                            "evaluation_report threshold_selection.selection_split must match performance_policy.threshold_policy.selection_split.",
+                            {"evaluation_selection_split": reported_split, "policy_selection_split": policy_split},
+                        )
+
+        threshold_value = to_float(threshold_selection.get("selected_threshold"))
+        if threshold_value is None or not (0.0 <= threshold_value <= 1.0):
+            add_issue(
+                failures,
+                "invalid_threshold_selection_value",
+                "threshold_selection.selected_threshold must be numeric in [0,1].",
+                {"selected_threshold": threshold_selection.get("selected_threshold")},
+            )
+        else:
+            selected_threshold = threshold_value
+
+        if selection_split == "cv_inner":
+            guard_flag = threshold_selection.get("constraints_satisfied_guard_split")
+            if not isinstance(guard_flag, bool):
+                add_issue(
+                    failures,
+                    "threshold_guard_constraints_not_met",
+                    "selection_split=cv_inner requires threshold_selection.constraints_satisfied_guard_split=true.",
+                    {
+                        "constraints_satisfied_guard_split": guard_flag,
+                        "migration_hint": (
+                            "Populate threshold_selection.constraints_satisfied_guard_split "
+                            "and ensure guard split meets all clinical floors."
+                        ),
+                    },
+                )
+            elif not guard_flag:
+                add_issue(
+                    failures,
+                    "threshold_guard_constraints_not_met",
+                    "Guard split constraints are not satisfied for selection_split=cv_inner.",
+                    {"constraints_satisfied_guard_split": bool(guard_flag)},
+                )
+            else:
+                guard_constraints_satisfied = True
 
     split_summary: Dict[str, Any] = {}
+    metadata = payload.get("metadata")
+    metadata_fingerprints = metadata.get("data_fingerprints") if isinstance(metadata, dict) else None
+    top_level_metrics = payload.get("metrics")
     for split_name in ("train", "valid", "test"):
         split_block = split_metrics.get(split_name)
         if not isinstance(split_block, dict):
@@ -278,6 +399,35 @@ def main() -> int:
                 {"split": split_name, "confusion_matrix": cm},
             )
             continue
+
+        if isinstance(split_block.get("n_samples"), (int, float)) and not isinstance(split_block.get("n_samples"), bool):
+            n_samples = to_int(split_block.get("n_samples"))
+            if n_samples is None or n_samples <= 0:
+                add_issue(
+                    failures,
+                    "invalid_split_sample_count",
+                    "split_metrics.<split>.n_samples must be a positive integer when provided.",
+                    {"split": split_name, "n_samples": split_block.get("n_samples")},
+                )
+            elif n_samples != total:
+                add_issue(
+                    failures,
+                    "confusion_matrix_row_count_mismatch",
+                    "confusion_matrix total must equal split_metrics.<split>.n_samples.",
+                    {"split": split_name, "confusion_total": total, "n_samples": n_samples},
+                )
+
+        if isinstance(metadata_fingerprints, dict):
+            split_fp = metadata_fingerprints.get(split_name)
+            if isinstance(split_fp, dict):
+                row_count = to_int(split_fp.get("row_count"))
+                if row_count is not None and row_count != total:
+                    add_issue(
+                        failures,
+                        "confusion_matrix_row_count_mismatch",
+                        "confusion_matrix total must match metadata.data_fingerprints split row_count.",
+                        {"split": split_name, "confusion_total": total, "fingerprint_row_count": row_count},
+                    )
 
         derived = compute_confusion_metrics(cm["tp"], cm["fp"], cm["tn"], cm["fn"], beta=beta)
 
@@ -379,11 +529,202 @@ def main() -> int:
             "metrics_present": sorted([k for k, v in metrics.items() if to_float(v) is not None]),
         }
 
+    if not isinstance(top_level_metrics, dict):
+        add_issue(
+            failures,
+            "missing_top_level_metrics",
+            "evaluation_report.metrics must be an object and match split_metrics.test.metrics.",
+            {},
+        )
+    else:
+        test_block = split_metrics.get("test")
+        test_metrics = test_block.get("metrics") if isinstance(test_block, dict) else None
+        if isinstance(test_metrics, dict):
+            for metric_name in DEFAULT_REQUIRED_METRICS:
+                test_value = to_float(test_metrics.get(metric_name))
+                top_value = to_float(top_level_metrics.get(metric_name))
+                if test_value is None or top_value is None:
+                    add_issue(
+                        failures,
+                        "missing_top_level_metrics",
+                        "Both top-level and test-split metrics must contain required numeric metric.",
+                        {
+                            "metric": metric_name,
+                            "test_value": test_metrics.get(metric_name),
+                            "top_level_value": top_level_metrics.get(metric_name),
+                        },
+                    )
+                    continue
+                if abs(float(test_value) - float(top_value)) > float(args.tolerance):
+                    add_issue(
+                        failures,
+                        "top_level_test_metric_mismatch",
+                        "evaluation_report.metrics must equal split_metrics.test.metrics for required metrics.",
+                        {
+                            "metric": metric_name,
+                            "top_level_value": float(top_value),
+                            "test_split_value": float(test_value),
+                            "tolerance": float(args.tolerance),
+                        },
+                    )
+
+    if isinstance(threshold_selection, dict) and selection_split == "valid":
+        valid_block = split_metrics.get("valid")
+        valid_metrics = valid_block.get("metrics") if isinstance(valid_block, dict) else None
+        valid_confusion = valid_block.get("confusion_matrix") if isinstance(valid_block, dict) else None
+        selected_metrics_valid = threshold_selection.get("selected_metrics_on_valid")
+        if not isinstance(selected_metrics_valid, dict):
+            selected_metrics_valid = threshold_selection.get("selected_metrics_on_selection_split")
+        selected_confusion_valid = threshold_selection.get("selected_confusion_on_valid")
+        if not isinstance(selected_confusion_valid, dict):
+            selected_confusion_valid = threshold_selection.get("selected_confusion_on_selection_split")
+
+        if not isinstance(selected_metrics_valid, dict):
+            add_issue(
+                failures,
+                "missing_threshold_selection_snapshot",
+                "threshold_selection must include selected_metrics_on_valid for selection_split=valid.",
+                {},
+            )
+        if not isinstance(selected_confusion_valid, dict):
+            add_issue(
+                failures,
+                "missing_threshold_selection_snapshot",
+                "threshold_selection must include selected_confusion_on_valid for selection_split=valid.",
+                {},
+            )
+
+        if isinstance(valid_metrics, dict) and isinstance(selected_metrics_valid, dict):
+            for metric_name in DEFAULT_REQUIRED_METRICS:
+                valid_value = to_float(valid_metrics.get(metric_name))
+                selected_value = to_float(selected_metrics_valid.get(metric_name))
+                if valid_value is None or selected_value is None:
+                    continue
+                if abs(float(valid_value) - float(selected_value)) > float(args.tolerance):
+                    add_issue(
+                        failures,
+                        "threshold_selection_metric_mismatch",
+                        "threshold_selection selected_metrics_on_valid must match split_metrics.valid.metrics.",
+                        {
+                            "metric": metric_name,
+                            "threshold_selection_value": selected_value,
+                            "valid_split_value": valid_value,
+                            "tolerance": float(args.tolerance),
+                        },
+                    )
+
+        if isinstance(valid_confusion, dict) and isinstance(selected_confusion_valid, dict):
+            for key in ("tp", "fp", "tn", "fn"):
+                expected = to_int(valid_confusion.get(key))
+                observed = to_int(selected_confusion_valid.get(key))
+                if expected is None or observed is None:
+                    continue
+                if expected != observed:
+                    add_issue(
+                        failures,
+                        "threshold_selection_confusion_mismatch",
+                        "threshold_selection selected_confusion_on_valid must match split_metrics.valid.confusion_matrix.",
+                        {"field": key, "threshold_selection_value": observed, "valid_split_value": expected},
+                    )
+
+    test_metrics_for_floor = (
+        split_metrics.get("test", {}).get("metrics")
+        if isinstance(split_metrics.get("test"), dict)
+        else None
+    )
+    if isinstance(test_metrics_for_floor, dict):
+        floor_codes = {
+            "sensitivity_min": "clinical_floor_sensitivity_not_met",
+            "npv_min": "clinical_floor_npv_not_met",
+            "specificity_min": "clinical_floor_specificity_not_met",
+            "ppv_min": "clinical_floor_ppv_not_met",
+        }
+        metric_names = {
+            "sensitivity_min": "sensitivity",
+            "npv_min": "npv",
+            "specificity_min": "specificity",
+            "ppv_min": "ppv",
+        }
+        for floor_key, floor_value in clinical_floors.items():
+            metric_name = metric_names[floor_key]
+            metric_value = to_float(test_metrics_for_floor.get(metric_name))
+            if metric_value is None:
+                continue
+            if metric_value < float(floor_value):
+                add_issue(
+                    failures,
+                    floor_codes[floor_key],
+                    "Clinical floor not met on internal test split.",
+                    {
+                        "split": "test",
+                        "metric": metric_name,
+                        "value": float(metric_value),
+                        "required_min": float(floor_value),
+                    },
+                )
+
+    if args.external_validation_report:
+        try:
+            external_payload = load_json(args.external_validation_report)
+        except Exception as exc:
+            add_issue(
+                failures,
+                "missing_required_metric",
+                "Unable to parse external_validation_report for external clinical floor checks.",
+                {"path": str(Path(args.external_validation_report).expanduser()), "error": str(exc)},
+            )
+            external_payload = {}
+        cohorts = external_payload.get("cohorts") if isinstance(external_payload, dict) else None
+        if isinstance(cohorts, list):
+            floor_codes = {
+                "sensitivity_min": "clinical_floor_sensitivity_not_met",
+                "npv_min": "clinical_floor_npv_not_met",
+                "specificity_min": "clinical_floor_specificity_not_met",
+                "ppv_min": "clinical_floor_ppv_not_met",
+            }
+            metric_names = {
+                "sensitivity_min": "sensitivity",
+                "npv_min": "npv",
+                "specificity_min": "specificity",
+                "ppv_min": "ppv",
+            }
+            for cohort in cohorts:
+                if not isinstance(cohort, dict):
+                    continue
+                cohort_id = str(cohort.get("cohort_id", "")).strip()
+                metrics_ext = cohort.get("metrics")
+                if not isinstance(metrics_ext, dict):
+                    continue
+                for floor_key, floor_value in clinical_floors.items():
+                    metric_name = metric_names[floor_key]
+                    metric_value = to_float(metrics_ext.get(metric_name))
+                    if metric_value is None:
+                        continue
+                    if metric_value < float(floor_value):
+                        add_issue(
+                            failures,
+                            floor_codes[floor_key],
+                            "Clinical floor not met on external cohort.",
+                            {
+                                "split": f"external:{cohort_id}" if cohort_id else "external",
+                                "metric": metric_name,
+                                "value": float(metric_value),
+                                "required_min": float(floor_value),
+                            },
+                        )
+
     summary = {
         "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve()),
+        "external_validation_report": str(Path(args.external_validation_report).expanduser().resolve())
+        if args.external_validation_report
+        else None,
         "performance_policy": str(Path(args.performance_policy).expanduser().resolve()) if args.performance_policy else None,
         "required_metrics": required_metrics,
         "beta": beta,
+        "clinical_floors": clinical_floors,
+        "threshold_selection_split": selection_split,
+        "selected_threshold": selected_threshold,
+        "threshold_guard_constraints_satisfied": guard_constraints_satisfied,
         "splits": split_summary,
     }
     return finish(args, failures, warnings, summary)

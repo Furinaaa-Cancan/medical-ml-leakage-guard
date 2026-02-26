@@ -23,13 +23,14 @@ from typing import Any, Dict, List, Optional, Tuple
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate confidence intervals and baseline comparison in evaluation report.")
     parser.add_argument("--evaluation-report", required=True, help="Path to evaluation report JSON.")
+    parser.add_argument("--ci-matrix-report", help="Optional CI matrix report JSON path.")
     parser.add_argument("--metric-name", required=True, help="Primary metric name (for example: roc_auc).")
     parser.add_argument("--metric-path", help="Optional dot path to primary metric value in evaluation report.")
     parser.add_argument("--primary-metric", type=float, help="Optional expected primary metric value.")
     parser.add_argument("--tolerance", type=float, default=1e-12, help="Absolute tolerance for primary metric comparison.")
     parser.add_argument("--min-resamples", type=int, default=200, help="Minimum required bootstrap/resampling count.")
-    parser.add_argument("--min-baseline-delta", type=float, default=0.0, help="Minimum required margin over baseline.")
-    parser.add_argument("--max-ci-width", type=float, default=0.50, help="Warning threshold for CI width.")
+    parser.add_argument("--min-baseline-delta", type=float, default=0.01, help="Minimum required margin over baseline.")
+    parser.add_argument("--max-ci-width", type=float, default=0.20, help="Warning threshold for CI width.")
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
@@ -253,6 +254,36 @@ def extract_primary_metric_ci(payload: Dict[str, Any], metric_name: str) -> Tupl
     return None, None, None, None, None
 
 
+def extract_primary_metric_ci_from_ci_matrix(
+    ci_payload: Dict[str, Any],
+    metric_name: str,
+) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[str]]:
+    split_metrics_ci = ci_payload.get("split_metrics_ci")
+    if not isinstance(split_metrics_ci, dict):
+        return None, None, None, None
+    test_block = split_metrics_ci.get("test")
+    if not isinstance(test_block, dict):
+        return None, None, None, None
+    metrics = test_block.get("metrics")
+    if not isinstance(metrics, dict):
+        return None, None, None, None
+    metric_block = metrics.get(metric_name)
+    if not isinstance(metric_block, dict):
+        return None, None, None, None
+    ci_95 = metric_block.get("ci_95")
+    if not isinstance(ci_95, list) or len(ci_95) != 2:
+        return None, None, None, None
+    lo = to_float(ci_95[0])
+    hi = to_float(ci_95[1])
+    n_resamples_raw = metric_block.get("n_resamples")
+    n_resamples: Optional[int] = None
+    if isinstance(n_resamples_raw, int):
+        n_resamples = int(n_resamples_raw)
+    elif isinstance(n_resamples_raw, float) and math.isfinite(n_resamples_raw) and float(n_resamples_raw).is_integer():
+        n_resamples = int(n_resamples_raw)
+    return lo, hi, n_resamples, f"split_metrics_ci.test.metrics.{metric_name}"
+
+
 def infer_higher_is_better(metric_name: str) -> bool:
     token = canonical_metric_token(metric_name)
     lower_better_tokens = ("loss", "error", "brier", "rmse", "mae", "mse", "nll", "logloss")
@@ -357,6 +388,41 @@ def main() -> int:
         )
         return finish(args, failures, warnings, summary={"evaluation_report": str(report_path)})
 
+    ci_matrix_payload: Optional[Dict[str, Any]] = None
+    ci_matrix_path: Optional[Path] = None
+    if args.ci_matrix_report:
+        ci_matrix_path = Path(args.ci_matrix_report).expanduser().resolve()
+        if not ci_matrix_path.exists():
+            add_issue(
+                failures,
+                "missing_ci_matrix_report",
+                "CI matrix report file not found.",
+                {"path": str(ci_matrix_path)},
+            )
+        else:
+            try:
+                with ci_matrix_path.open("r", encoding="utf-8") as fh:
+                    ci_matrix_payload = json.load(fh)
+                if not isinstance(ci_matrix_payload, dict):
+                    raise ValueError("JSON root must be object.")
+            except Exception as exc:
+                add_issue(
+                    failures,
+                    "missing_ci_matrix_report",
+                    "Failed to parse CI matrix report JSON.",
+                    {"path": str(ci_matrix_path), "error": str(exc)},
+                )
+                ci_matrix_payload = None
+            if isinstance(ci_matrix_payload, dict):
+                status = str(ci_matrix_payload.get("status", "")).strip().lower()
+                if status and status != "pass":
+                    add_issue(
+                        failures,
+                        "ci_matrix_not_passed",
+                        "CI matrix report status must be pass.",
+                        {"status": ci_matrix_payload.get("status"), "path": str(ci_matrix_path)},
+                    )
+
     non_finite_hits = find_non_finite_values(payload)
     if non_finite_hits:
         add_issue(
@@ -407,6 +473,14 @@ def main() -> int:
             )
 
     ci_lower, ci_upper, ci_method, ci_n_resamples, ci_source_path = extract_primary_metric_ci(payload, args.metric_name)
+    if (ci_lower is None or ci_upper is None) and isinstance(ci_matrix_payload, dict):
+        ci_m_lo, ci_m_hi, ci_m_n, ci_m_src = extract_primary_metric_ci_from_ci_matrix(ci_matrix_payload, args.metric_name)
+        if ci_m_lo is not None and ci_m_hi is not None:
+            ci_lower = ci_m_lo
+            ci_upper = ci_m_hi
+            ci_n_resamples = ci_m_n
+            ci_method = "bootstrap_ci_matrix"
+            ci_source_path = ci_m_src
     if ci_lower is None or ci_upper is None:
         add_issue(
             failures,
@@ -433,9 +507,9 @@ def main() -> int:
         ci_width = ci_upper - ci_lower
         if ci_width > float(args.max_ci_width):
             add_issue(
-                warnings,
-                "primary_metric_ci_too_wide",
-                "Primary metric confidence interval width exceeds warning threshold.",
+                failures,
+                "ci_width_exceeds_threshold",
+                "Primary metric confidence interval width exceeds threshold.",
                 {"ci_width": ci_width, "max_ci_width": float(args.max_ci_width)},
             )
 
@@ -463,6 +537,7 @@ def main() -> int:
     baseline_value: Optional[float] = None
     baseline_delta: Optional[float] = None
     higher_is_better: Optional[bool] = None
+    baseline_selection_strategy = "best_available_baseline"
     if not baseline_metrics:
         add_issue(
             failures,
@@ -472,13 +547,19 @@ def main() -> int:
         )
     else:
         higher_is_better = infer_higher_is_better(args.metric_name)
-        baseline_items = sorted(baseline_metrics.items(), key=lambda x: x[1], reverse=higher_is_better)
-        if higher_is_better:
-            baseline_name, baseline_value = baseline_items[0]
-            baseline_delta = primary_metric - baseline_value
+        selected_model_id = str(payload.get("model_id", "")).strip().lower()
+        if selected_model_id.startswith("logistic") and "prevalence_model" in baseline_metrics:
+            baseline_name = "prevalence_model"
+            baseline_value = float(baseline_metrics["prevalence_model"])
+            baseline_selection_strategy = "family_aware_prevalence_for_logistic_model"
         else:
+            baseline_items = sorted(baseline_metrics.items(), key=lambda x: x[1], reverse=higher_is_better)
             baseline_name, baseline_value = baseline_items[0]
-            baseline_delta = baseline_value - primary_metric
+
+        if higher_is_better:
+            baseline_delta = primary_metric - float(baseline_value)
+        else:
+            baseline_delta = float(baseline_value) - primary_metric
 
         if baseline_delta < float(args.min_baseline_delta):
             add_issue(
@@ -493,11 +574,13 @@ def main() -> int:
                     "baseline_metric": baseline_value,
                     "delta": baseline_delta,
                     "min_baseline_delta": float(args.min_baseline_delta),
+                    "baseline_selection_strategy": baseline_selection_strategy,
                 },
             )
 
     summary = {
         "evaluation_report": str(report_path),
+        "ci_matrix_report": str(ci_matrix_path) if ci_matrix_path else None,
         "metric_name": args.metric_name,
         "metric_source_path": metric_source_path,
         "primary_metric": primary_metric,
@@ -511,6 +594,7 @@ def main() -> int:
         "reference_baseline_name": baseline_name,
         "reference_baseline_metric": baseline_value,
         "baseline_delta": baseline_delta,
+        "baseline_selection_strategy": baseline_selection_strategy,
         "min_baseline_delta": float(args.min_baseline_delta),
         "non_finite_hit_count": len(non_finite_hits),
     }

@@ -302,6 +302,10 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def file_line_count(path: Path) -> Optional[int]:
     try:
         total = 0
@@ -309,6 +313,27 @@ def file_line_count(path: Path) -> Optional[int]:
             for _ in fh:
                 total += 1
         return total
+    except Exception:
+        return None
+
+
+def log_boundary_hashes(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        first_line: Optional[str] = None
+        last_line: Optional[str] = None
+        total = 0
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for raw_line in fh:
+                total += 1
+                normalized = raw_line.rstrip("\r\n")
+                if first_line is None:
+                    first_line = normalized
+                last_line = normalized
+        return {
+            "line_count": total,
+            "first_line_sha256": sha256_text(first_line) if first_line is not None else None,
+            "last_line_sha256": sha256_text(last_line) if last_line is not None else None,
+        }
     except Exception:
         return None
 
@@ -606,7 +631,14 @@ def parse_artifacts(
             )
 
         file_size = resolved_path.stat().st_size
-        if name_clean.lower().endswith("log") and file_size < 64:
+        if name_clean == "training_log" and file_size < 64:
+            add_issue(
+                failures,
+                "insufficient_training_log_evidence",
+                "training_log artifact is too small for publication-grade execution attestation.",
+                {"artifact": name_clean, "path": str(resolved_path), "size_bytes": file_size, "min_size_bytes": 64},
+            )
+        elif name_clean.lower().endswith("log") and file_size < 64:
             add_issue(
                 warnings,
                 "short_log_artifact",
@@ -925,6 +957,7 @@ def validate_timestamp_trust(
     payload_sha256: Optional[str],
     payload_study_id: Optional[str],
     payload_run_id: Optional[str],
+    payload_run_nonce: Optional[str],
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
@@ -1016,6 +1049,7 @@ def validate_timestamp_trust(
         record_ts_raw = require_str(record, "timestamp_utc", failures, "timestamp_record")
         record_study = require_str(record, "study_id", failures, "timestamp_record")
         record_run = require_str(record, "run_id", failures, "timestamp_record")
+        record_nonce = require_str(record, "run_nonce", failures, "timestamp_record")
 
         if authority_id and record_authority and authority_id != record_authority:
             add_issue(
@@ -1044,6 +1078,13 @@ def validate_timestamp_trust(
                 "timestamp_run_id_mismatch",
                 "timestamp record run_id mismatch.",
                 {"payload_run_id": payload_run_id, "record_run_id": record_run},
+            )
+        if payload_run_nonce and record_nonce and payload_run_nonce != record_nonce:
+            add_issue(
+                failures,
+                "timestamp_run_nonce_mismatch",
+                "timestamp record run_nonce mismatch.",
+                {"payload_run_nonce": payload_run_nonce, "record_run_nonce": record_nonce},
             )
 
         record_ts = parse_iso_ts(record_ts_raw) if record_ts_raw else None
@@ -1107,6 +1148,7 @@ def validate_transparency_log(
     payload_sha256: Optional[str],
     payload_study_id: Optional[str],
     payload_run_id: Optional[str],
+    payload_run_nonce: Optional[str],
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     revoked_key_ids: Set[str],
@@ -1194,6 +1236,7 @@ def validate_transparency_log(
         recorded_at_raw = require_str(record, "recorded_at_utc", failures, "transparency_record")
         record_study = require_str(record, "study_id", failures, "transparency_record")
         record_run = require_str(record, "run_id", failures, "transparency_record")
+        record_nonce = require_str(record, "run_nonce", failures, "transparency_record")
 
         if log_id and record_log_id and log_id != record_log_id:
             add_issue(
@@ -1222,6 +1265,13 @@ def validate_transparency_log(
                 "transparency_run_id_mismatch",
                 "Transparency record run_id mismatch.",
                 {"payload_run_id": payload_run_id, "record_run_id": record_run},
+            )
+        if payload_run_nonce and record_nonce and payload_run_nonce != record_nonce:
+            add_issue(
+                failures,
+                "transparency_run_nonce_mismatch",
+                "Transparency record run_nonce mismatch.",
+                {"payload_run_nonce": payload_run_nonce, "record_run_nonce": record_nonce},
             )
         if entry_id is not None and len(entry_id.strip()) < 3:
             add_issue(
@@ -1281,8 +1331,10 @@ def validate_execution_receipt(
     payload_study_id: Optional[str],
     payload_run_id: Optional[str],
     payload_command: Optional[str],
+    payload_command_sha256: Optional[str],
     payload_executor: Optional[str],
     payload_exit_code: Optional[int],
+    payload_run_nonce: Optional[str],
     started_ts: Optional[dt.datetime],
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
@@ -1378,10 +1430,12 @@ def validate_execution_receipt(
         record_study = require_str(record, "study_id", failures, "execution_receipt_record")
         record_run = require_str(record, "run_id", failures, "execution_receipt_record")
         record_command = require_str(record, "command", failures, "execution_receipt_record")
+        record_command_sha = require_str(record, "command_sha256", failures, "execution_receipt_record")
         record_executor = require_str(record, "executor", failures, "execution_receipt_record")
         record_started_raw = require_str(record, "started_at_utc", failures, "execution_receipt_record")
         record_finished_raw = require_str(record, "finished_at_utc", failures, "execution_receipt_record")
         record_issued_raw = require_str(record, "issued_at_utc", failures, "execution_receipt_record")
+        record_nonce = require_str(record, "run_nonce", failures, "execution_receipt_record")
 
         raw_exit_code = record.get("exit_code")
         if isinstance(raw_exit_code, bool):
@@ -1433,12 +1487,47 @@ def validate_execution_receipt(
                 "execution receipt command does not match signed payload command.",
                 {"payload_command": payload_command, "record_command": record_command},
             )
+        if record_command_sha:
+            if not SHA256_RE.fullmatch(record_command_sha):
+                add_issue(
+                    failures,
+                    "invalid_execution_receipt_command_sha256",
+                    "execution_receipt_record.command_sha256 must be 64-char hex.",
+                    {"command_sha256": record_command_sha},
+                )
+            elif record_command and sha256_text(record_command).lower() != record_command_sha.lower():
+                add_issue(
+                    failures,
+                    "execution_receipt_command_hash_mismatch",
+                    "execution receipt command_sha256 does not match record command.",
+                    {
+                        "record_command_sha256": record_command_sha.lower(),
+                        "computed_command_sha256": sha256_text(record_command).lower(),
+                    },
+                )
+        if payload_command_sha256 and record_command_sha and payload_command_sha256.lower() != record_command_sha.lower():
+            add_issue(
+                failures,
+                "execution_receipt_command_hash_mismatch",
+                "execution receipt command_sha256 does not match signed payload command_sha256.",
+                {
+                    "payload_command_sha256": payload_command_sha256.lower(),
+                    "record_command_sha256": record_command_sha.lower(),
+                },
+            )
         if payload_executor and record_executor and payload_executor.strip() != record_executor.strip():
             add_issue(
                 failures,
                 "execution_receipt_executor_mismatch",
                 "execution receipt executor does not match signed payload executor.",
                 {"payload_executor": payload_executor, "record_executor": record_executor},
+            )
+        if payload_run_nonce and record_nonce and payload_run_nonce != record_nonce:
+            add_issue(
+                failures,
+                "execution_receipt_run_nonce_mismatch",
+                "execution receipt run_nonce does not match signed payload run_nonce.",
+                {"payload_run_nonce": payload_run_nonce, "record_run_nonce": record_nonce},
             )
         if payload_exit_code is not None and exit_code_value is not None and payload_exit_code != exit_code_value:
             add_issue(
@@ -1567,6 +1656,12 @@ def validate_execution_log_attestation(
     payload_sha256: Optional[str],
     payload_study_id: Optional[str],
     payload_run_id: Optional[str],
+    payload_command: Optional[str],
+    payload_command_sha256: Optional[str],
+    payload_executor: Optional[str],
+    payload_run_nonce: Optional[str],
+    started_ts: Optional[dt.datetime],
+    finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
     revoked_key_ids: Set[str],
@@ -1650,6 +1745,12 @@ def validate_execution_log_attestation(
         checked_artifacts = []
 
     artifact_entry: Optional[Dict[str, Any]] = None
+    checked_by_name: Dict[str, Dict[str, Any]] = {}
+    for item in checked_artifacts:
+        if isinstance(item, dict):
+            item_name = item.get("name")
+            if isinstance(item_name, str) and item_name:
+                checked_by_name[item_name] = item
     if artifact_name:
         for item in checked_artifacts:
             if isinstance(item, dict) and str(item.get("name")) == artifact_name:
@@ -1673,7 +1774,28 @@ def validate_execution_log_attestation(
         record_artifact_name = require_str(record, "artifact_name", failures, "execution_log_record")
         record_artifact_path = require_str(record, "artifact_path", failures, "execution_log_record")
         record_artifact_sha = require_str(record, "artifact_sha256", failures, "execution_log_record")
+        record_command = require_str(record, "command", failures, "execution_log_record")
+        record_command_sha = require_str(record, "command_sha256", failures, "execution_log_record")
+        record_executor = require_str(record, "executor", failures, "execution_log_record")
+        record_started_raw = require_str(record, "started_at_utc", failures, "execution_log_record")
+        record_finished_raw = require_str(record, "finished_at_utc", failures, "execution_log_record")
         record_issued_raw = require_str(record, "issued_at_utc", failures, "execution_log_record")
+        record_nonce = require_str(record, "run_nonce", failures, "execution_log_record")
+        record_first_line_sha = require_str(record, "first_line_sha256", failures, "execution_log_record")
+        record_last_line_sha = require_str(record, "last_line_sha256", failures, "execution_log_record")
+        bound_artifact_fields = {
+            "training_config_sha256": "training_config",
+            "model_artifact_sha256": "model_artifact",
+            "model_selection_report_sha256": "model_selection_report",
+            "robustness_report_sha256": "robustness_report",
+            "seed_sensitivity_report_sha256": "seed_sensitivity_report",
+            "evaluation_report_sha256": "evaluation_report",
+            "prediction_trace_sha256": "prediction_trace",
+            "external_validation_report_sha256": "external_validation_report",
+        }
+        related_hash_values: Dict[str, Optional[str]] = {}
+        for field_name in bound_artifact_fields:
+            related_hash_values[field_name] = require_str(record, field_name, failures, "execution_log_record")
 
         raw_line_count = record.get("line_count")
         if isinstance(raw_line_count, bool):
@@ -1725,6 +1847,55 @@ def validate_execution_log_attestation(
                 "execution-log record run_id mismatch.",
                 {"payload_run_id": payload_run_id, "record_run_id": record_run},
             )
+        if payload_command and record_command and payload_command.strip() != record_command.strip():
+            add_issue(
+                failures,
+                "execution_log_command_mismatch",
+                "execution-log record command does not match signed payload command.",
+                {"payload_command": payload_command, "record_command": record_command},
+            )
+        if record_command_sha:
+            if not SHA256_RE.fullmatch(record_command_sha):
+                add_issue(
+                    failures,
+                    "invalid_execution_log_command_sha256",
+                    "execution_log_record.command_sha256 must be 64-char hex.",
+                    {"command_sha256": record_command_sha},
+                )
+            elif record_command and sha256_text(record_command).lower() != record_command_sha.lower():
+                add_issue(
+                    failures,
+                    "execution_log_command_hash_mismatch",
+                    "execution-log command_sha256 does not match record command.",
+                    {
+                        "record_command_sha256": record_command_sha.lower(),
+                        "computed_command_sha256": sha256_text(record_command).lower(),
+                    },
+                )
+        if payload_command_sha256 and record_command_sha and payload_command_sha256.lower() != record_command_sha.lower():
+            add_issue(
+                failures,
+                "execution_log_command_hash_mismatch",
+                "execution-log command_sha256 does not match signed payload command_sha256.",
+                {
+                    "payload_command_sha256": payload_command_sha256.lower(),
+                    "record_command_sha256": record_command_sha.lower(),
+                },
+            )
+        if payload_executor and record_executor and payload_executor.strip() != record_executor.strip():
+            add_issue(
+                failures,
+                "execution_log_executor_mismatch",
+                "execution-log record executor does not match signed payload executor.",
+                {"payload_executor": payload_executor, "record_executor": record_executor},
+            )
+        if payload_run_nonce and record_nonce and payload_run_nonce != record_nonce:
+            add_issue(
+                failures,
+                "execution_log_run_nonce_mismatch",
+                "execution-log record run_nonce does not match signed payload run_nonce.",
+                {"payload_run_nonce": payload_run_nonce, "record_run_nonce": record_nonce},
+            )
 
         if record_artifact_sha and not SHA256_RE.fullmatch(record_artifact_sha):
             add_issue(
@@ -1733,6 +1904,52 @@ def validate_execution_log_attestation(
                 "execution_log_record.artifact_sha256 must be 64-char hex.",
                 {"artifact_sha256": record_artifact_sha},
             )
+        if record_first_line_sha and not SHA256_RE.fullmatch(record_first_line_sha):
+            add_issue(
+                failures,
+                "invalid_execution_log_boundary_hash",
+                "execution_log_record.first_line_sha256 must be 64-char hex.",
+                {"first_line_sha256": record_first_line_sha},
+            )
+        if record_last_line_sha and not SHA256_RE.fullmatch(record_last_line_sha):
+            add_issue(
+                failures,
+                "invalid_execution_log_boundary_hash",
+                "execution_log_record.last_line_sha256 must be 64-char hex.",
+                {"last_line_sha256": record_last_line_sha},
+            )
+        for field_name, field_value in related_hash_values.items():
+            if field_value and not SHA256_RE.fullmatch(field_value):
+                add_issue(
+                    failures,
+                    "invalid_execution_log_related_hash",
+                    "execution_log_record related artifact hash must be 64-char hex.",
+                    {"field": field_name, "value": field_value},
+                )
+        for field_name, artifact_ref in bound_artifact_fields.items():
+            expected_entry = checked_by_name.get(artifact_ref)
+            observed_hash = related_hash_values.get(field_name)
+            if expected_entry is None:
+                add_issue(
+                    failures,
+                    "execution_log_related_artifact_missing",
+                    "Signed payload is missing artifact required by execution-log bound hash field.",
+                    {"field": field_name, "artifact_name": artifact_ref},
+                )
+                continue
+            expected_hash = str(expected_entry.get("sha256", "")).lower()
+            if observed_hash and observed_hash.lower() != expected_hash:
+                add_issue(
+                    failures,
+                    "execution_log_related_hash_mismatch",
+                    "execution_log_record bound artifact hash does not match signed artifact hash.",
+                    {
+                        "field": field_name,
+                        "artifact_name": artifact_ref,
+                        "record_hash": observed_hash.lower(),
+                        "signed_artifact_hash": expected_hash,
+                    },
+                )
 
         if artifact_entry is not None:
             artifact_entry_sha = str(artifact_entry.get("sha256", "")).lower()
@@ -1767,7 +1984,15 @@ def validate_execution_log_attestation(
                         },
                     )
 
-                actual_line_count = file_line_count(artifact_entry_path)
+                log_hash_summary = log_boundary_hashes(artifact_entry_path)
+                actual_line_count = log_hash_summary.get("line_count") if isinstance(log_hash_summary, dict) else None
+                if actual_line_count is not None and int(actual_line_count) <= 0:
+                    add_issue(
+                        failures,
+                        "execution_log_empty",
+                        "execution-log artifact is empty; publication-grade attestation requires non-empty execution trace.",
+                        {"artifact_name": artifact_name, "artifact_path": str(artifact_entry_path)},
+                    )
                 if line_count_value is not None and actual_line_count is not None and line_count_value != actual_line_count:
                     add_issue(
                         failures,
@@ -1781,13 +2006,68 @@ def validate_execution_log_attestation(
                     )
                 elif line_count_value is not None and actual_line_count is None:
                     add_issue(
-                        warnings,
+                        failures,
                         "execution_log_line_count_not_verifiable",
                         "Unable to verify execution-log line_count due to unreadable artifact.",
                         {"artifact_name": artifact_name, "artifact_path": str(artifact_entry_path)},
                     )
+                if isinstance(log_hash_summary, dict):
+                    actual_first = log_hash_summary.get("first_line_sha256")
+                    actual_last = log_hash_summary.get("last_line_sha256")
+                    if (
+                        isinstance(record_first_line_sha, str)
+                        and isinstance(actual_first, str)
+                        and record_first_line_sha.lower() != actual_first.lower()
+                    ):
+                        add_issue(
+                            failures,
+                            "execution_log_boundary_hash_mismatch",
+                            "execution-log first_line_sha256 does not match artifact content.",
+                            {
+                                "record_first_line_sha256": record_first_line_sha.lower(),
+                                "actual_first_line_sha256": actual_first.lower(),
+                            },
+                        )
+                    if (
+                        isinstance(record_last_line_sha, str)
+                        and isinstance(actual_last, str)
+                        and record_last_line_sha.lower() != actual_last.lower()
+                    ):
+                        add_issue(
+                            failures,
+                            "execution_log_boundary_hash_mismatch",
+                            "execution-log last_line_sha256 does not match artifact content.",
+                            {
+                                "record_last_line_sha256": record_last_line_sha.lower(),
+                                "actual_last_line_sha256": actual_last.lower(),
+                            },
+                        )
+                else:
+                    add_issue(
+                        failures,
+                        "execution_log_boundary_hash_not_verifiable",
+                        "Unable to verify execution-log boundary hashes due to unreadable artifact.",
+                        {"artifact_name": artifact_name, "artifact_path": str(artifact_entry_path)},
+                    )
+
+        record_started = parse_iso_ts(record_started_raw) if record_started_raw else None
+        record_finished = parse_iso_ts(record_finished_raw) if record_finished_raw else None
 
         record_issued = parse_iso_ts(record_issued_raw) if record_issued_raw else None
+        if record_started_raw and record_started is None:
+            add_issue(
+                failures,
+                "invalid_execution_log_started_time",
+                "execution_log_record.started_at_utc must be ISO-8601 timestamp.",
+                {"started_at_utc": record_started_raw},
+            )
+        if record_finished_raw and record_finished is None:
+            add_issue(
+                failures,
+                "invalid_execution_log_finished_time",
+                "execution_log_record.finished_at_utc must be ISO-8601 timestamp.",
+                {"finished_at_utc": record_finished_raw},
+            )
         if record_issued_raw and record_issued is None:
             add_issue(
                 failures,
@@ -1795,12 +2075,40 @@ def validate_execution_log_attestation(
                 "execution_log_record.issued_at_utc must be ISO-8601 timestamp.",
                 {"issued_at_utc": record_issued_raw},
             )
+        if record_started and record_finished and record_started > record_finished:
+            add_issue(
+                failures,
+                "invalid_execution_log_time_window",
+                "execution-log started_at_utc must be <= finished_at_utc.",
+                {"started_at_utc": record_started_raw, "finished_at_utc": record_finished_raw},
+            )
+        if record_finished and record_issued and record_finished > record_issued:
+            add_issue(
+                failures,
+                "invalid_execution_log_issue_time",
+                "execution-log issued_at_utc must be >= finished_at_utc.",
+                {"finished_at_utc": record_finished_raw, "issued_at_utc": record_issued_raw},
+            )
         if issued_at_ts and record_issued and record_issued > issued_at_ts:
             add_issue(
                 failures,
                 "execution_log_after_attestation_issue",
                 "execution-log record issued_at_utc must not exceed attestation issued_at_utc.",
                 {"record_issued_at_utc": record_issued.isoformat(), "attestation_issued_at_utc": issued_at_ts.isoformat()},
+            )
+        if started_ts and record_started and started_ts != record_started:
+            add_issue(
+                failures,
+                "execution_log_started_time_mismatch",
+                "execution-log started_at_utc does not match signed payload started_at_utc.",
+                {"payload_started_at_utc": started_ts.isoformat(), "record_started_at_utc": record_started.isoformat()},
+            )
+        if finished_ts and record_finished and finished_ts != record_finished:
+            add_issue(
+                failures,
+                "execution_log_finished_time_mismatch",
+                "execution-log finished_at_utc does not match signed payload finished_at_utc.",
+                {"payload_finished_at_utc": finished_ts.isoformat(), "record_finished_at_utc": record_finished.isoformat()},
             )
 
     if (
@@ -1842,6 +2150,7 @@ def validate_witness_quorum(
     payload_sha256: Optional[str],
     payload_study_id: Optional[str],
     payload_run_id: Optional[str],
+    payload_run_nonce: Optional[str],
     finished_ts: Optional[dt.datetime],
     issued_at_ts: Optional[dt.datetime],
     signing_fp: Optional[str],
@@ -2022,6 +2331,7 @@ def validate_witness_quorum(
             rec_study = require_str(record, "study_id", failures, f"witness_record_{idx}")
             rec_run = require_str(record, "run_id", failures, f"witness_record_{idx}")
             rec_attested = require_str(record, "attested_at_utc", failures, f"witness_record_{idx}")
+            rec_nonce = require_str(record, "run_nonce", failures, f"witness_record_{idx}")
 
             if authority_id and rec_authority and authority_id != rec_authority:
                 add_issue(
@@ -2050,6 +2360,13 @@ def validate_witness_quorum(
                     "witness_run_id_mismatch",
                     "Witness record run_id mismatch.",
                     {"index": idx, "payload_run_id": payload_run_id, "record_run_id": rec_run},
+                )
+            if payload_run_nonce and rec_nonce and payload_run_nonce != rec_nonce:
+                add_issue(
+                    failures,
+                    "witness_run_nonce_mismatch",
+                    "Witness record run_nonce mismatch.",
+                    {"index": idx, "payload_run_nonce": payload_run_nonce, "record_run_nonce": rec_nonce},
                 )
 
             attested_ts = parse_iso_ts(rec_attested) if rec_attested else None
@@ -2327,6 +2644,8 @@ def main() -> int:
     payload_study_id = require_str(payload, "study_id", failures, "signed_payload")
     payload_run_id = require_str(payload, "run_id", failures, "signed_payload")
     payload_command = require_str(payload, "command", failures, "signed_payload")
+    payload_command_sha256 = require_str(payload, "command_sha256", failures, "signed_payload")
+    payload_run_nonce = require_str(payload, "run_nonce", failures, "signed_payload")
     started_at_raw = require_str(payload, "started_at_utc", failures, "signed_payload")
     finished_at_raw = require_str(payload, "finished_at_utc", failures, "signed_payload")
     executor = require_str(payload, "executor", failures, "signed_payload")
@@ -2356,6 +2675,34 @@ def main() -> int:
             "suspicious_git_commit_format",
             "git_commit is present but not formatted as 7-40 hex characters.",
             {"git_commit": git_commit},
+        )
+
+    if payload_command and payload_command_sha256:
+        if not SHA256_RE.fullmatch(payload_command_sha256):
+            add_issue(
+                failures,
+                "invalid_payload_command_sha256",
+                "signed_payload.command_sha256 must be 64-char hex string.",
+                {"command_sha256": payload_command_sha256},
+            )
+        else:
+            computed_payload_command_sha256 = sha256_text(payload_command).lower()
+            if computed_payload_command_sha256 != payload_command_sha256.lower():
+                add_issue(
+                    failures,
+                    "payload_command_hash_mismatch",
+                    "signed_payload.command_sha256 does not match signed_payload.command.",
+                    {
+                        "declared_command_sha256": payload_command_sha256.lower(),
+                        "computed_command_sha256": computed_payload_command_sha256,
+                    },
+                )
+    if payload_run_nonce and not re.fullmatch(r"[a-fA-F0-9]{16,128}", payload_run_nonce):
+        add_issue(
+            failures,
+            "invalid_payload_run_nonce",
+            "signed_payload.run_nonce must be 16-128 hex characters.",
+            {"run_nonce": payload_run_nonce},
         )
 
     if spec_study_id and payload_study_id and spec_study_id != payload_study_id:
@@ -2487,6 +2834,7 @@ def main() -> int:
         payload_sha256=payload_digest_actual,
         payload_study_id=payload_study_id,
         payload_run_id=payload_run_id,
+        payload_run_nonce=payload_run_nonce,
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
@@ -2502,6 +2850,7 @@ def main() -> int:
         payload_sha256=payload_digest_actual,
         payload_study_id=payload_study_id,
         payload_run_id=payload_run_id,
+        payload_run_nonce=payload_run_nonce,
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         revoked_key_ids=revoked_key_ids,
@@ -2515,8 +2864,10 @@ def main() -> int:
         payload_study_id=payload_study_id,
         payload_run_id=payload_run_id,
         payload_command=payload_command,
+        payload_command_sha256=payload_command_sha256,
         payload_executor=executor,
         payload_exit_code=payload_exit_code,
+        payload_run_nonce=payload_run_nonce,
         started_ts=started_ts,
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
@@ -2532,6 +2883,12 @@ def main() -> int:
         payload_sha256=payload_digest_actual,
         payload_study_id=payload_study_id,
         payload_run_id=payload_run_id,
+        payload_command=payload_command,
+        payload_command_sha256=payload_command_sha256,
+        payload_executor=executor,
+        payload_run_nonce=payload_run_nonce,
+        started_ts=started_ts,
+        finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
         revoked_key_ids=revoked_key_ids,
@@ -2546,6 +2903,7 @@ def main() -> int:
         payload_sha256=payload_digest_actual,
         payload_study_id=payload_study_id,
         payload_run_id=payload_run_id,
+        payload_run_nonce=payload_run_nonce,
         finished_ts=finished_ts,
         issued_at_ts=issued_at_ts,
         signing_fp=signing_fp,
@@ -2571,6 +2929,8 @@ def main() -> int:
         "run_id": payload_run_id,
         "executor": executor,
         "command_present": payload_command is not None,
+        "command_sha256": payload_command_sha256,
+        "run_nonce_present": payload_run_nonce is not None,
         "payload_exit_code": payload_exit_code,
         "signature_verification": signature_verification,
         "artifacts": artifacts_summary,

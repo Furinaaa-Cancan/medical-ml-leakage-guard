@@ -19,11 +19,15 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
+import secrets
 import socket
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+RUN_NONCE_RE = re.compile(r"^[a-fA-F0-9]{16,128}$")
 
 
 def parse_args() -> argparse.Namespace:
@@ -161,6 +165,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--command", required=True, help="Training command line used for the run.")
     parser.add_argument("--executor", help="Executor identity, e.g. user@host. Default auto-derived.")
+    parser.add_argument(
+        "--run-nonce",
+        help="Optional run nonce (hex). Default is auto-generated 128-bit hex for per-run binding.",
+    )
     parser.add_argument("--git-commit", help="Git commit hash for training code.")
     parser.add_argument("--started-at-utc", help="Run start time ISO-8601 UTC.")
     parser.add_argument("--finished-at-utc", help="Run end time ISO-8601 UTC. Defaults to now.")
@@ -203,6 +211,10 @@ def sha256_file(path: Path) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def resolve_for_output(base: Path, path: Path) -> str:
@@ -309,6 +321,22 @@ def count_lines(path: Path) -> int:
     return total
 
 
+def log_boundary_hashes(path: Path) -> Tuple[int, Optional[str], Optional[str]]:
+    first_line: Optional[str] = None
+    last_line: Optional[str] = None
+    total = 0
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for raw_line in fh:
+            total += 1
+            normalized = raw_line.rstrip("\r\n")
+            if first_line is None:
+                first_line = normalized
+            last_line = normalized
+    first_hash = sha256_text(first_line) if first_line is not None else None
+    last_hash = sha256_text(last_line) if last_line is not None else None
+    return total, first_hash, last_hash
+
+
 def ensure_revocation_file(path: Path) -> Dict[str, Any]:
     ensure_parent(path)
     if path.exists():
@@ -382,7 +410,17 @@ def main() -> int:
 
     required_artifacts = [x.strip() for x in args.required_artifact if x and x.strip()]
     if not required_artifacts:
-        required_artifacts = ["training_log", "training_config", "model_artifact", "evaluation_report"]
+        required_artifacts = [
+            "training_log",
+            "training_config",
+            "model_artifact",
+            "model_selection_report",
+            "robustness_report",
+            "seed_sensitivity_report",
+            "evaluation_report",
+            "prediction_trace",
+            "external_validation_report",
+        ]
 
     missing_required = [x for x in required_artifacts if x not in names_seen]
     if missing_required:
@@ -473,6 +511,20 @@ def main() -> int:
     started_at = args.started_at_utc.strip() if isinstance(args.started_at_utc, str) and args.started_at_utc.strip() else iso_now_utc()
     finished_at = args.finished_at_utc.strip() if isinstance(args.finished_at_utc, str) and args.finished_at_utc.strip() else iso_now_utc()
     issued_at = args.issued_at_utc.strip() if isinstance(args.issued_at_utc, str) and args.issued_at_utc.strip() else finished_at
+    command_text = args.command.strip()
+    if not command_text:
+        print("[FAIL] --command must be a non-empty string.", file=sys.stderr)
+        return 2
+    command_sha256 = sha256_text(command_text)
+    executor_value = args.executor.strip() if isinstance(args.executor, str) and args.executor.strip() else default_executor()
+    run_nonce = args.run_nonce.strip() if isinstance(args.run_nonce, str) and args.run_nonce.strip() else secrets.token_hex(16)
+    if not RUN_NONCE_RE.fullmatch(run_nonce):
+        print(
+            "[FAIL] --run-nonce must be 16-128 hex characters when provided.",
+            file=sys.stderr,
+        )
+        return 2
+    run_nonce = run_nonce.lower()
     key_created_at = (
         args.key_created_at_utc.strip()
         if isinstance(args.key_created_at_utc, str) and args.key_created_at_utc.strip()
@@ -516,8 +568,10 @@ def main() -> int:
         "schema_version": "1.1",
         "study_id": args.study_id.strip(),
         "run_id": args.run_id.strip(),
-        "command": args.command.strip(),
-        "executor": args.executor.strip() if isinstance(args.executor, str) and args.executor.strip() else default_executor(),
+        "command": command_text,
+        "command_sha256": command_sha256,
+        "executor": executor_value,
+        "run_nonce": run_nonce,
         "git_commit": args.git_commit.strip() if isinstance(args.git_commit, str) and args.git_commit.strip() else None,
         "signing_key_id": args.key_id.strip(),
         "started_at_utc": started_at,
@@ -602,6 +656,7 @@ def main() -> int:
             "timestamp_utc": issued_at,
             "study_id": args.study_id.strip(),
             "run_id": args.run_id.strip(),
+            "run_nonce": run_nonce,
         }
         write_json(timestamp_record_out, timestamp_record)
 
@@ -678,6 +733,7 @@ def main() -> int:
             "recorded_at_utc": issued_at,
             "study_id": args.study_id.strip(),
             "run_id": args.run_id.strip(),
+            "run_nonce": run_nonce,
         }
         write_json(transparency_record_out, transparency_record)
 
@@ -752,12 +808,14 @@ def main() -> int:
             "payload_sha256": payload_sha256,
             "study_id": args.study_id.strip(),
             "run_id": args.run_id.strip(),
-            "command": args.command.strip(),
+            "command": command_text,
+            "command_sha256": command_sha256,
             "executor": payload["executor"],
             "started_at_utc": started_at,
             "finished_at_utc": finished_at,
             "issued_at_utc": issued_at,
             "exit_code": int(args.execution_exit_code),
+            "run_nonce": run_nonce,
         }
         write_json(execution_record_out, execution_receipt_record)
 
@@ -844,6 +902,13 @@ def main() -> int:
             return 2
 
         log_path = Path(str(log_artifact["abs_path"]))
+        line_count, first_line_sha256, last_line_sha256 = log_boundary_hashes(log_path)
+        if line_count <= 0:
+            print(
+                f"[FAIL] execution-log artifact '{execution_log_artifact_name}' is empty; cannot attest training execution.",
+                file=sys.stderr,
+            )
+            return 2
         execution_log_record = {
             "schema_version": "1.0",
             "authority_id": args.execution_log_authority_id.strip(),
@@ -853,8 +918,42 @@ def main() -> int:
             "artifact_name": execution_log_artifact_name,
             "artifact_path": str(log_path),
             "artifact_sha256": str(log_artifact["sha256"]),
-            "line_count": count_lines(log_path),
+            "training_config_sha256": str(artifacts_by_name.get("training_config", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("training_config"), dict)
+            else None,
+            "model_artifact_sha256": str(artifacts_by_name.get("model_artifact", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("model_artifact"), dict)
+            else None,
+            "model_selection_report_sha256": str(artifacts_by_name.get("model_selection_report", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("model_selection_report"), dict)
+            else None,
+            "robustness_report_sha256": str(artifacts_by_name.get("robustness_report", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("robustness_report"), dict)
+            else None,
+            "seed_sensitivity_report_sha256": str(artifacts_by_name.get("seed_sensitivity_report", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("seed_sensitivity_report"), dict)
+            else None,
+            "evaluation_report_sha256": str(artifacts_by_name.get("evaluation_report", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("evaluation_report"), dict)
+            else None,
+            "prediction_trace_sha256": str(artifacts_by_name.get("prediction_trace", {}).get("sha256"))
+            if isinstance(artifacts_by_name.get("prediction_trace"), dict)
+            else None,
+            "external_validation_report_sha256": str(
+                artifacts_by_name.get("external_validation_report", {}).get("sha256")
+            )
+            if isinstance(artifacts_by_name.get("external_validation_report"), dict)
+            else None,
+            "line_count": line_count,
+            "first_line_sha256": first_line_sha256,
+            "last_line_sha256": last_line_sha256,
+            "command": command_text,
+            "command_sha256": command_sha256,
+            "executor": executor_value,
+            "started_at_utc": started_at,
+            "finished_at_utc": finished_at,
             "issued_at_utc": issued_at,
+            "run_nonce": run_nonce,
         }
         write_json(execution_log_record_out, execution_log_record)
 
@@ -904,6 +1003,7 @@ def main() -> int:
                 "study_id": args.study_id.strip(),
                 "run_id": args.run_id.strip(),
                 "attested_at_utc": issued_at,
+                "run_nonce": run_nonce,
                 "statement": "witnessed execution payload hash",
             }
             write_json(record_out, witness_record)

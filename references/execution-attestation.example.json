@@ -7,7 +7,12 @@
     "training_log",
     "training_config",
     "model_artifact",
-    "evaluation_report"
+    "model_selection_report",
+    "robustness_report",
+    "seed_sensitivity_report",
+    "evaluation_report",
+    "prediction_trace",
+    "external_validation_report"
   ],
   "signed_payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "assurance_policy": {

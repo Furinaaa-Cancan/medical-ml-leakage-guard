@@ -38,6 +38,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--report", help="Optional pipeline summary report JSON path.")
     parser.add_argument("--strict", action="store_true", help="Run all gates in strict mode.")
+    parser.add_argument(
+        "--continue-on-fail",
+        action="store_true",
+        help="Diagnostic mode: keep executing subsequent gates after failures (never publication-valid).",
+    )
     return parser.parse_args()
 
 
@@ -83,7 +88,8 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    strict_flag = ["--strict"] if args.strict else []
+    strict_flag = ["--strict"]
+    continue_on_fail = bool(args.continue_on_fail)
 
     if args.strict and not args.compare_manifest and not args.allow_missing_compare:
         print(
@@ -116,8 +122,16 @@ def main() -> int:
         "missingness_report": evidence_dir / "missingness_policy_report.json",
         "tuning_report": evidence_dir / "tuning_leakage_report.json",
         "model_selection_audit_report": evidence_dir / "model_selection_audit_report.json",
+        "feature_engineering_audit_report": evidence_dir / "feature_engineering_audit_report.json",
         "clinical_metrics_report": evidence_dir / "clinical_metrics_report.json",
+        "prediction_replay_report": evidence_dir / "prediction_replay_report.json",
+        "distribution_generalization_report": evidence_dir / "distribution_generalization_report.json",
         "generalization_gap_report": evidence_dir / "generalization_gap_report.json",
+        "robustness_gate_report": evidence_dir / "robustness_gate_report.json",
+        "seed_stability_report": evidence_dir / "seed_stability_report.json",
+        "external_validation_gate_report": evidence_dir / "external_validation_gate_report.json",
+        "calibration_dca_report": evidence_dir / "calibration_dca_report.json",
+        "ci_matrix_gate_report": evidence_dir / "ci_matrix_gate_report.json",
         "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
         "evaluation_quality_report": evidence_dir / "evaluation_quality_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
@@ -126,8 +140,10 @@ def main() -> int:
     }
 
     steps: List[Dict[str, Any]] = []
+    had_failure = False
 
     def execute(name: str, cmd: List[str]) -> bool:
+        nonlocal had_failure
         code, stdout, stderr = run_step(name, cmd)
         steps.append(
             {
@@ -138,7 +154,16 @@ def main() -> int:
                 "stderr_tail": stderr[-4000:],
             }
         )
-        return code == 0
+        ok = code == 0
+        if not ok:
+            had_failure = True
+            if continue_on_fail:
+                print(
+                    f"[DIAGNOSTIC] Step failed but pipeline continues (--continue-on-fail): {name}",
+                    file=sys.stderr,
+                )
+                return True
+        return ok
 
     # Step 1: request contract
     if not execute(
@@ -199,8 +224,17 @@ def main() -> int:
         reporting_bias_checklist_spec = str(normalized["reporting_bias_checklist_spec"])
         execution_attestation_spec = str(normalized["execution_attestation_spec"])
         performance_policy_spec = str(normalized["performance_policy_spec"])
+        feature_group_spec = str(normalized["feature_group_spec"])
         model_selection_report_file = str(normalized["model_selection_report_file"])
+        feature_engineering_report_file = str(normalized["feature_engineering_report_file"])
+        distribution_report_file = str(normalized["distribution_report_file"])
+        robustness_report_file = str(normalized["robustness_report_file"])
+        seed_sensitivity_report_file = str(normalized["seed_sensitivity_report_file"])
         evaluation_report_file = str(normalized["evaluation_report_file"])
+        prediction_trace_file = str(normalized["prediction_trace_file"])
+        external_cohort_spec = str(normalized["external_cohort_spec"])
+        external_validation_report_file = str(normalized["external_validation_report_file"])
+        ci_matrix_report_file = str(normalized["ci_matrix_report_file"])
         evaluation_metric_path = normalized.get("evaluation_metric_path")
         null_metrics_file = str(normalized["permutation_null_metrics_file"])
         expected_metric = ensure_number(normalized.get("actual_primary_metric"), "actual_primary_metric")
@@ -219,6 +253,7 @@ def main() -> int:
     split_args: List[str] = ["--train", train, "--test", test]
     if isinstance(valid, str) and valid:
         split_args += ["--valid", valid]
+    valid_for_required_gates = valid if isinstance(valid, str) and valid else test
 
     compare_args: List[str] = []
     if args.compare_manifest:
@@ -299,8 +334,16 @@ def main() -> int:
         str(scripts_dir / "missingness_policy_gate.py"),
         str(scripts_dir / "tuning_leakage_gate.py"),
         str(scripts_dir / "model_selection_audit_gate.py"),
+        str(scripts_dir / "feature_engineering_audit_gate.py"),
         str(scripts_dir / "clinical_metrics_gate.py"),
+        str(scripts_dir / "prediction_replay_gate.py"),
+        str(scripts_dir / "distribution_generalization_gate.py"),
         str(scripts_dir / "generalization_gap_gate.py"),
+        str(scripts_dir / "robustness_gate.py"),
+        str(scripts_dir / "seed_stability_gate.py"),
+        str(scripts_dir / "external_validation_gate.py"),
+        str(scripts_dir / "calibration_dca_gate.py"),
+        str(scripts_dir / "ci_matrix_gate.py"),
         str(scripts_dir / "metric_consistency_gate.py"),
         str(scripts_dir / "evaluation_quality_gate.py"),
         str(scripts_dir / "permutation_significance_gate.py"),
@@ -319,9 +362,18 @@ def main() -> int:
             tuning_protocol_spec,
             reporting_bias_checklist_spec,
             performance_policy_spec,
+            feature_group_spec,
             model_selection_report_file,
+            feature_engineering_report_file,
+            distribution_report_file,
+            robustness_report_file,
+            seed_sensitivity_report_file,
             *attestation_extra_inputs,
             evaluation_report_file,
+            prediction_trace_file,
+            external_cohort_spec,
+            external_validation_report_file,
+            ci_matrix_report_file,
             null_metrics_file,
             str(request_path),
             *gate_script_inputs,
@@ -516,6 +568,8 @@ def main() -> int:
             label_col,
             "--ignore-cols",
             f"{id_col},{time_col}",
+            "--evaluation-report",
+            evaluation_report_file,
             "--report",
             str(reports["missingness_report"]),
             *strict_flag,
@@ -554,6 +608,11 @@ def main() -> int:
             model_selection_report_file,
             "--tuning-spec",
             tuning_protocol_spec,
+            "--train",
+            train,
+            *(["--valid", valid] if isinstance(valid, str) and valid else []),
+            "--test",
+            test,
             "--expected-primary-metric",
             metric_name,
             "--report",
@@ -563,7 +622,28 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 14: clinical metrics gate
+    # Step 14: feature engineering audit gate
+    if not execute(
+        "feature_engineering_audit_gate",
+        [
+            args.python,
+            str(scripts_dir / "feature_engineering_audit_gate.py"),
+            "--feature-group-spec",
+            feature_group_spec,
+            "--feature-engineering-report",
+            feature_engineering_report_file,
+            "--lineage-spec",
+            lineage_spec,
+            "--tuning-spec",
+            tuning_protocol_spec,
+            "--report",
+            str(reports["feature_engineering_audit_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 15: clinical metrics gate
     if not execute(
         "clinical_metrics_gate",
         [
@@ -571,6 +651,8 @@ def main() -> int:
             str(scripts_dir / "clinical_metrics_gate.py"),
             "--evaluation-report",
             evaluation_report_file,
+            "--external-validation-report",
+            external_validation_report_file,
             "--performance-policy",
             performance_policy_spec,
             "--report",
@@ -580,7 +662,58 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 15: generalization gap gate
+    # Step 16: prediction replay gate
+    if not execute(
+        "prediction_replay_gate",
+        [
+            args.python,
+            str(scripts_dir / "prediction_replay_gate.py"),
+            "--evaluation-report",
+            evaluation_report_file,
+            "--prediction-trace",
+            prediction_trace_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["prediction_replay_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 17: distribution generalization gate
+    if not execute(
+        "distribution_generalization_gate",
+        [
+            args.python,
+            str(scripts_dir / "distribution_generalization_gate.py"),
+            "--train",
+            train,
+            "--valid",
+            valid_for_required_gates,
+            "--test",
+            test,
+            "--evaluation-report",
+            evaluation_report_file,
+            "--external-validation-report",
+            external_validation_report_file,
+            "--feature-group-spec",
+            feature_group_spec,
+            "--target-col",
+            label_col,
+            "--ignore-cols",
+            f"{id_col},{time_col}",
+            "--performance-policy",
+            performance_policy_spec,
+            "--distribution-report",
+            distribution_report_file,
+            "--report",
+            str(reports["distribution_generalization_report"]),
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 18: generalization gap gate
     if not execute(
         "generalization_gap_gate",
         [
@@ -597,7 +730,106 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 16: metric consistency gate
+    # Step 19: robustness gate
+    if not execute(
+        "robustness_gate",
+        [
+            args.python,
+            str(scripts_dir / "robustness_gate.py"),
+            "--robustness-report",
+            robustness_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["robustness_gate_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 20: seed stability gate
+    if not execute(
+        "seed_stability_gate",
+        [
+            args.python,
+            str(scripts_dir / "seed_stability_gate.py"),
+            "--seed-sensitivity-report",
+            seed_sensitivity_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["seed_stability_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 21: external validation gate
+    if not execute(
+        "external_validation_gate",
+        [
+            args.python,
+            str(scripts_dir / "external_validation_gate.py"),
+            "--external-validation-report",
+            external_validation_report_file,
+            "--prediction-trace",
+            prediction_trace_file,
+            "--evaluation-report",
+            evaluation_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["external_validation_gate_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 22: calibration + decision curve gate
+    if not execute(
+        "calibration_dca_gate",
+        [
+            args.python,
+            str(scripts_dir / "calibration_dca_gate.py"),
+            "--prediction-trace",
+            prediction_trace_file,
+            "--evaluation-report",
+            evaluation_report_file,
+            "--external-validation-report",
+            external_validation_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--report",
+            str(reports["calibration_dca_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 23: CI matrix gate
+    if not execute(
+        "ci_matrix_gate",
+        [
+            args.python,
+            str(scripts_dir / "ci_matrix_gate.py"),
+            "--evaluation-report",
+            evaluation_report_file,
+            "--prediction-trace",
+            prediction_trace_file,
+            "--external-validation-report",
+            external_validation_report_file,
+            "--performance-policy",
+            performance_policy_spec,
+            "--ci-matrix-report",
+            ci_matrix_report_file,
+            "--report",
+            str(reports["ci_matrix_gate_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 24: metric consistency gate
     metric_consistency_cmd = [
         args.python,
         str(scripts_dir / "metric_consistency_gate.py"),
@@ -631,12 +863,14 @@ def main() -> int:
         print(f"[FAIL] Metric consistency report missing actual metric: {exc}", file=sys.stderr)
         return finalize(args, reports, steps, success=False)
 
-    # Step 17: evaluation quality gate
+    # Step 25: evaluation quality gate
     evaluation_quality_cmd = [
         args.python,
         str(scripts_dir / "evaluation_quality_gate.py"),
         "--evaluation-report",
         evaluation_report_file,
+        "--ci-matrix-report",
+        ci_matrix_report_file,
         "--metric-name",
         metric_name,
         "--primary-metric",
@@ -660,7 +894,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 18: permutation significance gate
+    # Step 26: permutation significance gate
     if not execute(
         "permutation_significance_gate",
         [
@@ -683,7 +917,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 19: publication gate
+    # Step 27: publication gate
     if not execute(
         "publication_gate",
         [
@@ -715,10 +949,26 @@ def main() -> int:
             str(reports["tuning_report"]),
             "--model-selection-audit-report",
             str(reports["model_selection_audit_report"]),
+            "--feature-engineering-audit-report",
+            str(reports["feature_engineering_audit_report"]),
             "--clinical-metrics-report",
             str(reports["clinical_metrics_report"]),
+            "--prediction-replay-report",
+            str(reports["prediction_replay_report"]),
+            "--distribution-generalization-report",
+            str(reports["distribution_generalization_report"]),
             "--generalization-gap-report",
             str(reports["generalization_gap_report"]),
+            "--robustness-report",
+            str(reports["robustness_gate_report"]),
+            "--seed-stability-report",
+            str(reports["seed_stability_report"]),
+            "--external-validation-report",
+            str(reports["external_validation_gate_report"]),
+            "--calibration-dca-report",
+            str(reports["calibration_dca_report"]),
+            "--ci-matrix-report",
+            str(reports["ci_matrix_gate_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
             "--evaluation-quality-report",
@@ -732,7 +982,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 20: self critique
+    # Step 28: self critique
     if not execute(
         "self_critique_gate",
         [
@@ -764,10 +1014,26 @@ def main() -> int:
             str(reports["tuning_report"]),
             "--model-selection-audit-report",
             str(reports["model_selection_audit_report"]),
+            "--feature-engineering-audit-report",
+            str(reports["feature_engineering_audit_report"]),
             "--clinical-metrics-report",
             str(reports["clinical_metrics_report"]),
+            "--prediction-replay-report",
+            str(reports["prediction_replay_report"]),
+            "--distribution-generalization-report",
+            str(reports["distribution_generalization_report"]),
             "--generalization-gap-report",
             str(reports["generalization_gap_report"]),
+            "--robustness-report",
+            str(reports["robustness_gate_report"]),
+            "--seed-stability-report",
+            str(reports["seed_stability_report"]),
+            "--external-validation-report",
+            str(reports["external_validation_gate_report"]),
+            "--calibration-dca-report",
+            str(reports["calibration_dca_report"]),
+            "--ci-matrix-report",
+            str(reports["ci_matrix_gate_report"]),
             "--metric-report",
             str(reports["metric_consistency_report"]),
             "--evaluation-quality-report",
@@ -786,7 +1052,7 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    return finalize(args, reports, steps, success=True)
+    return finalize(args, reports, steps, success=(not had_failure))
 
 
 def finalize(
@@ -798,6 +1064,8 @@ def finalize(
     summary = {
         "status": "pass" if success else "fail",
         "strict_mode": bool(args.strict),
+        "diagnostic_only": bool(args.continue_on_fail),
+        "publication_eligible": bool(args.strict and (not args.continue_on_fail) and success),
         "failure_count": sum(1 for s in steps if s.get("exit_code") != 0),
         "steps": steps,
         "artifacts": {k: str(v) for k, v in reports.items()},

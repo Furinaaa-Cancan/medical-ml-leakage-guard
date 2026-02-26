@@ -26,6 +26,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test", required=True, help="Path to test CSV.")
     parser.add_argument("--target-col", default="y", help="Target/label column name.")
     parser.add_argument(
+        "--evaluation-report",
+        help="Optional evaluation report JSON used to verify executed imputation evidence.",
+    )
+    parser.add_argument(
         "--ignore-cols",
         default="",
         help="Comma-separated columns to exclude from feature-level missingness checks (for example id/time columns).",
@@ -196,6 +200,15 @@ def read_missing_stats(path: str, split_name: str, target_col: str) -> Dict[str,
     }
 
 
+def load_json_obj(path: str) -> Dict[str, Any]:
+    p = Path(path).expanduser().resolve()
+    with p.open("r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    if not isinstance(payload, dict):
+        raise ValueError("JSON root must be object.")
+    return payload
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
@@ -225,6 +238,18 @@ def main() -> int:
             {"path": str(policy_path), "error": str(exc)},
         )
         return finish(args, failures, warnings, {}, {})
+
+    evaluation_payload: Optional[Dict[str, Any]] = None
+    if isinstance(args.evaluation_report, str) and args.evaluation_report.strip():
+        try:
+            evaluation_payload = load_json_obj(args.evaluation_report.strip())
+        except Exception as exc:
+            add_issue(
+                failures,
+                "invalid_evaluation_report",
+                "Unable to parse evaluation report JSON for imputation execution checks.",
+                {"path": str(Path(args.evaluation_report).expanduser()), "error": str(exc)},
+            )
 
     strategy = require_str(policy, "strategy", failures)
     imputer_fit_scope = require_str(policy, "imputer_fit_scope", failures)
@@ -375,6 +400,19 @@ def main() -> int:
         train_cols = int(train_stats["col_count"])
         feature_headers = [col for col in train_stats["headers"] if col not in ignored_cols]
         feature_count = len(feature_headers)
+        scale_guard_should_trigger = False
+        if strategy == "mice_with_scale_guard":
+            if mice_max_rows is not None and train_rows > int(mice_max_rows):
+                scale_guard_should_trigger = True
+            if mice_max_cols is not None and feature_count > int(mice_max_cols):
+                scale_guard_should_trigger = True
+            if (
+                large_data_row_threshold is not None
+                and large_data_col_threshold is not None
+                and train_rows >= int(large_data_row_threshold)
+                and feature_count >= int(large_data_col_threshold)
+            ):
+                scale_guard_should_trigger = True
 
         if train_cols > 0 and feature_count <= 0:
             add_issue(
@@ -459,19 +497,6 @@ def main() -> int:
                     parsed_cols_seen = int(cols_seen) if cols_seen is not None else None
                 except (TypeError, ValueError):
                     parsed_cols_seen = None
-                should_trigger = False
-                if mice_max_rows is not None and train_rows > int(mice_max_rows):
-                    should_trigger = True
-                if mice_max_cols is not None and feature_count > int(mice_max_cols):
-                    should_trigger = True
-                if (
-                    large_data_row_threshold is not None
-                    and large_data_col_threshold is not None
-                    and train_rows >= int(large_data_row_threshold)
-                    and feature_count >= int(large_data_col_threshold)
-                ):
-                    should_trigger = True
-
                 if parsed_rows_seen is None or parsed_rows_seen != int(train_rows):
                     add_issue(
                         failures,
@@ -487,7 +512,7 @@ def main() -> int:
                         {"feature_count_seen": cols_seen, "actual_feature_count": feature_count},
                     )
 
-                if should_trigger:
+                if scale_guard_should_trigger:
                     if fallback_triggered is not True:
                         add_issue(
                             failures,
@@ -515,6 +540,77 @@ def main() -> int:
                         "Fallback triggered although size thresholds were not exceeded.",
                         {"fallback_strategy": fallback_strategy},
                     )
+
+        if evaluation_payload is not None:
+            metadata = evaluation_payload.get("metadata")
+            imputation_meta = metadata.get("imputation") if isinstance(metadata, dict) else None
+            if not isinstance(imputation_meta, dict):
+                add_issue(
+                    failures,
+                    "missing_imputation_execution_evidence",
+                    "evaluation_report.metadata.imputation is required for publication-grade missingness execution audit.",
+                    {
+                        "migration_hint": "Emit metadata.imputation.{policy_strategy,executed_strategy,fit_scope,scale_guard}.",
+                    },
+                )
+            else:
+                executed_strategy = str(imputation_meta.get("executed_strategy", "")).strip().lower()
+                reported_policy_strategy = str(imputation_meta.get("policy_strategy", "")).strip().lower()
+                if strategy and reported_policy_strategy and reported_policy_strategy != strategy:
+                    add_issue(
+                        failures,
+                        "imputation_execution_mismatch",
+                        "evaluation_report imputation.policy_strategy does not match policy spec strategy.",
+                        {
+                            "policy_strategy_spec": strategy,
+                            "policy_strategy_reported": reported_policy_strategy,
+                        },
+                    )
+
+                expected_strategies: Optional[Set[str]] = None
+                if strategy == "mice":
+                    expected_strategies = {"mice"}
+                elif strategy == "mice_with_scale_guard":
+                    expected_strategies = {"simple_with_indicator"} if scale_guard_should_trigger else {"mice"}
+                elif strategy == "simple_with_indicator":
+                    expected_strategies = {"simple_with_indicator"}
+                elif strategy == "simple":
+                    expected_strategies = {"simple", "simple_with_indicator"}
+
+                if expected_strategies is not None and executed_strategy not in expected_strategies:
+                    add_issue(
+                        failures,
+                        "imputation_execution_mismatch",
+                        "Executed imputation strategy does not match policy-constrained expectation.",
+                        {
+                            "policy_strategy": strategy,
+                            "expected_executed_strategies": sorted(expected_strategies),
+                            "reported_executed_strategy": executed_strategy or None,
+                            "scale_guard_should_trigger": scale_guard_should_trigger if strategy == "mice_with_scale_guard" else None,
+                        },
+                    )
+
+                if strategy == "mice_with_scale_guard":
+                    scale_guard_meta = imputation_meta.get("scale_guard")
+                    if not isinstance(scale_guard_meta, dict):
+                        add_issue(
+                            failures,
+                            "imputation_execution_mismatch",
+                            "MICE scale-guard strategy requires metadata.imputation.scale_guard evidence.",
+                            {},
+                        )
+                    else:
+                        reported_triggered = scale_guard_meta.get("triggered")
+                        if reported_triggered is not None and bool(reported_triggered) != bool(scale_guard_should_trigger):
+                            add_issue(
+                                failures,
+                                "imputation_execution_mismatch",
+                                "Reported scale_guard.triggered does not match policy-derived trigger.",
+                                {
+                                    "reported_triggered": reported_triggered,
+                                    "expected_triggered": scale_guard_should_trigger,
+                                },
+                            )
 
         if strategy == "none":
             total_missing = sum(int(train_stats["missing_by_col"].get(col, 0)) for col in feature_headers)
@@ -653,6 +749,9 @@ def finish(
         "status": "fail" if should_fail else "pass",
         "strict_mode": bool(args.strict),
         "policy_spec": str(Path(args.policy_spec).expanduser().resolve()),
+        "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve())
+        if isinstance(args.evaluation_report, str) and args.evaluation_report.strip()
+        else None,
         "strategy": policy.get("strategy"),
         "failure_count": len(failures),
         "warning_count": len(warnings),

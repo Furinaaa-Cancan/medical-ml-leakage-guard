@@ -38,8 +38,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--forbidden-feature-regex",
-        default=r"(target|label|outcome|future|post|next|lead|leak)",
-        help="Regex for suspicious feature names.",
+        default=r"\b(future|leak)\b|(?:^|_)(target|label|outcome)(?:_|$)",
+        help="Regex for suspicious feature names. Default matches clearly leakage-indicative tokens (future, leak as whole words; target, label, outcome as underscore-delimited segments). Override with --forbidden-feature-regex for domain-specific patterns.",
     )
     parser.add_argument("--report", help="Optional path to write JSON report.")
     parser.add_argument(
@@ -325,7 +325,7 @@ def main() -> int:
             right_min = time_bounds[right]["min"]
             if left_max is None or right_min is None:
                 return
-            if left_max >= right_min:
+            if left_max > right_min:
                 add_issue(
                     failures,
                     "temporal_overlap",

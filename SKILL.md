@@ -33,6 +33,7 @@ Required fields:
 
 Publication-grade required fields:
 - `feature_lineage_spec`
+- `feature_group_spec`
 - `split_protocol_spec`
 - `imbalance_policy_spec`
 - `missingness_policy_spec`
@@ -41,7 +42,15 @@ Publication-grade required fields:
 - `reporting_bias_checklist_spec`
 - `execution_attestation_spec`
 - `model_selection_report_file`
+- `feature_engineering_report_file`
+- `distribution_report_file`
+- `robustness_report_file`
+- `seed_sensitivity_report_file`
 - `evaluation_report_file`
+- `prediction_trace_file`
+- `external_cohort_spec`
+- `external_validation_report_file`
+- `ci_matrix_report_file`
 - `evaluation_metric_path`
 - `permutation_null_metrics_file`
 - `actual_primary_metric`
@@ -63,6 +72,7 @@ Template:
 - `references/missingness-policy.example.json`
 - `references/tuning-protocol.example.json`
 - `references/performance-policy.example.json`
+- `references/external-cohort-spec.example.json`
 - `references/reporting-bias-checklist.example.json`
 - `references/execution-attestation.example.json`
 - `references/attestation-payload.example.json`
@@ -73,6 +83,8 @@ Template:
 - `references/attestation-execution-log-record.example.json`
 - `references/attestation-witness-record.example.json`
 - `references/evaluation-report.example.json`
+- `references/external-validation-report.example.json`
+- `references/prediction-trace.example.csv`
 
 Validate request first:
 
@@ -98,14 +110,22 @@ Use this internal sequence in order:
 11. Run missingness policy gate (`missingness_policy_gate.py`).
 12. Run tuning leakage gate (`tuning_leakage_gate.py`).
 13. Run model-selection audit gate (`model_selection_audit_gate.py`).
-14. Run clinical-metrics gate (`clinical_metrics_gate.py`).
-15. Run generalization-gap gate (`generalization_gap_gate.py`).
-16. Run metric consistency gate (`metric_consistency_gate.py`).
-17. Run evaluation quality gate (`evaluation_quality_gate.py`).
-18. Run permutation falsification gate (`permutation_significance_gate.py`).
-19. Aggregate publication gate (`publication_gate.py`).
-20. Run self-critique scoring gate (`self_critique_gate.py`).
-21. Emit final report only if all strict gates pass.
+14. Run feature-engineering audit gate (`feature_engineering_audit_gate.py`).
+15. Run clinical-metrics gate (`clinical_metrics_gate.py`).
+16. Run prediction-replay gate (`prediction_replay_gate.py`).
+17. Run distribution-generalization gate (`distribution_generalization_gate.py`).
+18. Run generalization-gap gate (`generalization_gap_gate.py`).
+19. Run robustness gate (`robustness_gate.py`).
+20. Run seed-stability gate (`seed_stability_gate.py`).
+21. Run external-validation gate (`external_validation_gate.py`).
+22. Run calibration+DCA gate (`calibration_dca_gate.py`).
+23. Run CI-matrix gate (`ci_matrix_gate.py`).
+24. Run metric consistency gate (`metric_consistency_gate.py`).
+25. Run evaluation quality gate (`evaluation_quality_gate.py`).
+26. Run permutation falsification gate (`permutation_significance_gate.py`).
+27. Aggregate publication gate (`publication_gate.py`).
+28. Run self-critique scoring gate (`self_critique_gate.py`).
+29. Emit final report only if all strict gates pass.
 
 Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt/execution-log/witness-quorum/cross-role-authority-distinctness), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
@@ -124,14 +144,22 @@ Produce these deterministic artifacts:
 11. `evidence/missingness_policy_report.json`
 12. `evidence/tuning_leakage_report.json`
 13. `evidence/model_selection_audit_report.json`
-14. `evidence/clinical_metrics_report.json`
-15. `evidence/generalization_gap_report.json`
-16. `evidence/metric_consistency_report.json`
-17. `evidence/evaluation_quality_report.json`
-18. `evidence/permutation_report.json`
-19. `evidence/publication_gate_report.json`
-20. `evidence/self_critique_report.json`
-21. `evidence/strict_pipeline_report.json`
+14. `evidence/feature_engineering_audit_report.json`
+15. `evidence/clinical_metrics_report.json`
+16. `evidence/prediction_replay_report.json`
+17. `evidence/distribution_generalization_report.json`
+18. `evidence/generalization_gap_report.json`
+19. `evidence/robustness_gate_report.json`
+20. `evidence/seed_stability_report.json`
+21. `evidence/external_validation_gate_report.json`
+22. `evidence/calibration_dca_report.json`
+23. `evidence/ci_matrix_gate_report.json`
+24. `evidence/metric_consistency_report.json`
+25. `evidence/evaluation_quality_report.json`
+26. `evidence/permutation_report.json`
+27. `evidence/publication_gate_report.json`
+28. `evidence/self_critique_report.json`
+29. `evidence/strict_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -215,7 +243,9 @@ python3 scripts/generate_execution_attestation.py \
   --artifact training_log=evidence/train.log \
   --artifact training_config=configs/train_config.json \
   --artifact model_artifact=models/model_v1.bin \
-  --artifact evaluation_report=evidence/evaluation_report.json
+  --artifact evaluation_report=evidence/evaluation_report.json \
+  --artifact prediction_trace=evidence/prediction_trace.csv.gz \
+  --artifact external_validation_report=evidence/external_validation_report.json
 ```
 
 This command also creates:
@@ -242,13 +272,21 @@ If orchestration is unavailable, run in this exact order:
 11. `missingness_policy_gate.py`
 12. `tuning_leakage_gate.py`
 13. `model_selection_audit_gate.py`
-14. `clinical_metrics_gate.py`
-15. `generalization_gap_gate.py`
-16. `metric_consistency_gate.py`
-17. `evaluation_quality_gate.py`
-18. `permutation_significance_gate.py`
-19. `publication_gate.py`
-20. `self_critique_gate.py`
+14. `feature_engineering_audit_gate.py`
+15. `clinical_metrics_gate.py`
+16. `prediction_replay_gate.py`
+17. `distribution_generalization_gate.py`
+18. `generalization_gap_gate.py`
+19. `robustness_gate.py`
+20. `seed_stability_gate.py`
+21. `external_validation_gate.py`
+22. `calibration_dca_gate.py`
+23. `ci_matrix_gate.py`
+24. `metric_consistency_gate.py`
+25. `evaluation_quality_gate.py`
+26. `permutation_significance_gate.py`
+27. `publication_gate.py`
+28. `self_critique_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -283,7 +321,7 @@ If any step returns non-zero, stop and block claim release.
 
 ### scripts/
 - `scripts/run_strict_pipeline.py`: single-entry strict orchestrator.
-- `scripts/request_contract_gate.py`: request schema and path validation.
+- `scripts/request_contract_gate.py`: request schema/path validation and publication-policy anti-downgrade checks.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
 - `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt/execution-log/witness-quorum generator for personal users.
@@ -297,8 +335,11 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/missingness_policy_gate.py`: validate missing-data strategy, large-scale method suitability, and imputer isolation policy.
 - `scripts/tuning_leakage_gate.py`: validate hyperparameter tuning/test-isolation protocol.
 - `scripts/model_selection_audit_gate.py`: validate candidate pool, one-SE replay, and test-isolated model selection.
+- `scripts/feature_engineering_audit_gate.py`: validate feature-group provenance, train-only engineering scope, stability evidence, and reproducibility fields.
 - `scripts/clinical_metrics_gate.py`: validate clinical metric completeness and confusion-matrix consistency per split.
+- `scripts/distribution_generalization_gate.py`: train-vs-holdout distribution shift, split separability, and transport-readiness gate.
 - `scripts/generalization_gap_gate.py`: fail-closed overfitting gap checks across train/valid/test.
+- `scripts/ci_matrix_gate.py`: bootstrap CI matrix gate for primary metric and transport-drop CI on internal and external cohorts.
 - `scripts/metric_consistency_gate.py`: extract and validate metric from evaluation report.
 - `scripts/evaluation_quality_gate.py`: enforce primary-metric CI quality and baseline improvement checks.
 - `scripts/permutation_significance_gate.py`: falsification significance gate.
@@ -323,9 +364,70 @@ If any step returns non-zero, stop and block claim release.
 - `references/attestation-execution-receipt-record.example.json`: execution receipt record template.
 - `references/attestation-execution-log-record.example.json`: execution-log attestation record template.
 - `references/attestation-witness-record.example.json`: witness attestation record template.
+- `references/feature-group-spec.example.json`: feature group specification template (groups, train-only scope).
+- `references/feature-engineering-report.example.json`: feature-engineering audit report template.
+- `references/distribution-report.example.json`: distribution/shift report template.
+- `references/ci-matrix-report.example.json`: CI matrix report template.
+- `references/external-validation-report.example.json`: external validation report template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
+- `references/stress-seed-search-report.v2.example.json`: stress seed/profile search contract template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
 - `references/top-tier-rigor-checklist.md`: submission-grade hard gates.
 - `references/external-benchmark-comparison.md`: external tool/guideline comparison and gap map.
 - `references/report-template.md`: reporting template for methods/results/robustness.
+
+## Authority E2E Execution Notes
+- Use isolated output paths in concurrent runs:
+  - `--summary-file`
+  - `--stress-seed-cache-file`
+  - `--stress-selection-file`
+- Use `--run-tag` to bind all generated stress artifacts to a unique execution token.
+- Stress seed-search profile bundles are selected with `--stress-profile-set` (default `strict_v1`).
+- `stress_seed_search_report` v2 contract requires:
+  - `contract_version`
+  - `run_tag`
+  - `policy_sha256`
+  - `search_profile_set`
+  - `selected_profile`
+  - `dataset_fingerprint`
+  - `code_revision_hint`
+
+## Deep Review Fix Log
+
+### Session 1 (Fixes applied to request_contract_gate.py, train_select_evaluate.py)
+
+**Fix 1 — `request_contract_gate.py`: wrong error code in `validate_feature_engineering_report_shape`**
+- The `except` block for JSON parse failure used `feature_group_spec_missing_or_invalid` instead of `feature_engineering_report_invalid`.
+- Fixed: error code now correctly reflects `feature_engineering_report_invalid`.
+
+**Fix 2 — `train_select_evaluate.py`: misleading hard-coded CI bounds in `transport_drop_ci`**
+- `ci_95` and `ci_width` in the transport drop block were hard-coded to `[0.0, 0.0]` / `0.0`, falsely implying CIs were bootstrapped.
+- Fixed: replaced with `null` and added `ci_note: "not_computed_point_estimate_only"`.
+- Verified: `ci_matrix_gate.py` independently recomputes these CIs from prediction traces; downstream not affected.
+
+### Session 2 (Fixes applied to feature_engineering_audit_gate.py, generalization_gap_gate.py, robustness_gate.py, seed_stability_gate.py)
+
+**Fix 3 — `feature_engineering_audit_gate.py`: wrong error code for `feature_engineering_report` parse failure**
+- Mirror of Fix 1: the `except` block used `feature_group_spec_missing_or_invalid` when parsing `feature_engineering_report` JSON.
+- Fixed: error code now correctly set to `feature_engineering_report_invalid`.
+
+**Fix 4 — `feature_engineering_audit_gate.py`: `to_float` missing `math.isfinite` guard**
+- `to_float` accepted `inf` and `nan` as valid float values, inconsistent with all other gate scripts.
+- Fixed: added `math.isfinite` guard and added `import math`.
+
+**Fix 5 — `generalization_gap_gate.py`: `finish()` ignored `--strict` for warning escalation**
+- `should_fail = bool(failures)` silently swallowed warnings even in strict mode.
+- Fixed: `should_fail = bool(failures) or (args.strict and bool(warnings))`.
+
+**Fix 6 — `robustness_gate.py`: same strict-mode bug as Fix 5**
+- Fixed: `should_fail = bool(failures) or (args.strict and bool(warnings))`.
+
+**Fix 7 — `seed_stability_gate.py`: same strict-mode bug as Fix 5**
+- Fixed: `should_fail = bool(failures) or (args.strict and bool(warnings))`.
+
+### Verified clean (no bugs found)
+- `execution_attestation_gate.py`: `finish()` already correct; all validation logic and key/timestamp/transparency/receipt/log/witness-quorum checks are robust.
+- `generalization_gap_gate.py`: `to_float` already had `math.isfinite`.
+- All 27 gate scripts now uniformly use `bool(failures) or (args.strict and bool(warnings))` in `finish()`.
+- All 11 `to_float` implementations across gate scripts now reject `inf`/`nan`.

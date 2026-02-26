@@ -74,6 +74,22 @@
 - Added policy artifact `references/performance-policy.example.json`.
 - Integrated all three gates into strict pipeline + publication gate + self-critique gate.
 
+## Implemented Improvement (V3: Replay + External Cohort + Calibration/DCA)
+- Added `scripts/prediction_replay_gate.py`:
+  - replays PR-AUC/ROC-AUC/Brier and threshold metrics from de-identified row-level `prediction_trace`.
+  - enforces split row-count linkage to evaluation metadata fingerprints.
+- Added `scripts/external_validation_gate.py` as publication-grade hard precondition:
+  - requires at least one external cohort and type coverage (`cross_period` or `cross_institution`).
+  - replays cohort metrics from trace and enforces transport-gap limits vs internal test.
+- Added `scripts/calibration_dca_gate.py`:
+  - fail-closed checks for ECE/slope/intercept and decision-curve net benefit on internal test + all external cohorts.
+- Added trainer outputs and metadata linkage:
+  - `prediction_trace.csv.gz`
+  - `external_validation_report.json`
+  - `evaluation_report.metadata.{prediction_trace_sha256, external_validation_report_sha256, external_cohort_count}`
+- Extended execution non-repudiation binding:
+  - execution-log record now includes `prediction_trace_sha256` and `external_validation_report_sha256`.
+
 ## Comparison vs SLSA / in-toto / Sigstore (Current Position)
 - Current skill already provides:
   - Detached-signature verification for execution payload and authority records.
