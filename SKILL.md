@@ -369,6 +369,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/env_doctor.py`: dependency and environment diagnostics with optional-backend checks.
 - `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
 - `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
+- `scripts/mlgg.py`: unified terminal entrypoint for common commands (`init/doctor/preflight/workflow/strict/summary/train/authority/scan-diabetes/adversarial`).
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### references/
@@ -402,6 +403,13 @@ If any step returns non-zero, stop and block claim release.
 - `references/report-template.md`: reporting template for methods/results/robustness.
 
 ## Authority E2E Execution Notes
+- Recommended single-entry CLI:
+  - `python3 scripts/mlgg.py <command> [command-args]`
+  - Examples:
+    - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
+    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict`
+    - `python3 scripts/mlgg.py authority --include-stress-cases`
+
 - Use isolated output paths in concurrent runs:
   - `--summary-file`
   - `--stress-seed-cache-file`
