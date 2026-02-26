@@ -418,6 +418,12 @@ If any step returns non-zero, stop and block claim release.
 - Use `--run-tag` to bind all generated stress artifacts to a unique execution token.
 - Stress seed-search profile bundles are selected with `--stress-profile-set` (default `strict_v1`).
 - `--stress-seed-search` applies only to `--stress-case-id uci-heart-disease`; other stress cases run without seed search.
+- Optional diabetes feasibility auto-scan on failure:
+  - `--auto-scan-diabetes-feasibility`
+  - `--diabetes-feasibility-target-modes`
+  - `--diabetes-feasibility-max-rows-options`
+  - `--diabetes-feasibility-summary-dir`
+  - `--diabetes-feasibility-report-file`
 - Summary rows now include strict-pipeline root-cause fields for failed cases:
   - `root_failure_code_primary`
   - `root_failure_codes`

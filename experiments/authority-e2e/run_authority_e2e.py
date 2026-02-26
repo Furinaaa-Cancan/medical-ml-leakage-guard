@@ -531,6 +531,34 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_STRESS_PROFILE_SET,
         help=f"Stress search profile set name (default: {DEFAULT_STRESS_PROFILE_SET}).",
     )
+    parser.add_argument(
+        "--auto-scan-diabetes-feasibility",
+        action="store_true",
+        help=(
+            "When stress-case-id=uci-diabetes-130-readmission fails clinical floors, "
+            "run an automatic feasibility scan across target_mode/max_rows combinations."
+        ),
+    )
+    parser.add_argument(
+        "--diabetes-feasibility-target-modes",
+        default="gt30,any,lt30",
+        help="Comma-separated target modes for auto diabetes feasibility scan.",
+    )
+    parser.add_argument(
+        "--diabetes-feasibility-max-rows-options",
+        default="20000,0",
+        help="Comma-separated max_rows options for auto diabetes feasibility scan.",
+    )
+    parser.add_argument(
+        "--diabetes-feasibility-summary-dir",
+        default=str(DATA_ROOT / "_feasibility_scan_auto"),
+        help="Directory used by auto diabetes feasibility scan for per-run authority summaries.",
+    )
+    parser.add_argument(
+        "--diabetes-feasibility-report-file",
+        default=str(DATA_ROOT / "stress_diabetes_feasibility_report.auto.json"),
+        help="Output JSON path for auto diabetes feasibility report.",
+    )
     return parser.parse_args()
 
 
@@ -1219,22 +1247,24 @@ def load_diabetes_130_dataset(
             df[col] = engineered[col]
 
     feature_cols: List[str] = [c for c in df.columns if c not in drop_cols]
-    encoded = pd.DataFrame(index=df.index)
+    encoded_cols: Dict[str, pd.Series] = {}
     for col in feature_cols:
         series = df[col]
         numeric = pd.to_numeric(series, errors="coerce")
         numeric_ratio = float(numeric.notna().mean())
         if numeric_ratio >= 0.90:
-            encoded[col] = numeric.astype(float)
+            encoded_cols[col] = numeric.astype(float)
             continue
         token = series.astype(str).str.strip()
         token = token.replace({"": np.nan, "?": np.nan, "Unknown/Invalid": np.nan, "None": np.nan, "NULL": np.nan})
         categories = sorted(str(v) for v in token.dropna().unique().tolist())
         mapping = {value: idx for idx, value in enumerate(categories)}
-        encoded[col] = token.map(mapping).astype(float)
+        encoded_cols[col] = token.map(mapping).astype(float)
+
+    encoded = pd.DataFrame(encoded_cols, index=df.index)
 
     non_empty = encoded.notna().any(axis=1)
-    out = encoded.loc[non_empty].copy()
+    out = encoded.loc[non_empty, feature_cols].copy()
     out["y"] = df.loc[non_empty, "y"].astype(int).to_numpy()
     if out["y"].nunique() < 2:
         raise ValueError("Diabetes130 labels collapsed after feature filtering.")
@@ -3109,6 +3139,101 @@ def build_dataset_case(
     raise ValueError(f"Unsupported case_id: {token}")
 
 
+def maybe_run_auto_diabetes_feasibility_scan(
+    args: argparse.Namespace,
+    *,
+    run_tag: str,
+    stress_case_id: str,
+    results: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not bool(args.auto_scan_diabetes_feasibility):
+        return None
+    if str(stress_case_id).strip() != "uci-diabetes-130-readmission":
+        return {
+            "status": "skipped",
+            "reason": "stress_case_not_diabetes130",
+        }
+
+    diabetes_row: Optional[Dict[str, Any]] = next(
+        (
+            row
+            for row in results
+            if isinstance(row, dict) and str(row.get("case_id")) == "uci-diabetes-130-readmission"
+        ),
+        None,
+    )
+    if not isinstance(diabetes_row, dict):
+        return {
+            "status": "skipped",
+            "reason": "diabetes_case_not_present",
+        }
+    if str(diabetes_row.get("status")) == "pass":
+        return {
+            "status": "skipped",
+            "reason": "diabetes_case_passed",
+        }
+
+    root_codes = diabetes_row.get("root_failure_codes")
+    root_code_set = set(root_codes) if isinstance(root_codes, list) else set()
+    clinical_floor_codes = {
+        "clinical_floor_sensitivity_not_met",
+        "clinical_floor_npv_not_met",
+        "clinical_floor_specificity_not_met",
+        "clinical_floor_ppv_not_met",
+    }
+    if not (root_code_set & clinical_floor_codes):
+        return {
+            "status": "skipped",
+            "reason": "non_clinical_floor_failure",
+            "root_failure_codes": sorted(root_code_set),
+        }
+
+    scan_script = REPO_ROOT / "experiments" / "authority-e2e" / "scan_stress_diabetes_feasibility.py"
+    report_path = resolve_output_path(args.diabetes_feasibility_report_file)
+    summary_dir = resolve_output_path(args.diabetes_feasibility_summary_dir)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    scan_cmd = [
+        sys.executable,
+        str(scan_script),
+        "--target-modes",
+        str(args.diabetes_feasibility_target_modes),
+        "--max-rows-options",
+        str(args.diabetes_feasibility_max_rows_options),
+        "--summary-dir",
+        str(summary_dir),
+        "--report",
+        str(report_path),
+        "--run-tag-prefix",
+        f"{run_tag}-auto-diabetes-scan",
+    ]
+    proc = run_cmd(scan_cmd, cwd=REPO_ROOT, allow_fail=True)
+
+    payload: Dict[str, Any] = {}
+    if report_path.exists():
+        try:
+            payload = load_json(report_path)
+        except Exception:
+            payload = {}
+
+    scan_status = str(payload.get("overall_status", "")).strip().lower()
+    best_candidate = payload.get("best_candidate") if isinstance(payload, dict) else None
+    diabetes_row.setdefault("artifacts", {})
+    if isinstance(diabetes_row["artifacts"], dict):
+        diabetes_row["artifacts"]["diabetes_feasibility_report"] = str(report_path)
+    diabetes_row["diabetes_feasibility_scan"] = {
+        "status": "pass" if scan_status == "pass" else "fail",
+        "report_file": str(report_path),
+        "summary_dir": str(summary_dir),
+        "return_code": int(proc.returncode),
+        "best_candidate": best_candidate if isinstance(best_candidate, dict) else None,
+    }
+    if scan_status != "pass":
+        diabetes_row["failure_code_detail"] = "stress_case_clinical_feasibility_not_found"
+        diabetes_row["recommended_stress_case_id"] = "uci-chronic-kidney-disease"
+    return diabetes_row.get("diabetes_feasibility_scan")
+
+
 def main() -> int:
     args = parse_args()
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -3335,6 +3460,13 @@ def main() -> int:
                 }
             )
 
+    diabetes_auto_scan_result = maybe_run_auto_diabetes_feasibility_scan(
+        args,
+        run_tag=run_tag,
+        stress_case_id=stress_case_id,
+        results=results,
+    )
+
     summary = {
         "run_tag": run_tag,
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -3353,6 +3485,7 @@ def main() -> int:
         "stress_selection_file": str(stress_selection_file),
         "stress_seed_selected": int(stress_result.selected_seed) if stress_result is not None else None,
         "stress_profile_selected": str(stress_result.selected_profile) if stress_result is not None else None,
+        "diabetes_feasibility_auto_scan": diabetes_auto_scan_result,
         "results": results,
         "failed_cases": failed_cases,
         "overall_status": "pass" if not failed_cases else "fail",
