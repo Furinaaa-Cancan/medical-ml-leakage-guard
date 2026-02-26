@@ -132,6 +132,13 @@ DEFAULT_STRESS_SEED_MIN = 20249900
 DEFAULT_STRESS_SEED_MAX = 20250150
 STRESS_SEARCH_REPORT_CONTRACT_VERSION = "v2"
 DEFAULT_STRESS_PROFILE_SET = "strict_v1"
+DEFAULT_STRESS_CASE_ID = "uci-chronic-kidney-disease"
+SUPPORTED_STRESS_CASE_IDS = (
+    "uci-heart-disease",
+    "uci-diabetes-130-readmission",
+    "uci-chronic-kidney-disease",
+    "uci-breast-cancer-wdbc",
+)
 STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
     "strict_v1": [
         {
@@ -230,6 +237,15 @@ def parse_args() -> argparse.Namespace:
         help="Include stress dataset cases (can also set MLLG_INCLUDE_STRESS_CASES=1).",
     )
     parser.add_argument(
+        "--stress-case-id",
+        default=DEFAULT_STRESS_CASE_ID,
+        choices=list(SUPPORTED_STRESS_CASE_IDS),
+        help=(
+            "Stress case dataset id. "
+            "Seed-search controls are applied only when stress-case-id=uci-heart-disease."
+        ),
+    )
+    parser.add_argument(
         "--include-large-cases",
         action="store_true",
         help="Include larger benchmark dataset cases (can also set MLLG_INCLUDE_LARGE_CASES=1).",
@@ -262,7 +278,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--stress-seed-search",
         action="store_true",
-        help="Search feasible heart split seed range and freeze selected seed for stress run.",
+        help="Search feasible stress split seed range and freeze selected seed (heart-only).",
     )
     parser.add_argument(
         "--no-stress-seed-search",
@@ -2797,59 +2813,107 @@ def prepare_case_artifacts(
     }
 
 
+def build_dataset_case(
+    case_id: str,
+    *,
+    diabetes_max_rows: int,
+    diabetes_target_mode: str,
+    ckd_max_rows: int,
+) -> DatasetCase:
+    token = str(case_id).strip()
+    if token == "uci-breast-cancer-wdbc":
+        return DatasetCase(
+            case_id="uci-breast-cancer-wdbc",
+            raw_filename="breast_cancer_wdbc.data",
+            target_name="breast_cancer_malignancy",
+            source_name="UCI Breast Cancer Wisconsin (Diagnostic)",
+        )
+    if token == "uci-heart-disease":
+        return DatasetCase(
+            case_id="uci-heart-disease",
+            raw_filename="heart_disease_processed.cleveland.data",
+            target_name="heart_disease",
+            source_name="UCI Heart Disease (Cleveland)",
+        )
+    if token == "uci-chronic-kidney-disease":
+        return DatasetCase(
+            case_id="uci-chronic-kidney-disease",
+            raw_filename="chronic_kidney_disease/Chronic_Kidney_Disease/chronic_kidney_disease.arff",
+            target_name="chronic_kidney_disease",
+            source_name="UCI Chronic Kidney Disease",
+            options={"max_rows": int(ckd_max_rows)},
+        )
+    if token == "uci-diabetes-130-readmission":
+        diabetes_token = str(diabetes_target_mode).strip().lower()
+        diabetes_target_name = {
+            "lt30": "diabetes_readmission_lt30d",
+            "gt30": "diabetes_readmission_gt30d",
+            "any": "diabetes_readmission_any",
+        }.get(diabetes_token, "diabetes_readmission_gt30d")
+        return DatasetCase(
+            case_id="uci-diabetes-130-readmission",
+            raw_filename="diabetes_130_us_hospitals/diabetic_data.csv",
+            target_name=diabetes_target_name,
+            source_name="UCI Diabetes 130-US Hospitals (1999-2008)",
+            options={"max_rows": int(diabetes_max_rows), "target_mode": diabetes_token},
+        )
+    raise ValueError(f"Unsupported case_id: {token}")
+
+
 def main() -> int:
     args = parse_args()
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     summary_path = resolve_output_path(args.summary_file)
     include_large_cases = bool(args.include_large_cases or parse_bool_env("MLLG_INCLUDE_LARGE_CASES", default=False))
     include_ckd_case = bool(args.include_ckd_case or parse_bool_env("MLLG_INCLUDE_CKD_CASE", default=False))
+    diabetes_target_mode = str(args.diabetes_target_mode).strip().lower()
     cases = [
-        DatasetCase(
-            case_id="uci-breast-cancer-wdbc",
-            raw_filename="breast_cancer_wdbc.data",
-            target_name="breast_cancer_malignancy",
-            source_name="UCI Breast Cancer Wisconsin (Diagnostic)",
+        build_dataset_case(
+            "uci-breast-cancer-wdbc",
+            diabetes_max_rows=int(args.diabetes_max_rows),
+            diabetes_target_mode=diabetes_target_mode,
+            ckd_max_rows=int(args.ckd_max_rows),
         ),
     ]
     if include_ckd_case:
         cases.append(
-            DatasetCase(
-                case_id="uci-chronic-kidney-disease",
-                raw_filename="chronic_kidney_disease/Chronic_Kidney_Disease/chronic_kidney_disease.arff",
-                target_name="chronic_kidney_disease",
-                source_name="UCI Chronic Kidney Disease",
-                options={"max_rows": int(args.ckd_max_rows)},
+            build_dataset_case(
+                "uci-chronic-kidney-disease",
+                diabetes_max_rows=int(args.diabetes_max_rows),
+                diabetes_target_mode=diabetes_target_mode,
+                ckd_max_rows=int(args.ckd_max_rows),
             )
         )
     if include_large_cases:
-        diabetes_target_mode = str(args.diabetes_target_mode).strip().lower()
-        diabetes_target_name = {
-            "lt30": "diabetes_readmission_lt30d",
-            "gt30": "diabetes_readmission_gt30d",
-            "any": "diabetes_readmission_any",
-        }.get(diabetes_target_mode, "diabetes_readmission_gt30d")
         cases.append(
-            DatasetCase(
-                case_id="uci-diabetes-130-readmission",
-                raw_filename="diabetes_130_us_hospitals/diabetic_data.csv",
-                target_name=diabetes_target_name,
-                source_name="UCI Diabetes 130-US Hospitals (1999-2008)",
-                options={"max_rows": int(args.diabetes_max_rows), "target_mode": diabetes_target_mode},
+            build_dataset_case(
+                "uci-diabetes-130-readmission",
+                diabetes_max_rows=int(args.diabetes_max_rows),
+                diabetes_target_mode=diabetes_target_mode,
+                ckd_max_rows=int(args.ckd_max_rows),
             )
         )
     include_stress_cases = bool(args.include_stress_cases or parse_bool_env("MLLG_INCLUDE_STRESS_CASES", default=False))
+    stress_case_id = str(args.stress_case_id).strip() or DEFAULT_STRESS_CASE_ID
     if args.stress_seed_search and not include_stress_cases:
         include_stress_cases = True
     stress_seed_search_enabled = bool(args.stress_seed_search or (include_stress_cases and not args.no_stress_seed_search))
-    if include_stress_cases:
-        cases.append(
-            DatasetCase(
-                case_id="uci-heart-disease",
-                raw_filename="heart_disease_processed.cleveland.data",
-                target_name="heart_disease",
-                source_name="UCI Heart Disease (Cleveland)",
+    if stress_case_id != "uci-heart-disease":
+        if stress_seed_search_enabled:
+            print(
+                "[WARN] stress seed-search is supported only for uci-heart-disease; "
+                f"disabling seed-search for stress-case-id={stress_case_id}."
             )
+        stress_seed_search_enabled = False
+    if include_stress_cases:
+        stress_case = build_dataset_case(
+            stress_case_id,
+            diabetes_max_rows=int(args.diabetes_max_rows),
+            diabetes_target_mode=diabetes_target_mode,
+            ckd_max_rows=int(args.ckd_max_rows),
         )
+        if all(existing.case_id != stress_case.case_id for existing in cases):
+            cases.append(stress_case)
 
     results: List[Dict[str, Any]] = []
     failed_cases: List[str] = []
@@ -2858,7 +2922,7 @@ def main() -> int:
     stress_selection_file = resolve_output_path(args.stress_selection_file)
     stress_profile_set = str(args.stress_profile_set).strip() or DEFAULT_STRESS_PROFILE_SET
     stress_profiles: List[Dict[str, str]] = []
-    if include_stress_cases or stress_seed_search_enabled:
+    if stress_seed_search_enabled:
         stress_profiles = get_stress_profiles(stress_profile_set)
 
     if stress_seed_search_enabled and include_stress_cases:
@@ -3032,6 +3096,7 @@ def main() -> int:
         "diabetes_max_rows": int(args.diabetes_max_rows),
         "diabetes_target_mode": str(args.diabetes_target_mode).strip().lower(),
         "include_stress_cases": bool(include_stress_cases),
+        "stress_case_id": stress_case_id if include_stress_cases else None,
         "stress_seed_search_enabled": bool(stress_seed_search_enabled),
         "stress_profile_set": stress_profile_set,
         "stress_seed_range": {"min": int(args.stress_seed_min), "max": int(args.stress_seed_max)},

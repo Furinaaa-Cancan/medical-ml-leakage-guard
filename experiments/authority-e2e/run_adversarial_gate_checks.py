@@ -2397,6 +2397,8 @@ def main() -> int:
             "    sys.executable,\n"
             "    str(repo_root / 'experiments' / 'authority-e2e' / 'run_authority_e2e.py'),\n"
             "    '--include-stress-cases',\n"
+            "    '--stress-case-id',\n"
+            "    'uci-heart-disease',\n"
             "    '--stress-seed-search',\n"
             "    '--stress-seed-min',\n"
             "    '10',\n"

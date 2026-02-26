@@ -409,8 +409,12 @@ If any step returns non-zero, stop and block claim release.
   - `--include-ckd-case` (UCI Chronic Kidney Disease)
   - `--include-large-cases` (Diabetes130 large-cohort path)
   - `--diabetes-target-mode {lt30,gt30,any}` and `--diabetes-max-rows`
+- Stress dataset selection:
+  - `--stress-case-id {uci-diabetes-130-readmission,uci-heart-disease,uci-chronic-kidney-disease,uci-breast-cancer-wdbc}`
+  - default is `uci-chronic-kidney-disease` (most stable publication-grade stress path in current benchmark set)
 - Use `--run-tag` to bind all generated stress artifacts to a unique execution token.
 - Stress seed-search profile bundles are selected with `--stress-profile-set` (default `strict_v1`).
+- `--stress-seed-search` applies only to `--stress-case-id uci-heart-disease`; other stress cases run without seed search.
 - `stress_seed_search_report` v2 contract requires:
   - `contract_version`
   - `run_tag`
