@@ -58,7 +58,10 @@ SPLIT_RANDOM_SEED_BY_CASE: Dict[str, int] = {
     "uci-breast-cancer-wdbc": 20260224,
 }
 EXTERNAL_SPLIT_RATIO_BY_CASE: Dict[str, float] = {
-    "uci-heart-disease": 0.34,
+    # With independent external-institution cohorts available, keep a moderate
+    # internal external-pool ratio to preserve internal train/valid/test stability
+    # while still satisfying cross-period external minimum sample requirements.
+    "uci-heart-disease": 0.20,
     "uci-breast-cancer-wdbc": 0.20,
 }
 THRESHOLD_SELECTION_SPLIT_BY_CASE: Dict[str, str] = {
@@ -82,6 +85,14 @@ ROBUSTNESS_GROUP_COUNT_BY_CASE: Dict[str, int] = {
     "uci-heart-disease": 1,
     "uci-breast-cancer-wdbc": 2,
 }
+HEART_EXTERNAL_INSTITUTION_RAW_FILES: List[Tuple[str, str]] = [
+    ("hungarian", "heart_disease_processed.hungarian.data"),
+    ("switzerland", "heart_disease_processed.switzerland.data"),
+    ("va", "heart_disease_processed.va.data"),
+]
+HEART_EXTERNAL_SITE_MIN_ROWS = 80
+HEART_EXTERNAL_SITE_EVENT_RATE_MIN = 0.15
+HEART_EXTERNAL_SITE_EVENT_RATE_MAX = 0.70
 DEFAULT_STRESS_SEED_MIN = 20249900
 DEFAULT_STRESS_SEED_MAX = 20250150
 STRESS_SEARCH_REPORT_CONTRACT_VERSION = "v2"
@@ -451,6 +462,109 @@ def load_heart_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
     return df[feature_cols + ["y"]], feature_cols
 
 
+def load_heart_external_institution_pool(case_id: str, feature_cols: List[str]) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+    cols = [
+        "age",
+        "sex",
+        "cp",
+        "trestbps",
+        "chol",
+        "fbs",
+        "restecg",
+        "thalach",
+        "exang",
+        "oldpeak",
+        "slope",
+        "ca",
+        "thal",
+        "goal",
+    ]
+    metadata: Dict[str, Any] = {
+        "source": "uci_heart_multi_institution",
+        "site_selection_policy": {
+            "min_rows": int(HEART_EXTERNAL_SITE_MIN_ROWS),
+            "event_rate_min": float(HEART_EXTERNAL_SITE_EVENT_RATE_MIN),
+            "event_rate_max": float(HEART_EXTERNAL_SITE_EVENT_RATE_MAX),
+        },
+        "sites": [],
+    }
+    frames: List[pd.DataFrame] = []
+    for site_tag, filename in HEART_EXTERNAL_INSTITUTION_RAW_FILES:
+        site_summary: Dict[str, Any] = {
+            "site_tag": site_tag,
+            "filename": filename,
+            "status": "excluded",
+            "reason": None,
+        }
+        raw_path = RAW_ROOT / filename
+        if not raw_path.exists():
+            site_summary["reason"] = "file_missing"
+            metadata["sites"].append(site_summary)
+            continue
+        raw_df = pd.read_csv(raw_path, header=None, names=cols, na_values="?")
+        if raw_df.empty:
+            site_summary["reason"] = "empty_file"
+            metadata["sites"].append(site_summary)
+            continue
+        for col in feature_cols:
+            raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
+        goal = pd.to_numeric(raw_df["goal"], errors="coerce")
+        keep_rows = goal.notna()
+        if not bool(keep_rows.any()):
+            site_summary["reason"] = "label_missing"
+            metadata["sites"].append(site_summary)
+            continue
+        raw_df = raw_df.loc[keep_rows].copy().reset_index(drop=True)
+        raw_df["y"] = (pd.to_numeric(raw_df["goal"], errors="coerce") > 0).astype(int)
+        # Keep rows with at least one observed predictor; missing values are handled downstream.
+        has_any_feature = raw_df[feature_cols].notna().any(axis=1)
+        raw_df = raw_df.loc[has_any_feature].copy().reset_index(drop=True)
+        if raw_df.empty:
+            site_summary["reason"] = "all_features_missing"
+            metadata["sites"].append(site_summary)
+            continue
+
+        rows = int(raw_df.shape[0])
+        events = int(pd.to_numeric(raw_df["y"], errors="coerce").fillna(0).astype(int).sum())
+        event_rate = float(events / rows) if rows > 0 else 0.0
+        site_summary["rows"] = rows
+        site_summary["events"] = events
+        site_summary["event_rate"] = event_rate
+        if rows < int(HEART_EXTERNAL_SITE_MIN_ROWS):
+            site_summary["reason"] = "below_min_rows"
+            metadata["sites"].append(site_summary)
+            continue
+        if event_rate < float(HEART_EXTERNAL_SITE_EVENT_RATE_MIN) or event_rate > float(HEART_EXTERNAL_SITE_EVENT_RATE_MAX):
+            site_summary["reason"] = "event_rate_out_of_range"
+            metadata["sites"].append(site_summary)
+            continue
+        base_time = datetime(2027, 1, 1, tzinfo=timezone.utc) + timedelta(days=len(frames) * 365)
+        patient_ids = [f"{case_id.upper()}_EXT_{site_tag.upper()}_{i:06d}" for i in range(int(raw_df.shape[0]))]
+        event_times = [
+            (base_time + timedelta(minutes=i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for i in range(int(raw_df.shape[0]))
+        ]
+        out = raw_df[feature_cols + ["y"]].copy()
+        out.insert(0, "event_time", event_times)
+        out.insert(0, "patient_id", patient_ids)
+        frames.append(out[["patient_id", "event_time", "y"] + feature_cols])
+        site_summary["status"] = "included"
+        metadata["sites"].append(site_summary)
+
+    if not frames:
+        metadata["status"] = "empty"
+        metadata["reason"] = "no_site_passed_selection"
+        return None, metadata
+    merged = pd.concat(frames, axis=0, ignore_index=True)
+    if "y" not in merged.columns or merged["y"].nunique() < 2:
+        metadata["status"] = "invalid"
+        metadata["reason"] = "insufficient_label_variation"
+        return None, metadata
+    metadata["status"] = "ok"
+    metadata["summary"] = summarize_split_frame(merged)
+    return merged, metadata
+
+
 def load_breast_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
     feature_cols = [
         "radius_mean",
@@ -631,14 +745,54 @@ def split_external_pool(
     split_seed_override: Optional[int] = None,
     min_rows_per_cohort: int = 20,
     min_positive_per_cohort: int = 3,
+    external_institution_override: Optional[pd.DataFrame] = None,
+    external_institution_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     if external_df.empty:
         raise ValueError("External pool is empty.")
+
+    def cohort_ok(df_part: pd.DataFrame) -> bool:
+        rows = int(len(df_part))
+        events = int(pd.to_numeric(df_part["y"], errors="coerce").fillna(0).astype(int).sum())
+        non_events = int(rows - events)
+        return rows >= int(min_rows_per_cohort) and events >= int(min_positive_per_cohort) and non_events >= int(min_positive_per_cohort)
+
+    split_seed = int(split_seed_override if split_seed_override is not None else SPLIT_RANDOM_SEED_BY_CASE.get(case_id, 20260224))
+    case_token = case_id.upper()
+    if isinstance(external_institution_override, pd.DataFrame) and not external_institution_override.empty:
+        left = external_df.copy().reset_index(drop=True)
+        right = external_institution_override.copy().reset_index(drop=True)
+
+        left["patient_id"] = [f"{case_token}_CP_{i:06d}" for i in range(int(left.shape[0]))]
+        right["patient_id"] = [f"{case_token}_CI_{i:06d}" for i in range(int(right.shape[0]))]
+
+        metadata = {
+            "strategy": "external_pool_plus_independent_institution",
+            "split_seed_initial": int(split_seed),
+            "split_seed_selected": int(split_seed),
+            "attempt_count": 1,
+            "fallback_used": False,
+            "stratification_keys": ["y"],
+            "risk_proxy_used": False,
+            "minimum_requirements": {
+                "min_rows_per_cohort": int(min_rows_per_cohort),
+                "min_positive_per_cohort": int(min_positive_per_cohort),
+            },
+            "cohorts": {
+                "cross_period": summarize_split_frame(left),
+                "cross_institution": summarize_split_frame(right),
+            },
+            "cross_institution_source": (
+                external_institution_metadata if isinstance(external_institution_metadata, dict) else {}
+            ),
+            "minimum_requirements_met": bool(cohort_ok(left) and cohort_ok(right)),
+        }
+        return left, right, metadata
+
     idx = external_df.index.to_numpy()
     y = external_df["y"].to_numpy()
     stratify_labels = y if len(set(y.tolist())) > 1 else None
     stratification_keys: List[str] = ["y"]
-    split_seed = int(split_seed_override if split_seed_override is not None else SPLIT_RANDOM_SEED_BY_CASE.get(case_id, 20260224))
 
     feature_cols = [c for c in external_df.columns if c not in {"patient_id", "event_time", "y"}]
     risk_proxy: Optional[pd.Series] = (
@@ -648,12 +802,6 @@ def split_external_pool(
     if strata_labels is not None:
         stratify_labels = strata_labels
         stratification_keys = strata_keys
-
-    def cohort_ok(df_part: pd.DataFrame) -> bool:
-        rows = int(len(df_part))
-        events = int(pd.to_numeric(df_part["y"], errors="coerce").fillna(0).astype(int).sum())
-        non_events = int(rows - events)
-        return rows >= int(min_rows_per_cohort) and events >= int(min_positive_per_cohort) and non_events >= int(min_positive_per_cohort)
 
     def split_balance_score(
         left_idx_raw: np.ndarray,
@@ -1091,6 +1239,8 @@ def evaluate_heart_seed_feasibility(
     workspace_root: Path,
     profile: Dict[str, str],
     run_tag: str,
+    external_institution_override: Optional[pd.DataFrame] = None,
+    external_institution_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     splits = split_with_temporal_order(df, feature_cols, case.case_id, split_seed_override=split_seed)
     external_pool = splits.get("external")
@@ -1102,6 +1252,8 @@ def evaluate_heart_seed_feasibility(
         split_seed_override=split_seed,
         min_rows_per_cohort=20,
         min_positive_per_cohort=3,
+        external_institution_override=external_institution_override,
+        external_institution_metadata=external_institution_metadata,
     )
 
     profile_id = str(profile.get("profile_id", "")).strip()
@@ -1431,6 +1583,12 @@ def search_heart_feasible_seed(
     if not raw_path.exists():
         raise FileNotFoundError(f"Raw dataset missing: {raw_path}")
     df, feature_cols = load_heart_dataset(raw_path)
+    external_institution_override, external_institution_metadata = load_heart_external_institution_pool(
+        case.case_id,
+        feature_cols,
+    )
+    if external_institution_override is None:
+        raise RuntimeError("Heart external institution pool unavailable after site-quality filtering.")
     profiles = get_stress_profiles(profile_set)
 
     workspace_parent = DATA_ROOT / "_stress_seed_workspace" / case.case_id
@@ -1450,6 +1608,8 @@ def search_heart_feasible_seed(
                 workspace_root=workspace_root,
                 profile=profile,
                 run_tag=run_tag,
+                external_institution_override=external_institution_override,
+                external_institution_metadata=external_institution_metadata,
             )
             candidate["profile_rank"] = int(profile_rank)
             candidates.append(candidate)
@@ -1611,12 +1771,23 @@ def prepare_case_artifacts(
     external_pool = splits.get("external")
     if not isinstance(external_pool, pd.DataFrame):
         raise RuntimeError("external split missing from split_with_temporal_order output.")
+    external_institution_override: Optional[pd.DataFrame] = None
+    external_institution_metadata: Dict[str, Any] = {}
+    if case.case_id == "uci-heart-disease":
+        external_institution_override, external_institution_metadata = load_heart_external_institution_pool(
+            case.case_id,
+            feature_cols,
+        )
+        if external_institution_override is None:
+            raise RuntimeError("Heart external institution pool unavailable after site-quality filtering.")
     external_period_df, external_institution_df, external_split_meta = split_external_pool(
         external_pool,
         case.case_id,
         split_seed_override=effective_split_seed,
         min_rows_per_cohort=20,
         min_positive_per_cohort=3,
+        external_institution_override=external_institution_override,
+        external_institution_metadata=external_institution_metadata,
     )
 
     case_root = DATA_ROOT / case.case_id
@@ -2191,8 +2362,18 @@ def main() -> int:
         heart_case = next((c for c in cases if c.case_id == "uci-heart-disease"), None)
         if heart_case is not None:
             try:
-                heart_df, _ = load_heart_dataset(RAW_ROOT / heart_case.raw_filename)
+                heart_df, heart_feature_cols = load_heart_dataset(RAW_ROOT / heart_case.raw_filename)
                 dataset_fingerprint = build_dataset_fingerprint(heart_df)
+                external_inst_df, external_inst_meta = load_heart_external_institution_pool(
+                    heart_case.case_id,
+                    heart_feature_cols,
+                )
+                dataset_fingerprint["external_institution"] = (
+                    build_dataset_fingerprint(external_inst_df)
+                    if isinstance(external_inst_df, pd.DataFrame) and not external_inst_df.empty
+                    else {"rows": 0, "events": 0, "sha256": "missing"}
+                )
+                dataset_fingerprint["external_institution_source"] = external_inst_meta
                 policy_contract = build_stress_contract_inputs(
                     case_id=heart_case.case_id,
                     profile_set=stress_profile_set,
@@ -2238,11 +2419,8 @@ def main() -> int:
                         if isinstance(cached_dataset_fingerprint, dict):
                             cache_contract_ok = bool(
                                 cache_contract_ok
-                                and str(cached_dataset_fingerprint.get("sha256", "")).strip()
-                                == str(dataset_fingerprint.get("sha256", "")).strip()
-                                and int(cached_dataset_fingerprint.get("rows", -1)) == int(dataset_fingerprint.get("rows", -1))
-                                and int(cached_dataset_fingerprint.get("events", -1))
-                                == int(dataset_fingerprint.get("events", -1))
+                                and canonical_json_sha256(cached_dataset_fingerprint)
+                                == canonical_json_sha256(dataset_fingerprint)
                             )
                         else:
                             cache_contract_ok = False
