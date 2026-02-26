@@ -382,6 +382,10 @@ If any step returns non-zero, stop and block claim release.
   - `--summary-file`
   - `--stress-seed-cache-file`
   - `--stress-selection-file`
+- Optional benchmark case switches:
+  - `--include-ckd-case` (UCI Chronic Kidney Disease)
+  - `--include-large-cases` (Diabetes130 large-cohort path)
+  - `--diabetes-target-mode {lt30,gt30,any}` and `--diabetes-max-rows`
 - Use `--run-tag` to bind all generated stress artifacts to a unique execution token.
 - Stress seed-search profile bundles are selected with `--stress-profile-set` (default `strict_v1`).
 - `stress_seed_search_report` v2 contract requires:
