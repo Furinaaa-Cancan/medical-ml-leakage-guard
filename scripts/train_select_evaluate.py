@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import math
+from itertools import product
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -17,7 +18,12 @@ import numpy as np
 import pandas as pd
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.base import BaseEstimator, clone
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import (
+    AdaBoostClassifier,
+    ExtraTreesClassifier,
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
 from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
@@ -25,6 +31,40 @@ from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_s
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+
+try:
+    from xgboost import XGBClassifier  # type: ignore
+except Exception:
+    XGBClassifier = None  # type: ignore
+
+try:
+    from catboost import CatBoostClassifier  # type: ignore
+except Exception:
+    CatBoostClassifier = None  # type: ignore
+
+
+SUPPORTED_MODEL_FAMILIES = {
+    "logistic_l1",
+    "logistic_l2",
+    "logistic_elasticnet",
+    "random_forest_balanced",
+    "extra_trees_balanced",
+    "hist_gradient_boosting_l2",
+    "adaboost",
+    "xgboost",
+    "catboost",
+}
+
+MODEL_ALIASES = {
+    "lr_l1": "logistic_l1",
+    "lr_l2": "logistic_l2",
+    "lr_en": "logistic_elasticnet",
+    "rf": "random_forest_balanced",
+    "extra_trees": "extra_trees_balanced",
+    "hgb": "hist_gradient_boosting_l2",
+    "xgb": "xgboost",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +86,38 @@ def parse_args() -> argparse.Namespace:
         help="Probability calibration method fit on leakage-safe split.",
     )
     parser.add_argument("--cv-splits", type=int, default=5, help="CV folds for candidate scoring.")
+    parser.add_argument(
+        "--model-pool",
+        default="",
+        help=(
+            "Comma-separated model families. Supported: "
+            "logistic_l1,logistic_l2,logistic_elasticnet,random_forest_balanced,"
+            "extra_trees_balanced,hist_gradient_boosting_l2,adaboost,xgboost,catboost."
+        ),
+    )
+    parser.add_argument(
+        "--include-optional-models",
+        action="store_true",
+        help="Append optional backends (xgboost/catboost) when installed.",
+    )
+    parser.add_argument(
+        "--max-trials-per-family",
+        type=int,
+        default=1,
+        help="Maximum hyperparameter candidates per model family.",
+    )
+    parser.add_argument(
+        "--hyperparam-search",
+        default="fixed_grid",
+        choices=["random_subsample", "fixed_grid"],
+        help="Candidate search strategy within each family.",
+    )
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=-1,
+        help="Parallel CPU workers for multi-core estimators (e.g., RF/XGBoost).",
+    )
     parser.add_argument("--beta", type=float, default=2.0, help="Beta for F-beta threshold objective.")
     parser.add_argument("--sensitivity-floor", type=float, default=0.85, help="Minimum sensitivity for threshold choice.")
     parser.add_argument("--npv-floor", type=float, default=0.90, help="Minimum NPV for threshold choice.")
@@ -147,6 +219,116 @@ def parse_seed_list(raw: str, default_seed: int) -> List[int]:
     if not seeds:
         seeds = [int(default_seed)]
     return seeds
+
+
+def _model_tokens_from_raw(raw: Any) -> List[str]:
+    if isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",")]
+    elif isinstance(raw, list):
+        items = [str(part).strip() for part in raw]
+    else:
+        return []
+    return [item for item in items if item]
+
+
+def canonical_model_name(token: str) -> str:
+    key = str(token).strip().lower().replace("-", "_")
+    return MODEL_ALIASES.get(key, key)
+
+
+def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) -> Dict[str, Any]:
+    default_models = [
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "hist_gradient_boosting_l2",
+    ]
+    model_block = policy.get("model_pool") if isinstance(policy, dict) else None
+    policy_models: List[str] = []
+    policy_required_models: List[str] = []
+    policy_include_optional = False
+    policy_max_trials: Optional[int] = None
+    policy_search: Optional[str] = None
+    policy_n_jobs: Optional[int] = None
+
+    if isinstance(model_block, dict):
+        policy_models = _model_tokens_from_raw(model_block.get("models"))
+        policy_required_models = _model_tokens_from_raw(model_block.get("required_models"))
+        policy_include_optional = bool(model_block.get("include_optional_models", False))
+        if isinstance(model_block.get("max_trials_per_family"), int):
+            policy_max_trials = int(model_block["max_trials_per_family"])
+        token = str(model_block.get("search_strategy", "")).strip().lower()
+        if token in {"random_subsample", "fixed_grid"}:
+            policy_search = token
+        if isinstance(model_block.get("n_jobs"), int):
+            policy_n_jobs = int(model_block["n_jobs"])
+    elif isinstance(model_block, list):
+        policy_models = _model_tokens_from_raw(model_block)
+
+    cli_models = _model_tokens_from_raw(args.model_pool)
+    cli_model_pool_provided = bool(cli_models)
+    policy_model_pool_provided = bool(policy_models)
+    selected_tokens = cli_models or policy_models or list(default_models)
+    include_optional = bool(args.include_optional_models or policy_include_optional)
+    if include_optional:
+        selected_tokens.extend(["xgboost", "catboost"])
+
+    normalized: List[str] = []
+    for token in selected_tokens:
+        name = canonical_model_name(token)
+        if name not in SUPPORTED_MODEL_FAMILIES:
+            raise SystemExit(f"Unsupported model family in model-pool: {token}")
+        if name not in normalized:
+            normalized.append(name)
+
+    required_tokens = policy_required_models or ["logistic_l2"]
+    auto_added_required: List[str] = []
+    for token in required_tokens:
+        name = canonical_model_name(token)
+        if name not in SUPPORTED_MODEL_FAMILIES:
+            raise SystemExit(f"Unsupported required model family in performance policy: {token}")
+        if name not in normalized:
+            normalized.append(name)
+            auto_added_required.append(name)
+
+    search_strategy = (
+        str(policy_search).strip().lower()
+        if isinstance(policy_search, str) and policy_search
+        else str(args.hyperparam_search).strip().lower()
+    )
+    if search_strategy not in {"random_subsample", "fixed_grid"}:
+        search_strategy = "random_subsample"
+
+    max_trials_per_family = (
+        int(policy_max_trials)
+        if isinstance(policy_max_trials, int)
+        else int(args.max_trials_per_family)
+    )
+    if max_trials_per_family < 1:
+        max_trials_per_family = 1
+
+    n_jobs = int(policy_n_jobs) if isinstance(policy_n_jobs, int) else int(args.n_jobs)
+    if n_jobs == 0:
+        n_jobs = 1
+
+    return {
+        "model_pool": normalized,
+        "required_models": [canonical_model_name(t) for t in required_tokens],
+        "auto_added_required_models": auto_added_required,
+        "include_optional_models": include_optional,
+        "cli_model_pool_provided": cli_model_pool_provided,
+        "policy_model_pool_provided": policy_model_pool_provided,
+        "cli_models": [canonical_model_name(t) for t in cli_models],
+        "policy_models": [canonical_model_name(t) for t in policy_models],
+        "max_trials_per_family": int(max_trials_per_family),
+        "search_strategy": search_strategy,
+        "n_jobs": int(n_jobs),
+        "optional_backends": {
+            "xgboost_available": bool(XGBClassifier is not None),
+            "catboost_available": bool(CatBoostClassifier is not None),
+        },
+    }
 
 
 def load_split(path: str) -> pd.DataFrame:
@@ -394,118 +576,590 @@ def build_imputer(imputation_strategy: str, seed: int) -> BaseEstimator:
     return SimpleImputer(strategy="median", add_indicator=True)
 
 
-def build_candidates(seed: int, imputation_strategy: str, class_weight: Optional[str]) -> List[Dict[str, Any]]:
-    return [
-        {
-            "model_id": "logistic_l1",
-            "family": "logistic_regression",
-            "complexity_rank": 1,
-            "estimator": Pipeline(
-                steps=[
-                    ("imputer", build_imputer(imputation_strategy, seed)),
-                    ("scaler", StandardScaler()),
-                    (
-                        "clf",
-                        LogisticRegression(
-                            penalty="l1",
-                            max_iter=5000,
-                            solver="liblinear",
-                            C=0.3,
-                            class_weight=class_weight,
-                            random_state=seed,
-                        ),
+def _deterministic_family_rng_seed(base_seed: int, family: str) -> int:
+    digest = hashlib.sha256(f"{family}|{int(base_seed)}".encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
+
+
+def _sample_family_params(
+    family: str,
+    grid: List[Dict[str, Any]],
+    max_trials: int,
+    strategy: str,
+    sampling_seed: int,
+) -> List[Dict[str, Any]]:
+    if not grid:
+        return []
+    if len(grid) <= max_trials:
+        return list(grid)
+    if strategy == "fixed_grid":
+        return list(grid[:max_trials])
+    rng = np.random.default_rng(_deterministic_family_rng_seed(sampling_seed, family))
+    chosen_idx = rng.choice(np.arange(len(grid)), size=int(max_trials), replace=False)
+    selected = [grid[int(idx)] for idx in sorted(chosen_idx.tolist())]
+    return selected
+
+
+def _family_grid(family: str) -> List[Dict[str, Any]]:
+    if family == "logistic_l1":
+        return [{"C": c} for c in [0.3, 0.1, 0.03, 1.0, 3.0]]
+    if family == "logistic_l2":
+        return [{"C": c} for c in [1.0, 0.3, 0.1, 0.03, 3.0]]
+    if family == "logistic_elasticnet":
+        seed_first = [{"C": 0.8, "l1_ratio": 0.5}]
+        rest = [
+            {"C": c, "l1_ratio": l1_ratio}
+            for c, l1_ratio in product([0.1, 0.3, 1.5, 0.05], [0.2, 0.5, 0.8])
+            if not (float(c) == 0.8 and float(l1_ratio) == 0.5)
+        ]
+        return seed_first + rest
+    if family == "random_forest_balanced":
+        seed_first = [
+            {
+                "n_estimators": 200,
+                "max_depth": 4,
+                "min_samples_split": 20,
+                "min_samples_leaf": 10,
+                "max_features": "sqrt",
+            }
+        ]
+        rest = [
+            {
+                "n_estimators": n_estimators,
+                "max_depth": max_depth,
+                "min_samples_split": min_samples_split,
+                "min_samples_leaf": min_samples_leaf,
+                "max_features": max_features,
+            }
+            for n_estimators, max_depth, min_samples_split, min_samples_leaf, max_features in product(
+                [200, 400, 700],
+                [4, 6, 9],
+                [10, 20],
+                [5, 10, 20],
+                ["sqrt", 0.6],
+            )
+            if not (
+                int(n_estimators) == 200
+                and int(max_depth) == 4
+                and int(min_samples_split) == 20
+                and int(min_samples_leaf) == 10
+                and str(max_features) == "sqrt"
+            )
+        ]
+        return seed_first + rest
+    if family == "extra_trees_balanced":
+        return [
+            {
+                "n_estimators": n_estimators,
+                "max_depth": max_depth,
+                "min_samples_split": min_samples_split,
+                "min_samples_leaf": min_samples_leaf,
+                "max_features": max_features,
+            }
+            for n_estimators, max_depth, min_samples_split, min_samples_leaf, max_features in product(
+                [200, 400, 700],
+                [5, 8, None],
+                [8, 16],
+                [4, 8, 16],
+                ["sqrt", 0.7],
+            )
+        ]
+    if family == "hist_gradient_boosting_l2":
+        seed_first = [
+            {
+                "learning_rate": 0.03,
+                "max_depth": 3,
+                "max_iter": 180,
+                "l2_regularization": 5.0,
+                "min_samples_leaf": 20,
+            }
+        ]
+        rest = [
+            {
+                "learning_rate": learning_rate,
+                "max_depth": max_depth,
+                "max_iter": max_iter,
+                "l2_regularization": l2_regularization,
+                "min_samples_leaf": min_samples_leaf,
+            }
+            for learning_rate, max_depth, max_iter, l2_regularization, min_samples_leaf in product(
+                [0.02, 0.03, 0.05, 0.08],
+                [2, 3, 4],
+                [120, 180, 260, 360],
+                [1.0, 5.0, 10.0],
+                [20, 40],
+            )
+            if not (
+                abs(float(learning_rate) - 0.03) <= 1e-12
+                and int(max_depth) == 3
+                and int(max_iter) == 180
+                and abs(float(l2_regularization) - 5.0) <= 1e-12
+                and int(min_samples_leaf) == 20
+            )
+        ]
+        return seed_first + rest
+    if family == "adaboost":
+        return [
+            {"n_estimators": n_estimators, "learning_rate": learning_rate, "max_depth": max_depth}
+            for n_estimators, learning_rate, max_depth in product(
+                [80, 150, 250, 400],
+                [0.03, 0.1, 0.3, 0.6],
+                [1, 2],
+            )
+        ]
+    if family == "xgboost":
+        return [
+            {
+                "n_estimators": n_estimators,
+                "max_depth": max_depth,
+                "learning_rate": learning_rate,
+                "subsample": subsample,
+                "colsample_bytree": colsample_bytree,
+                "reg_alpha": reg_alpha,
+                "reg_lambda": reg_lambda,
+            }
+            for n_estimators, max_depth, learning_rate, subsample, colsample_bytree, reg_alpha, reg_lambda in product(
+                [200, 400, 700],
+                [3, 4, 5],
+                [0.03, 0.05, 0.1],
+                [0.8, 1.0],
+                [0.7, 1.0],
+                [0.0, 0.5],
+                [1.0, 5.0],
+            )
+        ]
+    if family == "catboost":
+        return [
+            {
+                "iterations": iterations,
+                "depth": depth,
+                "learning_rate": learning_rate,
+                "l2_leaf_reg": l2_leaf_reg,
+                "border_count": border_count,
+            }
+            for iterations, depth, learning_rate, l2_leaf_reg, border_count in product(
+                [200, 400, 700],
+                [3, 4, 5],
+                [0.03, 0.05, 0.1],
+                [3.0, 8.0, 15.0],
+                [64, 128],
+            )
+        ]
+    raise ValueError(f"Unsupported family: {family}")
+
+
+def _family_base_complexity(family: str) -> int:
+    order = {
+        "logistic_l1": 1,
+        "logistic_l2": 2,
+        "logistic_elasticnet": 3,
+        "adaboost": 4,
+        "random_forest_balanced": 5,
+        "extra_trees_balanced": 6,
+        "hist_gradient_boosting_l2": 7,
+        "xgboost": 8,
+        "catboost": 9,
+    }
+    return int(order.get(family, 99))
+
+
+def _family_friendly_name(family: str) -> str:
+    return {
+        "logistic_l1": "logistic_regression",
+        "logistic_l2": "logistic_regression",
+        "logistic_elasticnet": "logistic_regression",
+        "random_forest_balanced": "random_forest",
+        "extra_trees_balanced": "extra_trees",
+        "hist_gradient_boosting_l2": "hist_gradient_boosting",
+        "adaboost": "adaboost",
+        "xgboost": "xgboost",
+        "catboost": "catboost",
+    }[family]
+
+
+def _candidate_complexity_rank(family: str, params: Dict[str, Any]) -> int:
+    base = 1000 * _family_base_complexity(family)
+    if family in {"logistic_l1", "logistic_l2"}:
+        return int(base + round(float(params.get("C", 1.0)) * 100))
+    if family == "logistic_elasticnet":
+        c = float(params.get("C", 1.0))
+        l1_ratio = float(params.get("l1_ratio", 0.5))
+        return int(base + round(100 * c + 50 * (1.0 - l1_ratio)))
+    if family in {"random_forest_balanced", "extra_trees_balanced"}:
+        max_depth = params.get("max_depth")
+        depth = 12 if max_depth is None else int(max_depth)
+        n_estimators = int(params.get("n_estimators", 200))
+        min_leaf = int(params.get("min_samples_leaf", 5))
+        return int(base + depth * 20 + (n_estimators // 20) - min_leaf)
+    if family == "hist_gradient_boosting_l2":
+        return int(
+            base
+            + int(params.get("max_depth", 3)) * 30
+            + int(params.get("max_iter", 180)) // 8
+            + int(50 * float(params.get("learning_rate", 0.05)))
+            - int(3 * float(params.get("l2_regularization", 5.0)))
+        )
+    if family == "adaboost":
+        return int(
+            base
+            + int(params.get("max_depth", 1)) * 35
+            + int(params.get("n_estimators", 200)) // 6
+            + int(120 * float(params.get("learning_rate", 0.1)))
+        )
+    if family == "xgboost":
+        return int(
+            base
+            + int(params.get("max_depth", 4)) * 35
+            + int(params.get("n_estimators", 200)) // 8
+            + int(150 * float(params.get("learning_rate", 0.05)))
+            - int(8 * float(params.get("reg_lambda", 1.0)))
+        )
+    if family == "catboost":
+        return int(
+            base
+            + int(params.get("depth", 4)) * 35
+            + int(params.get("iterations", 200)) // 8
+            + int(150 * float(params.get("learning_rate", 0.05)))
+            - int(6 * float(params.get("l2_leaf_reg", 3.0)))
+        )
+    return int(base + 999)
+
+
+def _regularization_profile(family: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    if family == "logistic_l1":
+        return {"type": "l1", "C": float(params["C"]), "target": "sparsity"}
+    if family == "logistic_l2":
+        return {"type": "l2", "C": float(params["C"]), "target": "coefficient_shrinkage"}
+    if family == "logistic_elasticnet":
+        return {
+            "type": "elasticnet",
+            "C": float(params["C"]),
+            "l1_ratio": float(params["l1_ratio"]),
+            "target": "sparsity_plus_shrinkage",
+        }
+    if family in {"random_forest_balanced", "extra_trees_balanced"}:
+        return {
+            "type": "tree_complexity",
+            "max_depth": params.get("max_depth"),
+            "min_samples_leaf": int(params["min_samples_leaf"]),
+            "min_samples_split": int(params["min_samples_split"]),
+        }
+    if family == "hist_gradient_boosting_l2":
+        return {
+            "type": "boosting_l2",
+            "l2_regularization": float(params["l2_regularization"]),
+            "max_depth": int(params["max_depth"]),
+            "learning_rate": float(params["learning_rate"]),
+        }
+    if family == "adaboost":
+        return {
+            "type": "boosting_shrinkage",
+            "learning_rate": float(params["learning_rate"]),
+            "weak_learner_max_depth": int(params["max_depth"]),
+        }
+    if family == "xgboost":
+        return {
+            "type": "xgboost_regularization",
+            "reg_alpha": float(params["reg_alpha"]),
+            "reg_lambda": float(params["reg_lambda"]),
+            "max_depth": int(params["max_depth"]),
+        }
+    if family == "catboost":
+        return {
+            "type": "catboost_regularization",
+            "l2_leaf_reg": float(params["l2_leaf_reg"]),
+            "depth": int(params["depth"]),
+        }
+    return {"type": "unknown"}
+
+
+def _build_adaboost_classifier(
+    seed: int,
+    class_weight: Optional[str],
+    n_estimators: int,
+    learning_rate: float,
+    max_depth: int,
+) -> AdaBoostClassifier:
+    weak_learner = DecisionTreeClassifier(
+        max_depth=int(max_depth),
+        min_samples_leaf=10,
+        class_weight=class_weight,
+        random_state=seed,
+    )
+    try:
+        return AdaBoostClassifier(
+            estimator=weak_learner,
+            n_estimators=int(n_estimators),
+            learning_rate=float(learning_rate),
+            random_state=seed,
+        )
+    except TypeError:
+        return AdaBoostClassifier(
+            base_estimator=weak_learner,  # type: ignore[arg-type]
+            n_estimators=int(n_estimators),
+            learning_rate=float(learning_rate),
+            random_state=seed,
+        )
+
+
+def _build_estimator_for_family(
+    family: str,
+    params: Dict[str, Any],
+    seed: int,
+    imputation_strategy: str,
+    class_weight: Optional[str],
+    n_jobs: int,
+) -> BaseEstimator:
+    imputer = build_imputer(imputation_strategy, seed)
+    if family == "logistic_l1":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    LogisticRegression(
+                        penalty="l1",
+                        solver="liblinear",
+                        C=float(params["C"]),
+                        max_iter=6000,
+                        class_weight=class_weight,
+                        random_state=seed,
                     ),
-                ]
-            ),
-        },
-        {
-            "model_id": "logistic_l2",
-            "family": "logistic_regression",
-            "complexity_rank": 2,
-            "estimator": Pipeline(
-                steps=[
-                    ("imputer", build_imputer(imputation_strategy, seed)),
-                    ("scaler", StandardScaler()),
-                    (
-                        "clf",
-                        LogisticRegression(
-                            penalty="l2",
-                            max_iter=5000,
-                            solver="liblinear",
-                            C=1.0,
-                            class_weight=class_weight,
-                            random_state=seed,
-                        ),
+                ),
+            ]
+        )
+    if family == "logistic_l2":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    LogisticRegression(
+                        penalty="l2",
+                        solver="liblinear",
+                        C=float(params["C"]),
+                        max_iter=6000,
+                        class_weight=class_weight,
+                        random_state=seed,
                     ),
-                ]
-            ),
-        },
-        {
-            "model_id": "logistic_elasticnet",
-            "family": "logistic_regression",
-            "complexity_rank": 3,
-            "estimator": Pipeline(
-                steps=[
-                    ("imputer", build_imputer(imputation_strategy, seed)),
-                    ("scaler", StandardScaler()),
-                    (
-                        "clf",
-                        LogisticRegression(
-                            penalty="elasticnet",
-                            l1_ratio=0.5,
-                            max_iter=6000,
-                            solver="saga",
-                            C=0.8,
-                            class_weight=class_weight,
-                            random_state=seed,
-                        ),
+                ),
+            ]
+        )
+    if family == "logistic_elasticnet":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    LogisticRegression(
+                        penalty="elasticnet",
+                        solver="saga",
+                        C=float(params["C"]),
+                        l1_ratio=float(params["l1_ratio"]),
+                        max_iter=8000,
+                        class_weight=class_weight,
+                        random_state=seed,
                     ),
-                ]
-            ),
-        },
-        {
-            "model_id": "random_forest_balanced",
-            "family": "random_forest",
-            "complexity_rank": 4,
-            "estimator": Pipeline(
-                steps=[
-                    ("imputer", build_imputer(imputation_strategy, seed)),
-                    (
-                        "clf",
-                        RandomForestClassifier(
-                            n_estimators=200,
-                            max_depth=4,
-                            min_samples_split=20,
-                            min_samples_leaf=10,
-                            class_weight=class_weight,
-                            random_state=seed,
-                            n_jobs=-1,
-                        ),
+                ),
+            ]
+        )
+    if family == "random_forest_balanced":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                (
+                    "clf",
+                    RandomForestClassifier(
+                        n_estimators=int(params["n_estimators"]),
+                        max_depth=params["max_depth"],
+                        min_samples_split=int(params["min_samples_split"]),
+                        min_samples_leaf=int(params["min_samples_leaf"]),
+                        max_features=params["max_features"],
+                        class_weight=class_weight,
+                        random_state=seed,
+                        n_jobs=n_jobs,
                     ),
-                ]
-            ),
-        },
-        {
-            "model_id": "hist_gradient_boosting_l2",
-            "family": "hist_gradient_boosting",
-            "complexity_rank": 5,
-            "estimator": Pipeline(
-                steps=[
-                    ("imputer", build_imputer(imputation_strategy, seed)),
-                    (
-                        "clf",
-                        HistGradientBoostingClassifier(
-                            learning_rate=0.03,
-                            max_depth=3,
-                            max_iter=180,
-                            l2_regularization=5.0,
-                            random_state=seed,
-                        ),
+                ),
+            ]
+        )
+    if family == "extra_trees_balanced":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                (
+                    "clf",
+                    ExtraTreesClassifier(
+                        n_estimators=int(params["n_estimators"]),
+                        max_depth=params["max_depth"],
+                        min_samples_split=int(params["min_samples_split"]),
+                        min_samples_leaf=int(params["min_samples_leaf"]),
+                        max_features=params["max_features"],
+                        class_weight=class_weight,
+                        random_state=seed,
+                        n_jobs=n_jobs,
                     ),
-                ]
-            ),
-        },
-    ]
+                ),
+            ]
+        )
+    if family == "hist_gradient_boosting_l2":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                (
+                    "clf",
+                    HistGradientBoostingClassifier(
+                        learning_rate=float(params["learning_rate"]),
+                        max_depth=int(params["max_depth"]),
+                        max_iter=int(params["max_iter"]),
+                        l2_regularization=float(params["l2_regularization"]),
+                        min_samples_leaf=int(params["min_samples_leaf"]),
+                        random_state=seed,
+                    ),
+                ),
+            ]
+        )
+    if family == "adaboost":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                (
+                    "clf",
+                    _build_adaboost_classifier(
+                        seed=seed,
+                        class_weight=class_weight,
+                        n_estimators=int(params["n_estimators"]),
+                        learning_rate=float(params["learning_rate"]),
+                        max_depth=int(params["max_depth"]),
+                    ),
+                ),
+            ]
+        )
+    if family == "xgboost":
+        if XGBClassifier is None:
+            raise RuntimeError("xgboost backend is not installed.")
+        clf = XGBClassifier(
+            objective="binary:logistic",
+            eval_metric="logloss",
+            n_estimators=int(params["n_estimators"]),
+            max_depth=int(params["max_depth"]),
+            learning_rate=float(params["learning_rate"]),
+            subsample=float(params["subsample"]),
+            colsample_bytree=float(params["colsample_bytree"]),
+            reg_alpha=float(params["reg_alpha"]),
+            reg_lambda=float(params["reg_lambda"]),
+            random_state=seed,
+            n_jobs=n_jobs,
+            tree_method="hist",
+            verbosity=0,
+        )
+        return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
+    if family == "catboost":
+        if CatBoostClassifier is None:
+            raise RuntimeError("catboost backend is not installed.")
+        kwargs: Dict[str, Any] = {
+            "loss_function": "Logloss",
+            "eval_metric": "AUC",
+            "iterations": int(params["iterations"]),
+            "depth": int(params["depth"]),
+            "learning_rate": float(params["learning_rate"]),
+            "l2_leaf_reg": float(params["l2_leaf_reg"]),
+            "border_count": int(params["border_count"]),
+            "random_seed": seed,
+            "verbose": False,
+            "allow_writing_files": False,
+            "thread_count": int(n_jobs),
+        }
+        if class_weight == "balanced":
+            kwargs["auto_class_weights"] = "Balanced"
+        clf = CatBoostClassifier(**kwargs)
+        return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
+    raise ValueError(f"Unsupported family: {family}")
+
+
+def build_candidates(
+    seed: int,
+    sampling_seed: int,
+    imputation_strategy: str,
+    class_weight: Optional[str],
+    model_pool_config: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    requested_pool = [str(x) for x in model_pool_config.get("model_pool", []) if str(x).strip()]
+    max_trials = int(model_pool_config.get("max_trials_per_family", 1))
+    search_strategy = str(model_pool_config.get("search_strategy", "random_subsample")).strip().lower()
+    n_jobs = int(model_pool_config.get("n_jobs", -1))
+
+    unavailable: List[str] = []
+    candidates: List[Dict[str, Any]] = []
+    family_search_space: Dict[str, Any] = {}
+    explicit_cli_models = {str(x) for x in model_pool_config.get("cli_models", [])}
+
+    for family in requested_pool:
+        if family == "xgboost" and XGBClassifier is None:
+            unavailable.append(family)
+            if family in explicit_cli_models:
+                raise SystemExit("model_backend_unavailable: xgboost requested but package is not installed.")
+            continue
+        if family == "catboost" and CatBoostClassifier is None:
+            unavailable.append(family)
+            if family in explicit_cli_models:
+                raise SystemExit("model_backend_unavailable: catboost requested but package is not installed.")
+            continue
+
+        full_grid = _family_grid(family)
+        chosen_grid = _sample_family_params(
+            family=family,
+            grid=full_grid,
+            max_trials=max_trials,
+            strategy=search_strategy,
+            sampling_seed=sampling_seed,
+        )
+        family_search_space[family] = {
+            "total_configurations": int(len(full_grid)),
+            "sampled_trials": int(len(chosen_grid)),
+            "max_trials_per_family": int(max_trials),
+            "search_strategy": search_strategy,
+        }
+        for trial_idx, params in enumerate(chosen_grid, start=1):
+            estimator = _build_estimator_for_family(
+                family=family,
+                params=params,
+                seed=seed,
+                imputation_strategy=imputation_strategy,
+                class_weight=class_weight,
+                n_jobs=n_jobs,
+            )
+            signature = json.dumps(params, sort_keys=True, separators=(",", ":"))
+            model_id = f"{family}__t{trial_idx:02d}_{hashlib.sha256(signature.encode('utf-8')).hexdigest()[:8]}"
+            candidates.append(
+                {
+                    "model_id": model_id,
+                    "base_model_id": family,
+                    "family": _family_friendly_name(family),
+                    "complexity_rank": _candidate_complexity_rank(family, params),
+                    "hyperparameters": params,
+                    "regularization_profile": _regularization_profile(family, params),
+                    "estimator": estimator,
+                    "search_meta": {
+                        "trial_index": int(trial_idx),
+                        "family_total_configurations": int(len(full_grid)),
+                        "family_sampled_trials": int(len(chosen_grid)),
+                        "search_strategy": search_strategy,
+                    },
+                }
+            )
+
+    metadata = {
+        "requested_model_pool": requested_pool,
+        "unavailable_models": unavailable,
+        "family_search_space": family_search_space,
+        "n_jobs": int(n_jobs),
+        "max_trials_per_family": int(max_trials),
+        "search_strategy": search_strategy,
+    }
+    return candidates, metadata
 
 
 def predict_proba_1(estimator: BaseEstimator, X: pd.DataFrame) -> np.ndarray:
@@ -1535,6 +2189,7 @@ def main() -> int:
     token_top = str(policy.get("calibration_fit_split", calibration_fit_split)).strip().lower()
     if token_top in {"valid", "cv_inner"}:
         calibration_fit_split = token_top
+    model_pool_config = parse_model_pool_config(policy, args)
     if args.feature_engineering_report_out and not args.feature_group_spec:
         raise SystemExit("--feature-group-spec is required when --feature-engineering-report-out is used.")
 
@@ -1608,11 +2263,18 @@ def main() -> int:
     imbalance_ratio = (float(majority_count) / float(minority_count)) if minority_count > 0 else float("inf")
     effective_class_weight: Optional[str] = "balanced" if imbalance_ratio >= 1.5 else None
 
-    candidates = build_candidates(
-        args.random_seed,
-        str(imputation["executed_strategy"]),
+    candidates, candidate_space_meta = build_candidates(
+        seed=int(args.random_seed),
+        sampling_seed=int(args.random_seed),
+        imputation_strategy=str(imputation["executed_strategy"]),
         class_weight=effective_class_weight,
+        model_pool_config=model_pool_config,
     )
+    if len(candidates) < 3:
+        raise SystemExit(
+            "candidate_pool_too_small: candidate pool must contain >=3 models; "
+            "expand --model-pool or increase --max-trials-per-family."
+        )
     candidate_rows: List[Dict[str, Any]] = []
     for cand in candidates:
         if selection_data == "cv_inner":
@@ -1630,8 +2292,12 @@ def main() -> int:
         candidate_rows.append(
             {
                 "model_id": cand["model_id"],
+                "base_model_id": cand["base_model_id"],
                 "family": cand["family"],
                 "complexity_rank": cand["complexity_rank"],
+                "hyperparameters": cand["hyperparameters"],
+                "regularization_profile": cand["regularization_profile"],
+                "search_meta": cand["search_meta"],
                 "selection_metrics": {
                     "pr_auc": {
                         "mean": mean_score,
@@ -1659,6 +2325,7 @@ def main() -> int:
     selected_model_id = str(trace["chosen_model_id"])
     for row in candidate_rows:
         row["selected"] = bool(row["model_id"] == selected_model_id)
+    selected_candidate_row = next((row for row in candidate_rows if bool(row.get("selected"))), None)
 
     estimator_map = {cand["model_id"]: cand["estimator"] for cand in candidates}
     selected_estimator = clone(estimator_map[selected_model_id])
@@ -1808,11 +2475,24 @@ def main() -> int:
             "one_se_rule": True,
             "complexity_tie_breaker": "prefer_lower_complexity_rank",
             "test_used_for_model_selection": False,
+            "model_pool": list(model_pool_config.get("model_pool", [])),
+            "required_models": list(model_pool_config.get("required_models", [])),
+            "auto_added_required_models": list(model_pool_config.get("auto_added_required_models", [])),
+            "hyperparameter_tuning": {
+                "strategy": str(model_pool_config.get("search_strategy", "random_subsample")),
+                "max_trials_per_family": int(model_pool_config.get("max_trials_per_family", 1)),
+                "sampling_seed": int(args.random_seed),
+                "n_jobs": int(model_pool_config.get("n_jobs", -1)),
+            },
         },
         "candidate_count": len(candidate_rows),
         "candidates": candidate_rows,
         "selection_trace": trace,
         "selected_model_id": selected_model_id,
+        "selected_model_family": (selected_candidate_row or {}).get("base_model_id"),
+        "selected_model_hyperparameters": (selected_candidate_row or {}).get("hyperparameters"),
+        "selected_model_regularization_profile": (selected_candidate_row or {}).get("regularization_profile"),
+        "candidate_space": candidate_space_meta,
         "data_fingerprints": split_fingerprints,
         "imputation": imputation,
         "feature_engineering": {
@@ -1905,6 +2585,31 @@ def main() -> int:
             "beta": beta,
             "selection_data": selection_data,
             "threshold_selection_split": threshold_selection_split,
+            "model_pool": {
+                "requested": list(model_pool_config.get("model_pool", [])),
+                "candidate_count": int(len(candidate_rows)),
+                "max_trials_per_family": int(model_pool_config.get("max_trials_per_family", 1)),
+                "search_strategy": str(model_pool_config.get("search_strategy", "random_subsample")),
+                "n_jobs": int(model_pool_config.get("n_jobs", -1)),
+                "optional_backends": model_pool_config.get("optional_backends", {}),
+                "unavailable_models": candidate_space_meta.get("unavailable_models", []),
+            },
+            "selected_model": {
+                "model_id": selected_model_id,
+                "base_model_id": (selected_candidate_row or {}).get("base_model_id"),
+                "family": (selected_candidate_row or {}).get("family"),
+                "hyperparameters": (selected_candidate_row or {}).get("hyperparameters"),
+                "regularization_profile": (selected_candidate_row or {}).get("regularization_profile"),
+            },
+            "overfitting_controls": {
+                "one_se_rule": True,
+                "complexity_tie_breaker": "prefer_lower_complexity_rank",
+                "selection_data": selection_data,
+                "threshold_selection_split": threshold_selection_split,
+                "threshold_guard_split": "valid" if threshold_selection_split == "cv_inner" else "cv_inner_oof_train",
+                "regularization_enabled": True,
+                "class_weight": effective_class_weight if effective_class_weight is not None else "none",
+            },
             "calibration": {
                 "method": calibration_method,
                 "fit_split": calibration_fit_split,
@@ -2254,10 +2959,12 @@ def main() -> int:
         seed_list = parse_seed_list(args.seed_sensitivity_seeds, default_seed=args.random_seed)
         seed_results: List[Dict[str, Any]] = []
         for seed in seed_list:
-            seed_candidates = build_candidates(
-                seed,
-                str(imputation["executed_strategy"]),
+            seed_candidates, _ = build_candidates(
+                seed=int(seed),
+                sampling_seed=int(args.random_seed),
+                imputation_strategy=str(imputation["executed_strategy"]),
                 class_weight=effective_class_weight,
+                model_pool_config=model_pool_config,
             )
             seed_estimator_map = {cand["model_id"]: cand["estimator"] for cand in seed_candidates}
             if selected_model_id not in seed_estimator_map:

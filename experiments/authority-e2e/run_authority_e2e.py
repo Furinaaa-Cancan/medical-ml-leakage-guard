@@ -801,6 +801,54 @@ def load_ckd_dataset(
     return out[feature_cols + ["y"]].reset_index(drop=True), feature_cols
 
 
+def normalize_categorical_token(series: pd.Series) -> pd.Series:
+    token = series.astype(str).str.strip().str.lower()
+    token = token.replace(
+        {
+            "": np.nan,
+            "?": np.nan,
+            "none": np.nan,
+            "null": np.nan,
+            "nan": np.nan,
+            "unknown/invalid": np.nan,
+        }
+    )
+    return token
+
+
+def icd9_bucket(value: Any) -> str:
+    if value is None:
+        return "unknown"
+    token = str(value).strip().upper().replace(" ", "")
+    if token in {"", "?", "NAN", "NONE", "NULL"}:
+        return "unknown"
+    if token.startswith("V"):
+        return "supplemental_v"
+    if token.startswith("E"):
+        return "external_e"
+    try:
+        code = float(token)
+    except Exception:
+        return "other"
+    if 250.0 <= code < 251.0:
+        return "diabetes"
+    if (390.0 <= code <= 459.0) or (int(code) == 785):
+        return "circulatory"
+    if (460.0 <= code <= 519.0) or (int(code) == 786):
+        return "respiratory"
+    if (520.0 <= code <= 579.0) or (int(code) == 787):
+        return "digestive"
+    if (580.0 <= code <= 629.0) or (int(code) == 788):
+        return "genitourinary"
+    if 140.0 <= code <= 239.0:
+        return "neoplasms"
+    if 710.0 <= code <= 739.0:
+        return "musculoskeletal"
+    if 800.0 <= code <= 999.0:
+        return "injury"
+    return "other"
+
+
 def load_diabetes_130_dataset(
     raw_path: Path,
     max_rows: Optional[int] = DEFAULT_DIABETES_MAX_ROWS,
@@ -847,6 +895,104 @@ def load_diabetes_130_dataset(
         df = df.loc[np.asarray(sampled_idx)].copy()
 
     drop_cols = {"readmitted", "encounter_id", "patient_nbr", "_encounter_num", "_patient_raw", "y"}
+    base_feature_cols: List[str] = [c for c in df.columns if c not in drop_cols]
+    engineered = pd.DataFrame(index=df.index)
+
+    diag_cols = [c for c in ("diag_1", "diag_2", "diag_3") if c in df.columns]
+    diabetes_diag_flags: List[pd.Series] = []
+    chronic_diag_flags: List[pd.Series] = []
+    for col in diag_cols:
+        bucket = df[col].map(icd9_bucket)
+        engineered[f"{col}_bucket"] = bucket
+        is_diabetes = (bucket == "diabetes").astype(float)
+        is_chronic = bucket.isin({"diabetes", "circulatory", "genitourinary", "neoplasms"}).astype(float)
+        engineered[f"{col}_is_diabetes"] = is_diabetes
+        engineered[f"{col}_is_major_chronic"] = is_chronic
+        diabetes_diag_flags.append(is_diabetes)
+        chronic_diag_flags.append(is_chronic)
+    if diabetes_diag_flags:
+        engineered["diag_diabetes_count"] = np.sum(np.column_stack(diabetes_diag_flags), axis=1).astype(float)
+    if chronic_diag_flags:
+        engineered["diag_major_chronic_count"] = np.sum(np.column_stack(chronic_diag_flags), axis=1).astype(float)
+
+    medication_cols = [
+        "metformin",
+        "repaglinide",
+        "nateglinide",
+        "chlorpropamide",
+        "glimepiride",
+        "acetohexamide",
+        "glipizide",
+        "glyburide",
+        "tolbutamide",
+        "pioglitazone",
+        "rosiglitazone",
+        "acarbose",
+        "miglitol",
+        "troglitazone",
+        "tolazamide",
+        "examide",
+        "citoglipton",
+        "insulin",
+        "glyburide-metformin",
+        "glipizide-metformin",
+        "glimepiride-pioglitazone",
+        "metformin-rosiglitazone",
+        "metformin-pioglitazone",
+    ]
+    med_active_flags: List[pd.Series] = []
+    med_change_flags: List[pd.Series] = []
+    for col in medication_cols:
+        if col not in df.columns:
+            continue
+        token = normalize_categorical_token(df[col])
+        active = token.isin({"up", "down", "steady"}).astype(float)
+        changed = token.isin({"up", "down"}).astype(float)
+        med_active_flags.append(active)
+        med_change_flags.append(changed)
+        engineered[f"{col}_is_active"] = active
+        engineered[f"{col}_is_changed"] = changed
+    if med_active_flags:
+        engineered["med_active_count"] = np.sum(np.column_stack(med_active_flags), axis=1).astype(float)
+    if med_change_flags:
+        engineered["med_changed_count"] = np.sum(np.column_stack(med_change_flags), axis=1).astype(float)
+    if "insulin" in df.columns:
+        insulin_token = normalize_categorical_token(df["insulin"])
+        engineered["insulin_active"] = insulin_token.isin({"up", "down", "steady"}).astype(float)
+
+    if "A1Cresult" in df.columns:
+        a1c_token = normalize_categorical_token(df["A1Cresult"])
+        engineered["a1c_abnormal"] = a1c_token.isin({">7", ">8"}).astype(float)
+        engineered["a1c_measured"] = a1c_token.isin({">7", ">8", "norm"}).astype(float)
+    if "max_glu_serum" in df.columns:
+        glu_token = normalize_categorical_token(df["max_glu_serum"])
+        engineered["glu_abnormal"] = glu_token.isin({">200", ">300"}).astype(float)
+        engineered["glu_measured"] = glu_token.isin({">200", ">300", "norm"}).astype(float)
+
+    numeric_util_cols = [c for c in ("number_inpatient", "number_outpatient", "number_emergency") if c in df.columns]
+    util_parts: List[pd.Series] = []
+    for col in numeric_util_cols:
+        series = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        util_parts.append(series.astype(float))
+    if util_parts:
+        util_sum = np.sum(np.column_stack(util_parts), axis=1).astype(float)
+        engineered["total_prior_utilization"] = util_sum
+        engineered["total_prior_utilization_log1p"] = np.log1p(util_sum)
+
+    if "time_in_hospital" in df.columns:
+        los = pd.to_numeric(df["time_in_hospital"], errors="coerce").fillna(0.0).clip(lower=0.0)
+        los_safe = np.maximum(los.to_numpy(dtype=float), 1.0)
+        if "num_medications" in df.columns:
+            meds = pd.to_numeric(df["num_medications"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            engineered["medications_per_day"] = meds / los_safe
+        if "num_procedures" in df.columns:
+            procs = pd.to_numeric(df["num_procedures"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            engineered["procedures_per_day"] = procs / los_safe
+
+    if not engineered.empty:
+        for col in engineered.columns:
+            df[col] = engineered[col]
+
     feature_cols: List[str] = [c for c in df.columns if c not in drop_cols]
     encoded = pd.DataFrame(index=df.index)
     for col in feature_cols:
@@ -2105,13 +2251,21 @@ def prepare_case_artifacts(
     config_payload = {
         "dataset_case": case.case_id,
         "source_name": case.source_name,
-        "model_pool": [
-            "logistic_l1",
-            "logistic_l2",
-            "logistic_elasticnet",
-            "random_forest_balanced",
-            "hist_gradient_boosting_l2"
-        ],
+        "model_pool": {
+            "models": [
+                "logistic_l1",
+                "logistic_l2",
+                "logistic_elasticnet",
+                "random_forest_balanced",
+                "hist_gradient_boosting_l2"
+            ],
+            "required_models": [
+                "logistic_l2"
+            ],
+            "max_trials_per_family": 1,
+            "search_strategy": "fixed_grid",
+            "n_jobs": -1
+        },
         "selection_policy": "pr_auc + one_se + lower_complexity",
         "threshold_policy": "maximize_f2_beta_under_sensitivity_npv_specificity_ppv_floors",
         "random_seed": 20260224,
@@ -2312,13 +2466,23 @@ def prepare_case_artifacts(
     metrics = evaluation_report.get("metrics")
     if not isinstance(metrics, dict):
         raise RuntimeError("evaluation_report.metrics missing.")
+    eval_metadata = evaluation_report.get("metadata")
+    if not isinstance(eval_metadata, dict):
+        eval_metadata = {}
+    model_pool_meta = eval_metadata.get("model_pool")
+    if not isinstance(model_pool_meta, dict):
+        model_pool_meta = {}
+    requested_models = model_pool_meta.get("requested")
+    if not isinstance(requested_models, list):
+        requested_models = []
+    model_pool_text = ",".join([str(x) for x in requested_models]) if requested_models else "unknown"
     primary_metric = float(metrics.get("pr_auc"))
 
     train_log_path = evidence_dir / "train.log"
     train_log_lines = [
         f"[INFO] case={case.case_id}",
         f"[INFO] selected_model={selected_model_id}",
-        "[INFO] model_pool=logistic_l1,logistic_l2,logistic_elasticnet,random_forest_balanced,hist_gradient_boosting_l2",
+        f"[INFO] model_pool={model_pool_text}",
         f"[INFO] feature_count={len(feature_cols)}",
         f"[INFO] train_rows={len(splits['train'])}",
         f"[INFO] valid_rows={len(splits['valid'])}",

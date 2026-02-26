@@ -346,6 +346,8 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/publication_gate.py`: aggregate fail-closed publication gate.
 - `scripts/self_critique_gate.py`: quality scoring and reviewer-grade self-critique gate.
 - `scripts/train_select_evaluate.py`: terminal-ready training, model selection, threshold selection, and evaluation artifact generator.
+- `scripts/train_select_evaluate.py` model-pool controls: `--model-pool`, `--include-optional-models`, `--max-trials-per-family`, `--hyperparam-search`, `--n-jobs`.
+- `scripts/train_select_evaluate.py` optional model backends: `xgboost` and `catboost` are auto-detected and fail-closed when explicitly requested but unavailable.
 
 ### references/
 - `references/request-schema.example.json`: structured request template.

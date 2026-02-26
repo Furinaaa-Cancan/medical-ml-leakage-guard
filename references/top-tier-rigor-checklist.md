@@ -37,8 +37,10 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Tune hyperparameters using inner CV or validation only.
 - [ ] Select architecture without peeking at final test labels.
 - [ ] Keep candidate model pool >= 3 and include interpretable logistic baseline.
+- [ ] Declare model-pool policy explicitly (families, required baseline, max trials/family, search strategy, CPU parallelism).
 - [ ] Keep model-selection report and audit one-SE + simplicity replay.
 - [ ] Ensure strict publication-grade objective metric is PR-AUC.
+- [ ] Keep family-specific regularization evidence (L1/L2/ElasticNet or tree/boosting complexity penalties) in model selection artifacts.
 - [ ] Select threshold/calibration without final test outcomes.
 - [ ] Restrict threshold/calibration split to validation or inner-CV scopes (never train/test).
 - [ ] Record threshold feasibility with three explicit flags: selection split, guard split, and overall.

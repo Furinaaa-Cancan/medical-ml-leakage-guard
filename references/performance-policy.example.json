@@ -1,5 +1,21 @@
 {
   "primary_metric": "pr_auc",
+  "model_pool": {
+    "models": [
+      "logistic_l1",
+      "logistic_l2",
+      "logistic_elasticnet",
+      "random_forest_balanced",
+      "hist_gradient_boosting_l2"
+    ],
+    "required_models": [
+      "logistic_l2"
+    ],
+    "include_optional_models": false,
+    "max_trials_per_family": 1,
+    "search_strategy": "fixed_grid",
+    "n_jobs": -1
+  },
   "required_metrics": [
     "accuracy",
     "precision",

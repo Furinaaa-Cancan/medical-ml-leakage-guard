@@ -42,10 +42,12 @@
 
 ## 6. Modeling Pipeline
 - Candidate models and search space:
+- Model-pool policy (`models`, `required_models`, `max_trials_per_family`, `search_strategy`, `n_jobs`):
 - Model-selection evidence artifact (`model_selection_report.json`):
 - One-SE + simplicity replay result (`model_selection_audit_report.json`):
 - Preprocessing pipeline:
 - Hyperparameter optimization procedure:
+- Regularization/complexity controls by model family (L1/L2/ElasticNet/tree depth/L2 boosting penalties):
 - Calibration and threshold selection protocol:
 - Threshold constraint semantics (must report three fields): `constraints_satisfied_selection_split`, `constraints_satisfied_guard_split`, `constraints_satisfied_overall`.
 - If `selection_split=cv_inner`, publish guard-split constraint evidence and confirm `constraints_satisfied_guard_split=true`.
@@ -81,6 +83,7 @@
 
 ## 9. Main Results
 - Train vs valid vs test metric table (include gap columns):
+- Selected model and hyperparameters (with regularization profile):
 - Validation performance:
 - Final test performance:
 - Calibration results (ECE / slope / intercept on internal test + all external cohorts):
