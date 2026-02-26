@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -108,6 +110,39 @@ TRAINING_BUDGET_BY_CASE: Dict[str, Dict[str, int]] = {
         "ci_bootstrap_resamples": 400,
         "permutation_resamples": 100,
     }
+}
+MODEL_POOL_BY_CASE: Dict[str, List[str]] = {
+    "default": [
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "extra_trees_balanced",
+        "hist_gradient_boosting_l2",
+    ],
+    # Large heterogeneous cohort: expand model families and let search pick.
+    "uci-diabetes-130-readmission": [
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "extra_trees_balanced",
+        "hist_gradient_boosting_l2",
+        "adaboost",
+        "xgboost",
+    ],
+}
+MAX_TRIALS_PER_FAMILY_BY_CASE: Dict[str, int] = {
+    "default": 3,
+    "uci-diabetes-130-readmission": 6,
+}
+HYPERPARAM_SEARCH_BY_CASE: Dict[str, str] = {
+    "default": "random_subsample",
+    "uci-diabetes-130-readmission": "random_subsample",
+}
+N_JOBS_BY_CASE: Dict[str, int] = {
+    "default": 4,
+    "uci-diabetes-130-readmission": 8,
 }
 MISSINGNESS_MICE_MAX_ROWS_OVERRIDE_BY_CASE: Dict[str, int] = {
     # On larger cohorts, enforce scale-guard fallback to simple_with_indicator for runtime stability.
@@ -225,6 +260,52 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
 def parse_bool_env(name: str, default: bool = False) -> bool:
     token = str(os.environ.get(name, "1" if default else "0")).strip().lower()
     return token in {"1", "true", "yes", "on"}
+
+
+FAIL_LINE_RE = re.compile(r"^\[FAIL\]\s+([a-zA-Z0-9_]+)\s*:", re.MULTILINE)
+
+
+def module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+def resolve_case_model_pool(case_id: str) -> List[str]:
+    pool = list(MODEL_POOL_BY_CASE.get(case_id, MODEL_POOL_BY_CASE["default"]))
+    resolved: List[str] = []
+    for family in pool:
+        token = str(family).strip().lower()
+        if token == "xgboost" and not module_available("xgboost"):
+            continue
+        if token == "catboost" and not module_available("catboost"):
+            continue
+        if token:
+            resolved.append(token)
+    return resolved
+
+
+def extract_pipeline_root_failures(pipeline_report: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    failed_steps: List[str] = []
+    failure_codes: List[str] = []
+    for step in pipeline_report.get("steps", []):
+        if not isinstance(step, dict):
+            continue
+        try:
+            exit_code = int(step.get("exit_code", 0) or 0)
+        except Exception:
+            exit_code = 0
+        if exit_code == 0:
+            continue
+        step_name = str(step.get("name", "")).strip()
+        if step_name:
+            failed_steps.append(step_name)
+        stdout_tail = str(step.get("stdout_tail", "") or "")
+        failure_codes.extend(FAIL_LINE_RE.findall(stdout_tail))
+    dedup_steps = sorted(set(failed_steps))
+    dedup_codes = sorted(set(code.strip() for code in failure_codes if str(code).strip()))
+    return dedup_steps, dedup_codes
 
 
 def parse_args() -> argparse.Namespace:
@@ -2410,72 +2491,102 @@ def prepare_case_artifacts(
             },
         )
 
-    run_cmd(
-        [
-            sys.executable,
-            str(SCRIPTS_ROOT / "train_select_evaluate.py"),
-            "--train",
-            str(data_dir / "train.csv"),
-            "--valid",
-            str(data_dir / "valid.csv"),
-            "--test",
-            str(data_dir / "test.csv"),
-            "--target-col",
-            "y",
-            "--ignore-cols",
-            "patient_id,event_time",
-            "--performance-policy",
-            str(cfg_dir / "performance_policy.json"),
-            "--feature-group-spec",
-            str(cfg_dir / "feature_group_spec.json"),
-            "--missingness-policy",
-            str(cfg_dir / "missingness_policy.json"),
-            "--feature-engineering-mode",
-            "strict",
-            "--selection-data",
-            selection_data,
-            "--threshold-selection-split",
-            threshold_split,
-            "--primary-metric",
-            "pr_auc",
-            "--bootstrap-resamples",
-            str(bootstrap_resamples),
-            "--ci-bootstrap-resamples",
-            str(ci_bootstrap_resamples),
-            "--permutation-resamples",
-            str(permutation_resamples),
-            "--random-seed",
-            "20260224",
-            "--model-selection-report-out",
-            str(model_selection_report_path),
-            "--evaluation-report-out",
-            str(evaluation_report_path),
-            "--feature-engineering-report-out",
-            str(feature_engineering_report_path),
-            "--distribution-report-out",
-            str(distribution_report_path),
-            "--ci-matrix-report-out",
-            str(ci_matrix_report_path),
-            "--robustness-report-out",
-            str(robustness_report_path),
-            "--robustness-time-slices",
-            str(int(ROBUSTNESS_TIME_SLICES_BY_CASE.get(case.case_id, 2))),
-            "--robustness-group-count",
-            str(int(ROBUSTNESS_GROUP_COUNT_BY_CASE.get(case.case_id, 2))),
-            "--seed-sensitivity-out",
-            str(seed_sensitivity_report_path),
-            "--prediction-trace-out",
-            str(prediction_trace_path),
-            "--external-cohort-spec",
-            str(cfg_dir / "external_cohort_spec.json"),
-            "--external-validation-report-out",
-            str(external_validation_report_path),
-            "--model-out",
-            str(model_path),
-            "--permutation-null-out",
-            str(permutation_null_path),
-        ]
+    model_pool = resolve_case_model_pool(case.case_id)
+    max_trials_per_family = int(
+        MAX_TRIALS_PER_FAMILY_BY_CASE.get(
+            case.case_id,
+            MAX_TRIALS_PER_FAMILY_BY_CASE.get("default", 3),
+        )
     )
+    hyperparam_search = str(
+        HYPERPARAM_SEARCH_BY_CASE.get(
+            case.case_id,
+            HYPERPARAM_SEARCH_BY_CASE.get("default", "random_subsample"),
+        )
+    )
+    n_jobs = int(
+        N_JOBS_BY_CASE.get(
+            case.case_id,
+            N_JOBS_BY_CASE.get("default", 4),
+        )
+    )
+    cpu_cap = os.cpu_count() or n_jobs
+    n_jobs = max(1, min(n_jobs, int(cpu_cap)))
+
+    train_cmd = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "train_select_evaluate.py"),
+        "--train",
+        str(data_dir / "train.csv"),
+        "--valid",
+        str(data_dir / "valid.csv"),
+        "--test",
+        str(data_dir / "test.csv"),
+        "--target-col",
+        "y",
+        "--ignore-cols",
+        "patient_id,event_time",
+        "--performance-policy",
+        str(cfg_dir / "performance_policy.json"),
+        "--feature-group-spec",
+        str(cfg_dir / "feature_group_spec.json"),
+        "--missingness-policy",
+        str(cfg_dir / "missingness_policy.json"),
+        "--feature-engineering-mode",
+        "strict",
+        "--selection-data",
+        selection_data,
+        "--threshold-selection-split",
+        threshold_split,
+        "--primary-metric",
+        "pr_auc",
+        "--max-trials-per-family",
+        str(max_trials_per_family),
+        "--hyperparam-search",
+        hyperparam_search,
+        "--n-jobs",
+        str(n_jobs),
+        "--bootstrap-resamples",
+        str(bootstrap_resamples),
+        "--ci-bootstrap-resamples",
+        str(ci_bootstrap_resamples),
+        "--permutation-resamples",
+        str(permutation_resamples),
+        "--random-seed",
+        "20260224",
+        "--model-selection-report-out",
+        str(model_selection_report_path),
+        "--evaluation-report-out",
+        str(evaluation_report_path),
+        "--feature-engineering-report-out",
+        str(feature_engineering_report_path),
+        "--distribution-report-out",
+        str(distribution_report_path),
+        "--ci-matrix-report-out",
+        str(ci_matrix_report_path),
+        "--robustness-report-out",
+        str(robustness_report_path),
+        "--robustness-time-slices",
+        str(int(ROBUSTNESS_TIME_SLICES_BY_CASE.get(case.case_id, 2))),
+        "--robustness-group-count",
+        str(int(ROBUSTNESS_GROUP_COUNT_BY_CASE.get(case.case_id, 2))),
+        "--seed-sensitivity-out",
+        str(seed_sensitivity_report_path),
+        "--prediction-trace-out",
+        str(prediction_trace_path),
+        "--external-cohort-spec",
+        str(cfg_dir / "external_cohort_spec.json"),
+        "--external-validation-report-out",
+        str(external_validation_report_path),
+        "--model-out",
+        str(model_path),
+        "--permutation-null-out",
+        str(permutation_null_path),
+    ]
+    if model_pool:
+        train_cmd.extend(["--model-pool", ",".join(model_pool)])
+
+    run_cmd(train_cmd)
 
     evaluation_report = load_json(evaluation_report_path)
     selected_model_id = str(evaluation_report.get("model_id", "unknown_model"))
@@ -2746,6 +2857,7 @@ def prepare_case_artifacts(
         else {"status": "not_run"}
     )
 
+    failed_steps, root_failure_codes = extract_pipeline_root_failures(pipeline_report)
     final_status = "pass" if int(final_proc.returncode) == 0 and str(pipeline_report.get("status")) == "pass" else "fail"
     failure_code = None if final_status == "pass" else "strict_pipeline_failed"
     return {
@@ -2754,6 +2866,9 @@ def prepare_case_artifacts(
         "source_name": case.source_name,
         "status": final_status,
         "failure_code": failure_code,
+        "root_failure_code_primary": (root_failure_codes[0] if root_failure_codes else None),
+        "root_failure_codes": root_failure_codes,
+        "failed_steps": failed_steps,
         "final_exit_code": int(final_proc.returncode),
         "split_seed": int(effective_split_seed),
         "stress_selected_profile": selected_profile_id,

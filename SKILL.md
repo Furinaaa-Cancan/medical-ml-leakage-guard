@@ -412,9 +412,15 @@ If any step returns non-zero, stop and block claim release.
 - Stress dataset selection:
   - `--stress-case-id {uci-diabetes-130-readmission,uci-heart-disease,uci-chronic-kidney-disease,uci-breast-cancer-wdbc}`
   - default is `uci-chronic-kidney-disease` (most stable publication-grade stress path in current benchmark set)
+- Case-specific training configuration is enabled in authority E2E:
+  - larger cohorts (e.g., Diabetes130) use expanded model pool (includes `xgboost` when installed), higher `max-trials-per-family`, and multi-core `--n-jobs`.
 - Use `--run-tag` to bind all generated stress artifacts to a unique execution token.
 - Stress seed-search profile bundles are selected with `--stress-profile-set` (default `strict_v1`).
 - `--stress-seed-search` applies only to `--stress-case-id uci-heart-disease`; other stress cases run without seed search.
+- Summary rows now include strict-pipeline root-cause fields for failed cases:
+  - `root_failure_code_primary`
+  - `root_failure_codes`
+  - `failed_steps`
 - `stress_seed_search_report` v2 contract requires:
   - `contract_version`
   - `run_tag`
