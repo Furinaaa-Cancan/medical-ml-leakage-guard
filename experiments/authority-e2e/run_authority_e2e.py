@@ -2150,54 +2150,99 @@ def evaluate_heart_seed_feasibility(
     external_gate_report = evidence_dir / "external_validation_gate_report.search.json"
     calibration_dca_gate_report = evidence_dir / "calibration_dca_report.search_release.json"
     ci_matrix_gate_report = evidence_dir / "ci_matrix_report.search_release.json"
-    clinical_proc = run_cmd(
-        [
-            sys.executable,
-            str(SCRIPTS_ROOT / "clinical_metrics_gate.py"),
-            "--evaluation-report",
-            str(evaluation_report_path),
-            "--external-validation-report",
-            str(external_validation_report_path),
-            "--performance-policy",
-            str(cfg_dir / "performance_policy.json"),
-            "--strict",
-            "--report",
-            str(clinical_report),
-        ],
-        allow_fail=True,
-    )
-    gap_proc = run_cmd(
-        [
-            sys.executable,
-            str(SCRIPTS_ROOT / "generalization_gap_gate.py"),
-            "--evaluation-report",
-            str(evaluation_report_path),
-            "--performance-policy",
-            str(cfg_dir / "performance_policy.json"),
-            "--strict",
-            "--report",
-            str(gap_report),
-        ],
-        allow_fail=True,
-    )
-    external_proc = run_cmd(
-        [
-            sys.executable,
-            str(SCRIPTS_ROOT / "external_validation_gate.py"),
-            "--external-validation-report",
-            str(external_validation_report_path),
-            "--prediction-trace",
-            str(prediction_trace_path),
-            "--evaluation-report",
-            str(evaluation_report_path),
-            "--performance-policy",
-            str(cfg_dir / "performance_policy.json"),
-            "--strict",
-            "--report",
-            str(external_gate_report),
-        ],
-        allow_fail=True,
-    )
+    def write_skipped_gate_report(path: Path, code: str, reason: str) -> None:
+        payload = {
+            "status": "skipped",
+            "strict_mode": True,
+            "failure_count": 1,
+            "warning_count": 0,
+            "failures": [
+                {
+                    "code": code,
+                    "message": "Gate skipped due to upstream failure in stress seed search.",
+                    "details": {"reason": reason},
+                }
+            ],
+            "warnings": [],
+            "summary": {"diagnostic_only": True},
+        }
+        write_json(path, payload)
+
+    clinical_proc: Optional[subprocess.CompletedProcess[str]] = None
+    gap_proc: Optional[subprocess.CompletedProcess[str]] = None
+    external_proc: Optional[subprocess.CompletedProcess[str]] = None
+
+    if train_proc.returncode == 0:
+        clinical_proc = run_cmd(
+            [
+                sys.executable,
+                str(SCRIPTS_ROOT / "clinical_metrics_gate.py"),
+                "--evaluation-report",
+                str(evaluation_report_path),
+                "--external-validation-report",
+                str(external_validation_report_path),
+                "--performance-policy",
+                str(cfg_dir / "performance_policy.json"),
+                "--strict",
+                "--report",
+                str(clinical_report),
+            ],
+            allow_fail=True,
+        )
+    else:
+        write_skipped_gate_report(
+            clinical_report,
+            code="skipped_upstream_train_failed",
+            reason="train_select_evaluate_nonzero_exit",
+        )
+
+    if clinical_proc is not None and clinical_proc.returncode == 0:
+        gap_proc = run_cmd(
+            [
+                sys.executable,
+                str(SCRIPTS_ROOT / "generalization_gap_gate.py"),
+                "--evaluation-report",
+                str(evaluation_report_path),
+                "--performance-policy",
+                str(cfg_dir / "performance_policy.json"),
+                "--strict",
+                "--report",
+                str(gap_report),
+            ],
+            allow_fail=True,
+        )
+    else:
+        write_skipped_gate_report(
+            gap_report,
+            code="skipped_upstream_clinical_failed",
+            reason="clinical_metrics_gate_nonzero_exit_or_not_run",
+        )
+
+    if gap_proc is not None and gap_proc.returncode == 0:
+        external_proc = run_cmd(
+            [
+                sys.executable,
+                str(SCRIPTS_ROOT / "external_validation_gate.py"),
+                "--external-validation-report",
+                str(external_validation_report_path),
+                "--prediction-trace",
+                str(prediction_trace_path),
+                "--evaluation-report",
+                str(evaluation_report_path),
+                "--performance-policy",
+                str(cfg_dir / "performance_policy.json"),
+                "--strict",
+                "--report",
+                str(external_gate_report),
+            ],
+            allow_fail=True,
+        )
+    else:
+        write_skipped_gate_report(
+            external_gate_report,
+            code="skipped_upstream_gap_failed",
+            reason="generalization_gap_gate_nonzero_exit_or_not_run",
+        )
 
     split_meta = {
         "split_seed": int(split_seed),
@@ -2213,8 +2258,11 @@ def evaluate_heart_seed_feasibility(
 
     feasible = bool(
         train_proc.returncode == 0
+        and clinical_proc is not None
         and clinical_proc.returncode == 0
+        and gap_proc is not None
         and gap_proc.returncode == 0
+        and external_proc is not None
         and external_proc.returncode == 0
         and bool(external_split_meta.get("minimum_requirements_met"))
     )
@@ -2297,9 +2345,9 @@ def evaluate_heart_seed_feasibility(
         "failure_code": None if feasible else "stress_seed_candidate_not_feasible",
         "train_exit_code": int(train_proc.returncode),
         "gate_exit_codes": {
-            "clinical_metrics_gate": int(clinical_proc.returncode),
-            "generalization_gap_gate": int(gap_proc.returncode),
-            "external_validation_gate": int(external_proc.returncode),
+            "clinical_metrics_gate": int(clinical_proc.returncode) if clinical_proc is not None else None,
+            "generalization_gap_gate": int(gap_proc.returncode) if gap_proc is not None else None,
+            "external_validation_gate": int(external_proc.returncode) if external_proc is not None else None,
             "calibration_dca_gate": int(calibration_proc.returncode) if calibration_proc is not None else None,
             "ci_matrix_gate": int(ci_proc.returncode) if ci_proc is not None else None,
         },

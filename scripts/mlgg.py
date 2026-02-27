@@ -67,6 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare\n"
             "  python3 scripts/mlgg.py workflow -- --help\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
+            "  python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease\n"
+            "  python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003\n"
             "\n"
             "Tip:\n"
             "  Use `-- --help` to view subcommand-native help.\n"

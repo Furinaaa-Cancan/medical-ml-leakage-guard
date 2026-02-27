@@ -272,9 +272,19 @@ python3 scripts/test_onboarding_smoke.py
 # authority benchmark suite
 python3 scripts/mlgg.py authority
 
+# authority release-grade stress path (recommended)
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease
+
+# heart stress is research/high-pressure mode (can fail by design)
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003
+
 # adversarial fail-closed checks
 python3 scripts/mlgg.py adversarial
 ```
+
+Notes:
+- Default stress case is `uci-chronic-kidney-disease` for a stable publication-grade path.
+- `uci-heart-disease` stress search is a research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
 
 ---
 
@@ -579,9 +589,19 @@ python3 scripts/test_onboarding_smoke.py
 # authority 基准
 python3 scripts/mlgg.py authority
 
+# authority 发布级 stress 路径（推荐）
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease
+
+# heart stress 属于研究/高压模式（允许失败）
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003
+
 # 对抗 fail-closed 检查
 python3 scripts/mlgg.py adversarial
 ```
+
+说明：
+- 默认 stress case 是 `uci-chronic-kidney-disease`，作为稳定的发布级路径。
+- `uci-heart-disease` stress-search 是研究型高压基准；在固定严格 floor 下，某些 seed 区间可能不存在 release-ready 候选。
 
 ---
 
