@@ -38,6 +38,14 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
     "summary": (SCRIPTS_ROOT / "render_user_summary.py", "Render user-facing markdown/json summary."),
     "train": (SCRIPTS_ROOT / "train_select_evaluate.py", "Train/select/evaluate and emit evidence artifacts."),
     "authority": (EXPERIMENTS_ROOT / "run_authority_e2e.py", "Run authority E2E benchmark suite."),
+    "authority-release": (
+        EXPERIMENTS_ROOT / "run_authority_e2e.py",
+        "Run authority E2E with recommended release-grade stress route (CKD).",
+    ),
+    "authority-research-heart": (
+        EXPERIMENTS_ROOT / "run_authority_e2e.py",
+        "Run authority E2E with heart research/high-pressure stress route.",
+    ),
     "scan-diabetes": (
         EXPERIMENTS_ROOT / "scan_stress_diabetes_feasibility.py",
         "Scan stress-case diabetes feasibility across target modes and row caps.",
@@ -48,6 +56,19 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
     ),
 }
 INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
+COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {
+    "authority-release": (
+        "--include-stress-cases",
+        "--stress-case-id",
+        "uci-chronic-kidney-disease",
+    ),
+    "authority-research-heart": (
+        "--include-stress-cases",
+        "--stress-case-id",
+        "uci-heart-disease",
+        "--stress-seed-search",
+    ),
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,8 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare\n"
             "  python3 scripts/mlgg.py workflow -- --help\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
-            "  python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease\n"
-            "  python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003\n"
+            "  python3 scripts/mlgg.py authority-release\n"
+            "  python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060\n"
             "\n"
             "Tip:\n"
             "  Use `-- --help` to view subcommand-native help.\n"
@@ -212,7 +233,8 @@ def main() -> int:
     if not script_path.exists():
         print(f"[FAIL] Script not found for command '{subcommand}': {script_path}", file=sys.stderr)
         return 2
-    cmd = [python_bin, str(script_path), *passthrough]
+    preset_args = list(COMMAND_PRESETS.get(subcommand, ()))
+    cmd = [python_bin, str(script_path), *preset_args, *passthrough]
     print(f"$ {shlex.join(cmd)}")
     if args.dry_run:
         return 0

@@ -455,8 +455,8 @@ If any step returns non-zero, stop and block claim release.
     - `python3 scripts/mlgg.py interactive --command workflow --profile-name demo --save-profile`
     - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
     - `python3 scripts/mlgg.py authority --include-stress-cases`
-    - `python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease` (recommended release stress path)
-    - `python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003` (research/high-pressure mode)
+    - `python3 scripts/mlgg.py authority-release` (recommended release stress path)
+    - `python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060` (research/high-pressure mode)
 
 - New-user order of operations:
   - `init` -> place split CSVs -> `train` (emit required evidence artifacts) -> `workflow --strict --allow-missing-compare`.
@@ -476,6 +476,8 @@ If any step returns non-zero, stop and block claim release.
   - Profile path defaults to `~/.mlgg/profiles` (override with `--profile-dir`).
   - For workflow wizard, `--strict` is always injected and cannot be bypassed by interactive mode.
   - Workflow wizard now auto-suggests evidence output under request project base (`<project>/evidence` when request is under `configs/`).
+  - Authority wizard now defaults to release-grade stress path (`--include-stress-cases --stress-case-id uci-chronic-kidney-disease`);
+    selecting `uci-heart-disease` is treated as advanced research/high-pressure mode.
 
 - Use isolated output paths in concurrent runs:
   - `--summary-file`

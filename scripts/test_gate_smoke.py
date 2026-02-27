@@ -448,6 +448,29 @@ def test_mlgg_interactive_workflow_always_injects_strict() -> None:
         assert_true("--strict" in proc.stdout, "workflow interactive command includes --strict")
 
 
+def test_mlgg_interactive_authority_defaults_to_release_stress_path() -> None:
+    print("\n=== mlgg interactive: authority defaults to CKD release stress path ===")
+    proc = run_gate(
+        [
+            str(SCRIPTS_DIR / "mlgg.py"),
+            "interactive",
+            "--command",
+            "authority",
+            "--print-only",
+            "--accept-defaults",
+        ],
+        input_text=None,
+    )
+    assert_true(proc.returncode == 0, "interactive authority print-only exits 0")
+    body = proc.stdout
+    assert_true("--include-stress-cases" in body, "authority interactive default includes stress cases")
+    assert_true(
+        "--stress-case-id uci-chronic-kidney-disease" in body,
+        "authority interactive default selects CKD release stress case",
+    )
+    assert_true("--stress-seed-search" not in body, "authority interactive default does not enable seed search")
+
+
 def test_mlgg_interactive_accept_defaults_non_blocking() -> None:
     print("\n=== mlgg interactive: --accept-defaults runs without stdin prompts ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -485,6 +508,26 @@ def test_mlgg_interactive_accept_defaults_non_blocking() -> None:
             "Generated command:" in proc.stdout and "train_select_evaluate.py" in proc.stdout,
             "--accept-defaults emits train command without interactive input",
         )
+
+
+def test_mlgg_authority_wrapper_release_and_research_presets() -> None:
+    print("\n=== mlgg wrapper: authority-release and authority-research-heart presets ===")
+    release = run_gate([str(SCRIPTS_DIR / "mlgg.py"), "authority-release", "--dry-run"])
+    assert_true(release.returncode == 0, "authority-release dry-run exits 0")
+    assert_true("--include-stress-cases" in release.stdout, "authority-release injects include-stress-cases")
+    assert_true(
+        "--stress-case-id uci-chronic-kidney-disease" in release.stdout,
+        "authority-release injects CKD stress-case-id",
+    )
+
+    research = run_gate([str(SCRIPTS_DIR / "mlgg.py"), "authority-research-heart", "--dry-run"])
+    assert_true(research.returncode == 0, "authority-research-heart dry-run exits 0")
+    assert_true("--include-stress-cases" in research.stdout, "authority-research-heart injects include-stress-cases")
+    assert_true(
+        "--stress-case-id uci-heart-disease" in research.stdout,
+        "authority-research-heart injects heart stress-case-id",
+    )
+    assert_true("--stress-seed-search" in research.stdout, "authority-research-heart injects seed-search")
 
 
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
@@ -1076,6 +1119,8 @@ def test_mlgg_help_includes_onboarding_and_bootstrap_example() -> None:
     assert_true(proc.returncode == 0, "mlgg --help exits 0")
     body = proc.stdout
     assert_true("onboarding" in body, "mlgg --help lists onboarding command")
+    assert_true("authority-release" in body, "mlgg --help lists authority-release command")
+    assert_true("authority-research-heart" in body, "mlgg --help lists authority-research-heart command")
     assert_true(
         "--allow-missing-compare" in body,
         "mlgg --help examples include bootstrap manifest option",
@@ -1102,7 +1147,9 @@ def main() -> int:
     test_feature_engineering_audit_gate_to_float_isfinite()
     test_mlgg_interactive_train_defaults_are_dependency_safe()
     test_mlgg_interactive_workflow_always_injects_strict()
+    test_mlgg_interactive_authority_defaults_to_release_stress_path()
     test_mlgg_interactive_accept_defaults_non_blocking()
+    test_mlgg_authority_wrapper_release_and_research_presets()
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()

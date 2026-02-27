@@ -90,7 +90,7 @@ After onboarding (or manual workflow), check:
   - `completed_with_failures`
   - `cancelled_by_user`
 - `failure_codes`: merged codes from gate reports + onboarding step-level codes
-- `next_actions`: remediation commands
+- `next_actions`: remediation commands (includes recommended release benchmark and advanced heart research route when onboarding passes)
 
 `productized_workflow_report.json` contract is `productized_workflow_report.v2`:
 - `status`: `pass` or `fail`
@@ -272,11 +272,15 @@ python3 scripts/test_onboarding_smoke.py
 # authority benchmark suite
 python3 scripts/mlgg.py authority
 
-# authority release-grade stress path (recommended)
+# authority release-grade stress path (recommended wrapper)
+python3 scripts/mlgg.py authority-release
+# equivalent explicit form:
 python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease
 
-# heart stress is research/high-pressure mode (can fail by design)
-python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003
+# heart stress is advanced research/high-pressure mode (can fail by design)
+python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060
+# equivalent explicit form:
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250060
 
 # adversarial fail-closed checks
 python3 scripts/mlgg.py adversarial
@@ -284,7 +288,8 @@ python3 scripts/mlgg.py adversarial
 
 Notes:
 - Default stress case is `uci-chronic-kidney-disease` for a stable publication-grade path.
-- `uci-heart-disease` stress search is a research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
+- `uci-heart-disease` stress search is an advanced research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
+- Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
 
 ---
 
@@ -407,7 +412,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
   - `completed_with_failures`
   - `cancelled_by_user`
 - `failure_codes`: 汇总 gate 报告和 onboarding 步骤级失败码
-- `next_actions`: 直接可执行的修复动作
+- `next_actions`: 直接可执行的修复动作（通过时会给出发布级推荐基准和高级 heart 研究路径）
 
 `productized_workflow_report.json` 目前契约是 `productized_workflow_report.v2`：
 - `status`: `pass` 或 `fail`
@@ -589,11 +594,15 @@ python3 scripts/test_onboarding_smoke.py
 # authority 基准
 python3 scripts/mlgg.py authority
 
-# authority 发布级 stress 路径（推荐）
+# authority 发布级 stress 路径（推荐封装）
+python3 scripts/mlgg.py authority-release
+# 等价显式命令：
 python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease
 
-# heart stress 属于研究/高压模式（允许失败）
-python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250003
+# heart stress 属于高级研究/高压模式（允许失败）
+python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060
+# 等价显式命令：
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250060
 
 # 对抗 fail-closed 检查
 python3 scripts/mlgg.py adversarial
@@ -601,7 +610,8 @@ python3 scripts/mlgg.py adversarial
 
 说明：
 - 默认 stress case 是 `uci-chronic-kidney-disease`，作为稳定的发布级路径。
-- `uci-heart-disease` stress-search 是研究型高压基准；在固定严格 floor 下，某些 seed 区间可能不存在 release-ready 候选。
+- `uci-heart-disease` stress-search 是高级研究型高压基准；在固定严格 floor 下，某些 seed 区间可能不存在 release-ready 候选。
+- 交互式 `authority` 向导默认走 CKD 发布路径，heart 会以“高级选项”显示并提示风险。
 
 ---
 

@@ -254,6 +254,35 @@ def prompt_bool(label: str, default: bool = False) -> bool:
     return picked == "yes"
 
 
+def prompt_authority_stress_case(default: str) -> str:
+    default_token = default if default in AUTHORITY_STRESS_CASE_CHOICES else AUTHORITY_STRESS_CASE_CHOICES[0]
+    if PROMPT_AUTO_ACCEPT_DEFAULTS:
+        return default_token
+    print("Stress case ID")
+    labels: Dict[str, str] = {
+        "uci-chronic-kidney-disease": "recommended release-grade path",
+        "uci-heart-disease": "advanced research/high-pressure path (may fail by design)",
+        "uci-diabetes-130-readmission": "advanced large-cohort stress path",
+        "uci-breast-cancer-wdbc": "advanced small-cohort stress path",
+    }
+    for idx, value in enumerate(AUTHORITY_STRESS_CASE_CHOICES, start=1):
+        desc = labels.get(value, "")
+        suffix = f" [{desc}]" if desc else ""
+        print(f"  {idx}. {value}{suffix}")
+    default_index = list(AUTHORITY_STRESS_CASE_CHOICES).index(default_token) + 1
+    while True:
+        raw = input(f"Select [1-{len(AUTHORITY_STRESS_CASE_CHOICES)}] (default {default_index}): ").strip()
+        if not raw:
+            return default_token
+        if raw.isdigit():
+            picked = int(raw)
+            if 1 <= picked <= len(AUTHORITY_STRESS_CASE_CHOICES):
+                return AUTHORITY_STRESS_CASE_CHOICES[picked - 1]
+        if raw in AUTHORITY_STRESS_CASE_CHOICES:
+            return raw
+        print("[WARN] Invalid selection.")
+
+
 def parse_command_overrides(command: str, passthrough: List[str]) -> Dict[str, Any]:
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     if command == "init":
@@ -823,7 +852,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
 
 def collect_authority_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> Dict[str, Any]:
     values: Dict[str, Any] = {}
-    seed, source = merged_seed("include_stress_cases", False, profile, explicit)
+    seed, source = merged_seed("include_stress_cases", True, profile, explicit)
     if source == "cli":
         values["include_stress_cases"] = bool(seed)
     else:
@@ -874,19 +903,23 @@ def collect_authority_values(profile: Dict[str, Any], explicit: Dict[str, Any]) 
                 )
             values["stress_case_id"] = value
         else:
-            values["stress_case_id"] = prompt_choice(
-                label="Stress case ID",
-                choices=AUTHORITY_STRESS_CASE_CHOICES,
-                default=str(seed),
-            )
+            values["stress_case_id"] = prompt_authority_stress_case(default=str(seed))
 
         seed, source = merged_seed("stress_seed_search", False, profile, explicit)
         if source == "cli":
             values["stress_seed_search"] = bool(seed)
         else:
+            default_seed_search = bool(seed)
+            if source == "default" and values["stress_case_id"] == "uci-heart-disease":
+                default_seed_search = True
             values["stress_seed_search"] = prompt_bool(
                 "Enable stress seed search (--stress-seed-search)?",
-                default=bool(seed),
+                default=default_seed_search,
+            )
+        if values["stress_case_id"] == "uci-heart-disease":
+            print(
+                "[INFO] Selected heart stress path. This is an advanced research/high-pressure route; "
+                "release-ready candidates are not guaranteed in every seed range."
             )
     else:
         values["stress_case_id"] = ""

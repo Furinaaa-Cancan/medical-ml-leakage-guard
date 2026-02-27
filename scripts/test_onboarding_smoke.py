@@ -72,6 +72,15 @@ def test_onboarding_preview_report_contract() -> None:
         assert_true(payload.get("contract_version") == "onboarding_report.v2", "report contract_version is v2")
         assert_true(payload.get("stop_on_fail") is True, "default stop_on_fail is true")
         assert_true(payload.get("termination_reason") == "completed_successfully", "preview termination reason is completed_successfully")
+        next_actions = payload.get("next_actions", [])
+        assert_true(
+            any("authority-release" in str(item) for item in next_actions),
+            "preview next_actions includes release benchmark command",
+        )
+        assert_true(
+            any("authority-research-heart" in str(item) for item in next_actions),
+            "preview next_actions includes advanced heart benchmark command",
+        )
         steps = payload.get("steps")
         assert_true(isinstance(steps, list) and len(steps) == 8, "report contains 8 onboarding steps")
 

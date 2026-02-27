@@ -722,15 +722,21 @@ def build_next_actions(failure_codes: Sequence[str], status: str, lang: str) -> 
             return [
                 "当前无阻断失败，建议持续使用 compare-manifest 保持可复现复跑。",
                 "复跑命令: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+                "发布级基准（推荐）: python3 scripts/mlgg.py authority-release --summary-file <project>/evidence/authority_release_summary.json",
+                "高级研究路径（heart，高压模式）: python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
             ]
         if lang_mode == "en":
             return [
                 "No blocking failures. Keep using compare-manifest for reproducible reruns.",
                 "Re-run: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+                "Recommended release-grade benchmark: python3 scripts/mlgg.py authority-release --summary-file <project>/evidence/authority_release_summary.json",
+                "Advanced research route (heart/high-pressure): python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
             ]
         return [
             "No blocking failures / 当前无阻断失败，建议持续使用 compare-manifest。",
             "Re-run / 复跑: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+            "Recommended release benchmark / 发布级基准（推荐）: python3 scripts/mlgg.py authority-release --summary-file <project>/evidence/authority_release_summary.json",
+            "Advanced heart research route / 高级 heart 研究路径: python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
         ]
     if status != "pass" and not failure_codes:
         if lang_mode == "zh":
@@ -824,6 +830,14 @@ def main() -> int:
         "project_root": str(project_root),
         "request_file": str(project_root / "configs" / "request.json"),
         "onboarding_report": str(report_path),
+        "recommended_authority_command": (
+            "python3 scripts/mlgg.py authority-release --summary-file "
+            "<project>/evidence/authority_release_summary.json"
+        ),
+        "advanced_authority_command": (
+            "python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 "
+            "--stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json"
+        ),
     }
     stop_on_fail = bool(args.stop_on_fail)
 
