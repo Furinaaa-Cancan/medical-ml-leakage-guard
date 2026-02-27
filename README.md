@@ -6,182 +6,573 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 
 ---
 
-## English
+## English Guide
 
-### What This Project Is
-- A strict workflow for **medical binary prediction** (risk/prognosis/readmission style tasks).
-- Built to block common leakage paths:
+### 1. What This Repository Does
+- Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
+- Enforces publication-grade checks for:
   - definition-variable leakage
-  - lineage leakage
+  - feature lineage leakage
   - split/time contamination
-  - tuning/model-selection leakage
+  - model-selection/tuning leakage
   - threshold/calibration misuse
-- Produces machine-checkable evidence artifacts and aggregated release gates.
-
-### Core CLI
-- Unified entrypoint:
-  - `python3 scripts/mlgg.py <subcommand> [args]`
-- Core subcommands:
-  - `onboarding`, `interactive`, `init`, `doctor`, `preflight`, `workflow`, `strict`, `summary`, `train`, `authority`, `adversarial`
-
-### Novice Onboarding (V8)
-- One command (recommended for first-time users):
-  - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
-- Modes:
-  - `guided`: step-by-step confirmation
-  - `preview`: print full 8-step command plan only
-  - `auto`: execute full flow non-interactively
-- Failure control:
-  - default: `--stop-on-fail` (enabled by default)
-  - full diagnosis run: `--no-stop-on-fail`
-- Fixed flow:
-  - doctor -> init -> demo data -> config alignment -> train -> attestation -> workflow bootstrap -> workflow compare
-- Outputs:
-  - onboarding report: `<project>/evidence/onboarding_report.json`
-  - user summary: `<project>/evidence/user_summary.md`
-  - onboarding report contract: `onboarding_report.v2` (`stop_on_fail`, `termination_reason`, `failure_codes`, `next_actions`)
-
-### Interactive Wizard (V7)
-- New terminal wizard for core commands: `init / workflow / train / authority`
-- Two trigger modes:
-  - `python3 scripts/mlgg.py interactive --command train`
-  - `python3 scripts/mlgg.py train --interactive`
-- Wizard behavior:
-  - collect options in terminal
-  - preview final command
-  - execute only after one confirmation
-- Train wizard safety defaults:
-  - optional model backends are **off by default** (avoid hard-fail on missing `xgboost/catboost`)
-  - default `n_jobs` is `1` for maximum cross-platform stability (increase manually when needed)
-  - `external_validation_report_out` is emitted only when `external_cohort_spec` is provided
-  - `feature_engineering_report_out` is emitted only when `feature_group_spec` is provided
-- Reusable profiles:
-  - save: `--profile-name <name> --save-profile`
-  - load: `--profile-name <name> --load-profile`
-  - profile dir default: `~/.mlgg/profiles` (override with `--profile-dir`)
-  - non-blocking run with profile/defaults: `--accept-defaults`
-
-### Quick Start
-1. Fastest path (novice):
-   - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
-2. Manual path (advanced):
-   - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
-   - `python3 scripts/mlgg.py train --interactive`
-   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
-   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --compare-manifest /tmp/mlgg_demo/evidence/manifest_baseline.bootstrap.json`
-
-Note:
-- `workflow` now resolves relative `--evidence-dir` against the request project base (if request is under `configs/`, evidence defaults to `<project>/evidence`).
-
-### Strict Validation and Benchmarks
-- Gate smoke tests:
-  - `python3 scripts/test_gate_smoke.py`
-- Onboarding smoke tests:
-  - `python3 scripts/test_onboarding_smoke.py`
-- Authority E2E:
-  - `python3 scripts/mlgg.py authority`
-- Adversarial fail-closed checks:
-  - `python3 scripts/mlgg.py adversarial`
-
-### Repository Map
-- `scripts/`: all gates, trainers, wrappers, and CLI tools.
-- `references/`: schema/policy/report examples and rigor checklists.
-- `experiments/authority-e2e/`: benchmark datasets, E2E runners, adversarial scenarios.
-- `SKILL.md`: full workflow contract and gate ordering.
-- `references/Beginner-Quickstart.md`: bilingual novice tutorial.
-- `references/Troubleshooting-Top20.md`: high-frequency failure-code remediation guide.
-
-### Notes
-- This project is for predictive modeling rigor, not causal inference claims.
-- Publication-grade claims require all strict gates to pass.
+  - external cohort transport robustness
+- Outputs machine-checkable evidence and gate reports for release decisions.
 
 ---
 
-## 中文说明
+### 2. Requirements
+- Python `3.10+`
+- `openssl` in PATH (required for execution attestation)
+- Python packages: `numpy`, `pandas`, `scikit-learn`, `joblib`
+- Optional model backends: `xgboost`, `catboost`
 
-### 这个项目解决什么问题
-- 用于**医学二分类预测**（风险预测、预后、再入院等）的严格流程。
-- 重点阻断常见数据泄漏路径：
+Install core dependencies:
+
+```bash
+python3 -m pip install -U numpy pandas scikit-learn joblib
+```
+
+Check runtime environment:
+
+```bash
+python3 scripts/mlgg.py doctor
+```
+
+---
+
+### 3. Fastest First Run (Recommended for New Users)
+
+#### 3.1 One-command onboarding
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
+```
+
+This runs a fixed 8-step strict flow:
+1. `doctor`
+2. `init`
+3. generate offline demo medical data
+4. align configs
+5. train/select/evaluate
+6. generate attestation artifacts
+7. strict workflow bootstrap (`--allow-missing-compare`)
+8. strict workflow compare rerun
+
+#### 3.2 Preview commands only (no execution)
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
+```
+
+#### 3.3 Continue after failures for full diagnosis
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --no-stop-on-fail
+```
+
+---
+
+### 4. Key Outputs and How To Read Them
+
+After onboarding (or manual workflow), check:
+- `<project>/evidence/onboarding_report.json`
+- `<project>/evidence/strict_pipeline_report.json`
+- `<project>/evidence/user_summary.md`
+
+`onboarding_report.json` contract is `onboarding_report.v2`:
+- `status`: `pass` or `fail`
+- `stop_on_fail`: run-time behavior (`true` or `false`)
+- `termination_reason`:
+  - `completed_successfully`
+  - `stopped_on_failure`
+  - `completed_with_failures`
+  - `cancelled_by_user`
+- `failure_codes`: merged codes from gate reports + onboarding step-level codes
+- `next_actions`: remediation commands
+
+Quick inspect with Python:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path("/tmp/mlgg_demo/evidence/onboarding_report.json")
+r = json.loads(p.read_text(encoding="utf-8"))
+print("status:", r["status"])
+print("termination_reason:", r.get("termination_reason"))
+print("failure_codes:", r.get("failure_codes", []))
+PY
+```
+
+---
+
+### 5. Use Your Own Data (Manual Publication-Grade Path)
+
+#### Step A: Initialize project skeleton
+
+```bash
+python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
+```
+
+#### Step B: Prepare dataset files
+
+Put your files here:
+- `/tmp/mlgg_project/data/train.csv`
+- `/tmp/mlgg_project/data/valid.csv`
+- `/tmp/mlgg_project/data/test.csv`
+
+For publication-grade external validation, prepare both:
+- cross-period external cohort CSV
+- cross-institution external cohort CSV
+
+Minimum column contract (recommended):
+- `patient_id`: patient/entity ID
+- `event_time`: index/event time
+- `y`: binary label (`0/1`)
+- plus leakage-safe predictors
+
+#### Step C: Run schema preflight
+
+```bash
+python3 scripts/mlgg.py preflight \
+  --train /tmp/mlgg_project/data/train.csv \
+  --valid /tmp/mlgg_project/data/valid.csv \
+  --test /tmp/mlgg_project/data/test.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --time-col event_time \
+  --mapping-out /tmp/mlgg_project/evidence/schema_mapping.json \
+  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
+```
+
+#### Step D: Train/select/evaluate
+
+Option 1 (recommended for most users): interactive wizard
+
+```bash
+python3 scripts/mlgg.py train --interactive
+```
+
+Option 2: direct CLI template
+
+```bash
+python3 scripts/train_select_evaluate.py \
+  --train /tmp/mlgg_project/data/train.csv \
+  --valid /tmp/mlgg_project/data/valid.csv \
+  --test /tmp/mlgg_project/data/test.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --ignore-cols patient_id,event_time \
+  --performance-policy /tmp/mlgg_project/configs/performance_policy.json \
+  --missingness-policy /tmp/mlgg_project/configs/missingness_policy.json \
+  --feature-group-spec /tmp/mlgg_project/configs/feature_group_spec.json \
+  --external-cohort-spec /tmp/mlgg_project/configs/external_cohort_spec.json \
+  --model-selection-report-out /tmp/mlgg_project/evidence/model_selection_report.json \
+  --evaluation-report-out /tmp/mlgg_project/evidence/evaluation_report.json \
+  --prediction-trace-out /tmp/mlgg_project/evidence/prediction_trace.csv.gz \
+  --external-validation-report-out /tmp/mlgg_project/evidence/external_validation_report.json \
+  --feature-engineering-report-out /tmp/mlgg_project/evidence/feature_engineering_report.json \
+  --distribution-report-out /tmp/mlgg_project/evidence/distribution_report.json \
+  --ci-matrix-report-out /tmp/mlgg_project/evidence/ci_matrix_report.json \
+  --robustness-report-out /tmp/mlgg_project/evidence/robustness_report.json \
+  --seed-sensitivity-out /tmp/mlgg_project/evidence/seed_sensitivity_report.json \
+  --model-out /tmp/mlgg_project/models/model.joblib \
+  --permutation-null-out /tmp/mlgg_project/evidence/permutation_null_pr_auc.txt
+```
+
+#### Step E: Run strict workflow (bootstrap + compare)
+
+First strict run (bootstrap baseline manifest):
+
+```bash
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --allow-missing-compare
+```
+
+Second strict run (compare against baseline):
+
+```bash
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
+```
+
+---
+
+### 6. Interactive Wizard (Terminal UX)
+
+Core interactive targets:
+- `init`
+- `workflow`
+- `train`
+- `authority`
+
+Entry methods:
+
+```bash
+python3 scripts/mlgg.py interactive --command train
+python3 scripts/mlgg.py train --interactive
+```
+
+Reusable profiles:
+
+```bash
+# save
+python3 scripts/mlgg.py interactive --command train --profile-name demo --save-profile
+
+# load
+python3 scripts/mlgg.py interactive --command train --profile-name demo --load-profile
+```
+
+Print generated command only:
+
+```bash
+python3 scripts/mlgg.py interactive --command workflow --print-only --accept-defaults
+```
+
+---
+
+### 7. Validation and Benchmark Commands
+
+```bash
+# unified help
+python3 scripts/mlgg.py --help
+
+# gate smoke tests
+python3 scripts/test_gate_smoke.py
+
+# onboarding smoke tests
+python3 scripts/test_onboarding_smoke.py
+
+# authority benchmark suite
+python3 scripts/mlgg.py authority
+
+# adversarial fail-closed checks
+python3 scripts/mlgg.py adversarial
+```
+
+---
+
+### 8. Troubleshooting (New User Focus)
+
+If guided mode is cancelled, onboarding now fails closed with:
+- failure code: `onboarding_step_cancelled`
+- actionable `next_actions` in onboarding report
+
+Use this mapping for top failures:
+- `references/Troubleshooting-Top20.md`
+
+Typical diagnosis commands:
+
+```bash
+python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict
+python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare
+python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json
+```
+
+---
+
+### 9. Repository Map
+- `scripts/`: gates, trainers, wrappers, and CLI tools
+- `references/`: schema/policy/report examples and checklists
+- `experiments/authority-e2e/`: authority and adversarial runners
+- `SKILL.md`: full workflow contract and gate ordering
+- `references/Beginner-Quickstart.md`: bilingual beginner tutorial
+- `references/Troubleshooting-Top20.md`: top failure-code remediation
+
+---
+
+### 10. Scope Notes
+- This repository is for predictive modeling rigor, not causal inference claims.
+- Publication-grade claim is valid only when strict gates all pass.
+
+---
+
+## 中文指南
+
+### 1. 这个仓库是做什么的
+- 用于**医学二分类预测**的严格工程化流程。
+- 专门阻断高风险泄漏路径：
   - 疾病定义变量泄漏
   - 特征血缘泄漏
-  - 数据划分/时间污染
+  - 划分/时间污染
   - 调参与模型选择泄漏
-  - 阈值与校准不合规
-- 输出可机器校验的证据工件，并通过总发布门汇总判断。
+  - 阈值与校准误用
+  - 外部队列迁移鲁棒性不足
+- 输出可机器校验的证据工件和发布门结果。
 
-### 统一终端入口
-- 统一命令：
-  - `python3 scripts/mlgg.py <subcommand> [args]`
-- 常用子命令：
-  - `onboarding`, `interactive`, `init`, `doctor`, `preflight`, `workflow`, `strict`, `summary`, `train`, `authority`, `adversarial`
+---
 
-### 新手引导（V8）
-- 首次使用推荐一条命令：
-  - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
-- 模式说明：
-  - `guided`：逐步确认执行
-  - `preview`：仅输出完整 8 步命令计划
-  - `auto`：非交互串行执行全部步骤
-- 失败控制：
-  - 默认：`--stop-on-fail`（默认开启）
-  - 全量诊断：`--no-stop-on-fail`
-- 固定流程：
-  - doctor -> init -> demo 数据 -> 配置对齐 -> train -> attestation -> workflow 首跑 -> workflow 基线对比复跑
-- 关键产物：
-  - 引导报告：`<project>/evidence/onboarding_report.json`
-  - 用户摘要：`<project>/evidence/user_summary.md`
-  - 引导报告契约：`onboarding_report.v2`（含 `stop_on_fail`、`termination_reason`、`failure_codes`、`next_actions`）
+### 2. 环境要求
+- Python `3.10+`
+- PATH 中可用 `openssl`（执行证明必需）
+- Python 包：`numpy`、`pandas`、`scikit-learn`、`joblib`
+- 可选模型后端：`xgboost`、`catboost`
 
-### 交互式终端向导（V7）
-- 新增交互向导，覆盖核心命令：`init / workflow / train / authority`
-- 两种进入方式：
-  - `python3 scripts/mlgg.py interactive --command train`
-  - `python3 scripts/mlgg.py train --interactive`
-- 交互行为：
-  - 在终端逐项选择参数
-  - 先展示最终命令
-  - 二次确认后才执行
-- `train` 向导安全默认：
-  - 可选模型后端默认关闭（避免本机未安装 `xgboost/catboost` 时直接失败）
-  - `n_jobs` 默认是 `1`（优先跨平台稳定，需并行时可手动调大）
-  - 只有提供 `external_cohort_spec` 才会生成 `external_validation_report_out`
-  - 只有提供 `feature_group_spec` 才会生成 `feature_engineering_report_out`
-- 支持配置复用（profile）：
-  - 保存：`--profile-name <name> --save-profile`
-  - 加载：`--profile-name <name> --load-profile`
-  - 默认目录：`~/.mlgg/profiles`（可用 `--profile-dir` 覆盖）
-  - 使用默认值免交互执行：`--accept-defaults`
+安装核心依赖：
 
-### 快速开始
-1. 新手最快路径：
-   - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
-2. 手动路径（进阶）：
-   - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
-   - `python3 scripts/mlgg.py train --interactive`
-   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
-   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --compare-manifest /tmp/mlgg_demo/evidence/manifest_baseline.bootstrap.json`
+```bash
+python3 -m pip install -U numpy pandas scikit-learn joblib
+```
 
-说明：
-- `workflow` 的相对 `--evidence-dir` 现在按 request 项目根目录解析（当 request 位于 `configs/` 下时，默认是 `<project>/evidence`）。
+环境体检：
 
-### 严格验证与基准测试
-- Gate 冒烟测试：
-  - `python3 scripts/test_gate_smoke.py`
-- Onboarding 冒烟测试：
-  - `python3 scripts/test_onboarding_smoke.py`
-- Authority E2E：
-  - `python3 scripts/mlgg.py authority`
-- 对抗 fail-closed 检查：
-  - `python3 scripts/mlgg.py adversarial`
+```bash
+python3 scripts/mlgg.py doctor
+```
 
-### 目录说明
-- `scripts/`：所有 gate、训练器、封装器与 CLI。
-- `references/`：schema/policy/report 示例与顶刊级检查清单。
-- `experiments/authority-e2e/`：权威数据集实验、E2E 与对抗脚本。
-- `SKILL.md`：完整流程契约与 gate 顺序。
-- `references/Beginner-Quickstart.md`：双语新手教程。
-- `references/Troubleshooting-Top20.md`：高频失败码修复手册。
+---
 
-### 说明
-- 该项目面向预测建模严谨性，不直接支持因果结论声明。
-- 若要声明 publication-grade，必须严格门全部通过。
+### 3. 新手最快上手（推荐）
+
+#### 3.1 一条命令跑完整引导
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
+```
+
+固定 8 步流程：
+1. `doctor`
+2. `init`
+3. 生成离线 demo 医学数据
+4. 对齐配置
+5. 训练/选择/评估
+6. 生成 attestation 工件
+7. 严格流程首跑（`--allow-missing-compare`）
+8. 严格流程基线对比复跑
+
+#### 3.2 只看命令不执行
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
+```
+
+#### 3.3 失败后继续收集完整诊断
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --no-stop-on-fail
+```
+
+---
+
+### 4. 关键产物和判读方式
+
+重点看：
+- `<project>/evidence/onboarding_report.json`
+- `<project>/evidence/strict_pipeline_report.json`
+- `<project>/evidence/user_summary.md`
+
+`onboarding_report.json` 目前契约是 `onboarding_report.v2`：
+- `status`: `pass` 或 `fail`
+- `stop_on_fail`: 是否遇到失败立即停止
+- `termination_reason`:
+  - `completed_successfully`
+  - `stopped_on_failure`
+  - `completed_with_failures`
+  - `cancelled_by_user`
+- `failure_codes`: 汇总 gate 报告和 onboarding 步骤级失败码
+- `next_actions`: 直接可执行的修复动作
+
+快速查看：
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path("/tmp/mlgg_demo/evidence/onboarding_report.json")
+r = json.loads(p.read_text(encoding="utf-8"))
+print("status:", r["status"])
+print("termination_reason:", r.get("termination_reason"))
+print("failure_codes:", r.get("failure_codes", []))
+PY
+```
+
+---
+
+### 5. 用你自己的数据（发布级手动路径）
+
+#### 步骤 A：初始化项目
+
+```bash
+python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
+```
+
+#### 步骤 B：准备数据文件
+
+至少放置：
+- `/tmp/mlgg_project/data/train.csv`
+- `/tmp/mlgg_project/data/valid.csv`
+- `/tmp/mlgg_project/data/test.csv`
+
+发布级外部验证要求两类 external：
+- `cross_period`
+- `cross_institution`
+
+推荐最小字段：
+- `patient_id`: 患者/实体 ID
+- `event_time`: 索引时间
+- `y`: 二分类标签（`0/1`）
+- 其余为泄漏安全特征
+
+#### 步骤 C：先做 schema 预检
+
+```bash
+python3 scripts/mlgg.py preflight \
+  --train /tmp/mlgg_project/data/train.csv \
+  --valid /tmp/mlgg_project/data/valid.csv \
+  --test /tmp/mlgg_project/data/test.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --time-col event_time \
+  --mapping-out /tmp/mlgg_project/evidence/schema_mapping.json \
+  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
+```
+
+#### 步骤 D：训练评估
+
+方式 1（推荐）：交互式
+
+```bash
+python3 scripts/mlgg.py train --interactive
+```
+
+方式 2：直跑命令模板（按需改路径）
+
+```bash
+python3 scripts/train_select_evaluate.py \
+  --train /tmp/mlgg_project/data/train.csv \
+  --valid /tmp/mlgg_project/data/valid.csv \
+  --test /tmp/mlgg_project/data/test.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --ignore-cols patient_id,event_time \
+  --performance-policy /tmp/mlgg_project/configs/performance_policy.json \
+  --missingness-policy /tmp/mlgg_project/configs/missingness_policy.json \
+  --feature-group-spec /tmp/mlgg_project/configs/feature_group_spec.json \
+  --external-cohort-spec /tmp/mlgg_project/configs/external_cohort_spec.json \
+  --model-selection-report-out /tmp/mlgg_project/evidence/model_selection_report.json \
+  --evaluation-report-out /tmp/mlgg_project/evidence/evaluation_report.json \
+  --prediction-trace-out /tmp/mlgg_project/evidence/prediction_trace.csv.gz \
+  --external-validation-report-out /tmp/mlgg_project/evidence/external_validation_report.json \
+  --feature-engineering-report-out /tmp/mlgg_project/evidence/feature_engineering_report.json \
+  --distribution-report-out /tmp/mlgg_project/evidence/distribution_report.json \
+  --ci-matrix-report-out /tmp/mlgg_project/evidence/ci_matrix_report.json \
+  --robustness-report-out /tmp/mlgg_project/evidence/robustness_report.json \
+  --seed-sensitivity-out /tmp/mlgg_project/evidence/seed_sensitivity_report.json \
+  --model-out /tmp/mlgg_project/models/model.joblib \
+  --permutation-null-out /tmp/mlgg_project/evidence/permutation_null_pr_auc.txt
+```
+
+#### 步骤 E：严格流程（先 bootstrap，再 compare）
+
+首跑（生成 baseline manifest）：
+
+```bash
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --allow-missing-compare
+```
+
+复跑（与 baseline 比较）：
+
+```bash
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
+```
+
+---
+
+### 6. 交互式终端向导（易用层）
+
+支持核心命令：
+- `init`
+- `workflow`
+- `train`
+- `authority`
+
+进入方式：
+
+```bash
+python3 scripts/mlgg.py interactive --command train
+python3 scripts/mlgg.py train --interactive
+```
+
+profile 复用：
+
+```bash
+# 保存
+python3 scripts/mlgg.py interactive --command train --profile-name demo --save-profile
+
+# 加载
+python3 scripts/mlgg.py interactive --command train --profile-name demo --load-profile
+```
+
+只输出命令：
+
+```bash
+python3 scripts/mlgg.py interactive --command workflow --print-only --accept-defaults
+```
+
+---
+
+### 7. 验证与基准命令
+
+```bash
+# 统一帮助
+python3 scripts/mlgg.py --help
+
+# gate 冒烟测试
+python3 scripts/test_gate_smoke.py
+
+# onboarding 冒烟测试
+python3 scripts/test_onboarding_smoke.py
+
+# authority 基准
+python3 scripts/mlgg.py authority
+
+# 对抗 fail-closed 检查
+python3 scripts/mlgg.py adversarial
+```
+
+---
+
+### 8. 新手排障入口
+
+guided 模式取消后现在会 fail-closed，失败码为：
+- `onboarding_step_cancelled`
+
+并在 onboarding 报告中给出 `next_actions`。
+
+高频失败码映射文档：
+- `references/Troubleshooting-Top20.md`
+
+常用诊断命令：
+
+```bash
+python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict
+python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare
+python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json
+```
+
+---
+
+### 9. 目录结构
+- `scripts/`: gate、训练器、封装器、CLI
+- `references/`: schema/policy/report 示例与检查清单
+- `experiments/authority-e2e/`: authority/adversarial 实验脚本
+- `SKILL.md`: 完整流程契约与 gate 顺序
+- `references/Beginner-Quickstart.md`: 双语新手教程
+- `references/Troubleshooting-Top20.md`: 高频失败码修复手册
+
+---
+
+### 10. 范围说明
+- 本项目是预测建模严谨性系统，不直接支持因果推断声明。
+- 要宣称 publication-grade，必须严格门全部通过。
