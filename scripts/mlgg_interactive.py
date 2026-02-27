@@ -351,6 +351,82 @@ def profile_allowed_keys(command: str) -> Tuple[str, ...]:
     return table[command]
 
 
+def validate_profile_values(command: str, values: Dict[str, Any]) -> None:
+    def _check_type(key: str, expected: tuple[type, ...]) -> None:
+        if key not in values:
+            return
+        value = values[key]
+        if not isinstance(value, expected):
+            exp = "/".join([t.__name__ for t in expected])
+            raise ValueError(
+                f"profile key '{key}' has invalid type: {type(value).__name__}; expected {exp}."
+            )
+
+    if command == "init":
+        for key in ("project_root", "study_id", "target_name", "label_col", "patient_id_col", "index_time_col"):
+            _check_type(key, (str,))
+        _check_type("force", (bool,))
+        return
+
+    if command == "workflow":
+        for key in ("request", "evidence_dir", "compare_manifest"):
+            _check_type(key, (str,))
+        _check_type("allow_missing_compare", (bool,))
+        _check_type("continue_on_fail", (bool,))
+        return
+
+    if command == "train":
+        for key in (
+            "train",
+            "valid",
+            "test",
+            "target_col",
+            "patient_id_col",
+            "model_pool",
+            "calibration_method",
+            "feature_group_spec",
+            "external_cohort_spec",
+            "model_selection_report_out",
+            "evaluation_report_out",
+            "prediction_trace_out",
+            "external_validation_report_out",
+            "ci_matrix_report_out",
+            "distribution_report_out",
+            "feature_engineering_report_out",
+            "robustness_report_out",
+            "seed_sensitivity_out",
+        ):
+            _check_type(key, (str,))
+        _check_type("include_optional_models", (bool,))
+        _check_type("n_jobs", (int,))
+        if "calibration_method" in values:
+            token = str(values["calibration_method"]).strip()
+            if token not in TRAIN_CALIBRATION_CHOICES:
+                raise ValueError(
+                    "profile key 'calibration_method' has invalid value: "
+                    f"{values['calibration_method']}. "
+                    f"Expected one of: {', '.join(TRAIN_CALIBRATION_CHOICES)}."
+                )
+        return
+
+    if command == "authority":
+        _check_type("include_stress_cases", (bool,))
+        _check_type("stress_seed_search", (bool,))
+        for key in ("stress_case_id", "summary_file", "run_tag", "stress_profile_set"):
+            _check_type(key, (str,))
+        if "stress_case_id" in values:
+            token = str(values["stress_case_id"]).strip()
+            if token and token not in AUTHORITY_STRESS_CASE_CHOICES:
+                raise ValueError(
+                    "profile key 'stress_case_id' has invalid value: "
+                    f"{values['stress_case_id']}. "
+                    f"Expected one of: {', '.join(AUTHORITY_STRESS_CASE_CHOICES)}."
+                )
+        return
+
+    raise ValueError(f"Unsupported command for profile validation: {command}")
+
+
 def load_profile(
     profile_path: Path,
     command: str,
@@ -386,6 +462,7 @@ def load_profile(
             "profile contains unknown argument keys: "
             + ", ".join(unknown)
         )
+    validate_profile_values(command=command, values=values)
     return values
 
 

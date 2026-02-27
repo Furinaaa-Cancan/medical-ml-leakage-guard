@@ -479,6 +479,54 @@ def test_mlgg_interactive_accept_defaults_non_blocking() -> None:
         )
 
 
+def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
+    print("\n=== mlgg interactive: malformed profile value types fail-closed ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        profile_dir = td / "profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile = {
+            "contract_version": "v1",
+            "command": "train",
+            "saved_at_utc": "2026-02-27T00:00:00Z",
+            "argument_values": {
+                "n_jobs": "bad",
+            },
+            "python": sys.executable,
+            "cwd": str(td),
+        }
+        (profile_dir / "bad_profile.json").write_text(
+            json.dumps(profile, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "train",
+                "--load-profile",
+                "--profile-name",
+                "bad_profile",
+                "--profile-dir",
+                str(profile_dir),
+                "--print-only",
+                "--accept-defaults",
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 2, "malformed train profile exits 2")
+        assert_true(
+            "unable to load profile" in proc.stderr.lower(),
+            "malformed profile surfaces load failure prefix",
+        )
+        assert_true(
+            "profile key 'n_jobs' has invalid type" in proc.stderr.lower(),
+            "malformed profile reports invalid key type details",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -500,6 +548,7 @@ def main() -> int:
     test_mlgg_interactive_train_defaults_are_dependency_safe()
     test_mlgg_interactive_workflow_always_injects_strict()
     test_mlgg_interactive_accept_defaults_non_blocking()
+    test_mlgg_interactive_profile_value_validation_fail_closed()
 
     print(f"\n{'='*50}")
     if _failures:
