@@ -51,8 +51,15 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
    - non-interactive: `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
    - interactive: `python3 scripts/mlgg.py init --interactive`
 3. Put split files into `data/train.csv`, `data/valid.csv`, `data/test.csv`.
-4. Run productized strict flow:
-   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict`
+4. Generate required training/evaluation evidence artifacts first:
+   - `python3 scripts/mlgg.py train --interactive`
+5. Run productized strict flow (first run should bootstrap manifest baseline):
+   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
+6. Reproducible follow-up runs:
+   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --compare-manifest /tmp/mlgg_demo/evidence/manifest_baseline.bootstrap.json`
+
+Note:
+- `workflow` now resolves relative `--evidence-dir` against the request project base (if request is under `configs/`, evidence defaults to `<project>/evidence`).
 
 ### Strict Validation and Benchmarks
 - Gate smoke tests:
@@ -119,8 +126,15 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
    - 非交互：`python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
    - 交互：`python3 scripts/mlgg.py init --interactive`
 3. 将分割数据放入 `data/train.csv`, `data/valid.csv`, `data/test.csv`。
-4. 运行产品化严格流程：
-   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict`
+4. 先运行训练/评估，产出必需证据工件：
+   - `python3 scripts/mlgg.py train --interactive`
+5. 再运行产品化严格流程（首跑需基线引导）：
+   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
+6. 后续可复现实验运行：
+   - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --compare-manifest /tmp/mlgg_demo/evidence/manifest_baseline.bootstrap.json`
+
+说明：
+- `workflow` 的相对 `--evidence-dir` 现在按 request 项目根目录解析（当 request 位于 `configs/` 下时，默认是 `<project>/evidence`）。
 
 ### 严格验证与基准测试
 - Gate 冒烟测试：

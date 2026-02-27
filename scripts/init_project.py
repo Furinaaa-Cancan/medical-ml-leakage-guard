@@ -202,8 +202,8 @@ def main() -> int:
         "request_file": str(request_path),
         "next_steps": [
             "Place split CSV files at data/train.csv, data/valid.csv, data/test.csv.",
-            "Run schema preflight to validate/match columns.",
-            "Run strict pipeline with configs/request.json.",
+            "Run train_select_evaluate.py (or `mlgg.py train --interactive`) to generate required evidence artifacts.",
+            "Run productized strict workflow with `--allow-missing-compare` on first run to bootstrap manifest baseline.",
         ],
     }
 

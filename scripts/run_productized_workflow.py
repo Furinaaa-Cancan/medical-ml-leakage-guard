@@ -71,6 +71,18 @@ def resolve_path(base: Path, value: str) -> Path:
     return p
 
 
+def infer_project_base(request_path: Path) -> Path:
+    """
+    Infer project root from request path.
+    If request is under <project>/configs/request.json, use <project>;
+    otherwise use request parent directory.
+    """
+    parent = request_path.parent
+    if parent.name.lower() == "configs" and parent.parent != parent:
+        return parent.parent
+    return parent
+
+
 def main() -> int:
     args = parse_args()
     if not bool(args.strict):
@@ -87,6 +99,7 @@ def main() -> int:
 
     request_payload = load_json(request_path)
     base_dir = request_path.parent
+    project_base = infer_project_base(request_path)
     split_paths = request_payload.get("split_paths")
     if not isinstance(split_paths, dict):
         print("[FAIL] request.split_paths missing.", file=sys.stderr)
@@ -99,7 +112,7 @@ def main() -> int:
         print("[FAIL] split CSV files not found from request.split_paths.", file=sys.stderr)
         return 2
 
-    evidence_dir = resolve_path(Path.cwd(), args.evidence_dir)
+    evidence_dir = resolve_path(project_base, args.evidence_dir)
     evidence_dir.mkdir(parents=True, exist_ok=True)
     scripts_dir = Path(__file__).resolve().parent
 
@@ -151,7 +164,7 @@ def main() -> int:
         "--strict",
     ]
     if args.compare_manifest:
-        strict_cmd.extend(["--compare-manifest", str(Path(args.compare_manifest).expanduser().resolve())])
+        strict_cmd.extend(["--compare-manifest", str(resolve_path(project_base, args.compare_manifest))])
     if args.allow_missing_compare:
         strict_cmd.append("--allow-missing-compare")
     if args.continue_on_fail:
@@ -228,6 +241,7 @@ def main() -> int:
     wrapper_report = {
         "status": overall_status,
         "request": str(request_path),
+        "project_base": str(project_base),
         "evidence_dir": str(evidence_dir),
         "steps": steps,
         "artifacts": {

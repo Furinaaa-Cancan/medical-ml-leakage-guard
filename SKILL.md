@@ -411,8 +411,12 @@ If any step returns non-zero, stop and block claim release.
     - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
     - `python3 scripts/mlgg.py train --interactive`
     - `python3 scripts/mlgg.py interactive --command workflow --profile-name demo --save-profile`
-    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict`
+    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
     - `python3 scripts/mlgg.py authority --include-stress-cases`
+
+- New-user order of operations:
+  - `init` -> place split CSVs -> `train` (emit required evidence artifacts) -> `workflow --strict --allow-missing-compare`.
+  - Follow-up reproducible runs should pass `--compare-manifest <project>/evidence/manifest_baseline.bootstrap.json`.
 
 - Interactive wizard defaults:
   - Supports `init/workflow/train/authority`.
@@ -427,6 +431,7 @@ If any step returns non-zero, stop and block claim release.
     - `--accept-defaults` for non-blocking execution with defaults/profile values
   - Profile path defaults to `~/.mlgg/profiles` (override with `--profile-dir`).
   - For workflow wizard, `--strict` is always injected and cannot be bypassed by interactive mode.
+  - Workflow wizard now auto-suggests evidence output under request project base (`<project>/evidence` when request is under `configs/`).
 
 - Use isolated output paths in concurrent runs:
   - `--summary-file`

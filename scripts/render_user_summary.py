@@ -247,12 +247,15 @@ def main() -> int:
     }
     gate_status = [summarize_gate(name, payload) for name, payload in gate_payloads.items()]
     top_failure_codes = {name: get_top_failure_codes(payload) for name, payload in gate_payloads.items()}
+    strict_pipeline_status_raw = str((strict_pipeline or {}).get("status", "missing"))
+    overall_status = "pass" if strict_pipeline_status_raw.strip().lower() == "pass" else "fail"
 
     summary: Dict[str, Any] = {
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "study_id": request_payload.get("study_id") if isinstance(request_payload, dict) else None,
         "run_id": request_payload.get("run_id") if isinstance(request_payload, dict) else None,
-        "overall_status": str((strict_pipeline or {}).get("status", "missing")),
+        "overall_status": overall_status,
+        "strict_pipeline_status_raw": strict_pipeline_status_raw,
         "publication_status": str((publication or {}).get("status", "missing")),
         "self_critique_status": str((self_critique or {}).get("status", "missing")),
         "self_critique_score": (self_critique or {}).get("quality_score"),
@@ -280,10 +283,10 @@ def main() -> int:
     write_text(out_md, markdown)
     write_json(out_json, summary)
 
-    print("Status: pass")
+    print(f"Status: {overall_status}")
     print(f"UserSummaryMarkdown: {out_md}")
     print(f"UserSummaryJSON: {out_json}")
-    return 0
+    return 0 if overall_status == "pass" else 2
 
 
 if __name__ == "__main__":

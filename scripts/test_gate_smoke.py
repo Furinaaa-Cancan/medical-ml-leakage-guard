@@ -527,6 +527,71 @@ def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
         )
 
 
+def test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base() -> None:
+    print("\n=== mlgg interactive: workflow default evidence dir follows request project base ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "proj"
+        request_path = project_root / "configs" / "request.json"
+        request_path.parent.mkdir(parents=True, exist_ok=True)
+        request_path.write_text("{}", encoding="utf-8")
+
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "workflow",
+                "--print-only",
+                "--accept-defaults",
+                "--request",
+                str(request_path),
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 0, "workflow defaults print-only exits 0")
+        expected_evidence = str((project_root / "evidence").resolve())
+        assert_true(
+            f"--evidence-dir {expected_evidence}" in proc.stdout,
+            "workflow generated command uses request project-base evidence directory",
+        )
+
+
+def test_render_user_summary_propagates_fail_status() -> None:
+    print("\n=== render_user_summary: fail status propagates to exit code and output ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        evidence_dir = td / "evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        strict_report = {
+            "status": "fail",
+            "failure_count": 1,
+            "warning_count": 0,
+            "failures": [{"code": "example_failure"}],
+        }
+        (evidence_dir / "strict_pipeline_report.json").write_text(
+            json.dumps(strict_report, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        out_md = evidence_dir / "user_summary.md"
+        out_json = evidence_dir / "user_summary.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "render_user_summary.py"),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--out-markdown",
+                str(out_md),
+                "--out-json",
+                str(out_json),
+            ]
+        )
+        assert_true(proc.returncode == 2, "render_user_summary exits 2 when strict pipeline status is fail")
+        assert_true("Status: fail" in proc.stdout, "render_user_summary prints Status: fail")
+        summary = load_report(out_json)
+        assert_true(summary.get("overall_status") == "fail", "summary overall_status is fail")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -549,6 +614,8 @@ def main() -> int:
     test_mlgg_interactive_workflow_always_injects_strict()
     test_mlgg_interactive_accept_defaults_non_blocking()
     test_mlgg_interactive_profile_value_validation_fail_closed()
+    test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
+    test_render_user_summary_propagates_fail_status()
 
     print(f"\n{'='*50}")
     if _failures:

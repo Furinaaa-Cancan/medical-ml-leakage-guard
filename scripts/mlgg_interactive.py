@@ -136,6 +136,14 @@ def normalize_path(raw: str) -> str:
     return str(Path(raw).expanduser().resolve(strict=False))
 
 
+def infer_project_base_from_request(request_path: str) -> Path:
+    request = Path(request_path).expanduser().resolve(strict=False)
+    parent = request.parent
+    if parent.name.lower() == "configs" and parent.parent != parent:
+        return parent.parent
+    return parent
+
+
 def validate_profile_name(raw: str) -> str:
     name = str(raw).strip()
     if not name:
@@ -568,14 +576,18 @@ def collect_workflow_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -
             required=True,
             must_exist=True,
         )
+    project_base = infer_project_base_from_request(values["request"])
 
     seed, source = merged_seed("evidence_dir", "evidence", profile, explicit)
     if source == "cli":
         values["evidence_dir"] = normalize_path(require_string(seed, "evidence_dir"))
     else:
+        evidence_default = str(seed).strip()
+        if not evidence_default or evidence_default == "evidence":
+            evidence_default = str((project_base / "evidence").resolve())
         values["evidence_dir"] = prompt_path(
             label="Evidence output directory",
-            default=str(seed),
+            default=evidence_default,
             required=True,
             must_exist=False,
         )
