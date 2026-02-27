@@ -57,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo\n"
             "  python3 scripts/mlgg.py train --interactive\n"
             "  python3 scripts/mlgg.py interactive --command workflow\n"
+            "  python3 scripts/mlgg.py interactive --command train --load-profile --profile-name demo --accept-defaults\n"
             "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
         ),
@@ -114,6 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Interactive mode only: print generated command without execution.",
     )
+    parser.add_argument(
+        "--accept-defaults",
+        action="store_true",
+        help="Interactive mode only: auto-accept prompt defaults when available.",
+    )
     return parser
 
 
@@ -168,6 +174,8 @@ def main() -> int:
             cmd.append("--load-profile")
         if args.print_only:
             cmd.append("--print-only")
+        if args.accept_defaults:
+            cmd.append("--accept-defaults")
         cmd.extend(passthrough)
         print(f"$ {shlex.join(cmd)}")
         if args.dry_run:

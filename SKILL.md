@@ -424,6 +424,7 @@ If any step returns non-zero, stop and block claim release.
   - Profile reuse:
     - `--profile-name <name> --save-profile`
     - `--profile-name <name> --load-profile`
+    - `--accept-defaults` for non-blocking execution with defaults/profile values
   - Profile path defaults to `~/.mlgg/profiles` (override with `--profile-dir`).
   - For workflow wizard, `--strict` is always injected and cannot be bypassed by interactive mode.
 

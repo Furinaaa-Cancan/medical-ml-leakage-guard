@@ -28,6 +28,7 @@ SCRIPTS_ROOT = REPO_ROOT / "scripts"
 EXPERIMENTS_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 PROFILE_CONTRACT_VERSION = "v1"
 SUPPORTED_COMMANDS = ("init", "workflow", "train", "authority")
+PROMPT_AUTO_ACCEPT_DEFAULTS = False
 
 COMMAND_SCRIPT: Dict[str, Path] = {
     "init": SCRIPTS_ROOT / "init_project.py",
@@ -98,6 +99,11 @@ def parse_args() -> Tuple[argparse.Namespace, List[str]]:
         action="store_true",
         help="Print generated command but do not execute.",
     )
+    parser.add_argument(
+        "--accept-defaults",
+        action="store_true",
+        help="Auto-accept prompt defaults (non-interactive when defaults are available).",
+    )
     args, passthrough = parser.parse_known_args()
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
@@ -146,6 +152,13 @@ def profile_file_path(profile_dir: str, profile_name: str) -> Path:
 
 
 def prompt_text(label: str, default: str = "", required: bool = False) -> str:
+    if PROMPT_AUTO_ACCEPT_DEFAULTS:
+        value = str(default)
+        if required and not value:
+            raise ValueError(
+                f"{label} requires a value when --accept-defaults is enabled."
+            )
+        return value
     while True:
         suffix = f" [default: {default}]" if default else ""
         raw = input(f"{label}{suffix}: ").strip()
@@ -208,6 +221,8 @@ def prompt_int(
 def prompt_choice(label: str, choices: Tuple[str, ...], default: str) -> str:
     if default not in choices:
         default = choices[0]
+    if PROMPT_AUTO_ACCEPT_DEFAULTS:
+        return default
     default_index = list(choices).index(default) + 1
     print(label)
     for idx, value in enumerate(choices, start=1):
@@ -873,7 +888,9 @@ def confirm_execute() -> bool:
 
 
 def main() -> int:
+    global PROMPT_AUTO_ACCEPT_DEFAULTS
     args, passthrough = parse_args()
+    PROMPT_AUTO_ACCEPT_DEFAULTS = bool(args.accept_defaults)
     command = str(args.command)
     profile_name = str(args.profile_name).strip()
     profile_dir = str(args.profile_dir)

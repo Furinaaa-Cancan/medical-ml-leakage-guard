@@ -42,6 +42,7 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
   - save: `--profile-name <name> --save-profile`
   - load: `--profile-name <name> --load-profile`
   - profile dir default: `~/.mlgg/profiles` (override with `--profile-dir`)
+  - non-blocking run with profile/defaults: `--accept-defaults`
 
 ### Quick Start
 1. Environment check:
@@ -109,6 +110,7 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
   - 保存：`--profile-name <name> --save-profile`
   - 加载：`--profile-name <name> --load-profile`
   - 默认目录：`~/.mlgg/profiles`（可用 `--profile-dir` 覆盖）
+  - 使用默认值免交互执行：`--accept-defaults`
 
 ### 快速开始
 1. 先做环境检查：

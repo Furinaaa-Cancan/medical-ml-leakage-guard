@@ -440,6 +440,45 @@ def test_mlgg_interactive_workflow_always_injects_strict() -> None:
         assert_true("--strict" in proc.stdout, "workflow interactive command includes --strict")
 
 
+def test_mlgg_interactive_accept_defaults_non_blocking() -> None:
+    print("\n=== mlgg interactive: --accept-defaults runs without stdin prompts ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        headers = ["patient_id", "event_time", "age", "y"]
+        train_rows = [{"patient_id": f"tr{i}", "event_time": f"2024-01-{(i%28)+1:02d}", "age": "40", "y": str(i % 2)} for i in range(20)]
+        valid_rows = [{"patient_id": f"va{i}", "event_time": f"2024-02-{(i%28)+1:02d}", "age": "45", "y": str((i + 1) % 2)} for i in range(10)]
+        test_rows = [{"patient_id": f"te{i}", "event_time": f"2024-03-{(i%28)+1:02d}", "age": "50", "y": str(i % 2)} for i in range(10)]
+        train_csv = td / "train.csv"
+        valid_csv = td / "valid.csv"
+        test_csv = td / "test.csv"
+        write_csv(train_csv, train_rows, headers)
+        write_csv(valid_csv, valid_rows, headers)
+        write_csv(test_csv, test_rows, headers)
+
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "train",
+                "--print-only",
+                "--accept-defaults",
+                "--train",
+                str(train_csv),
+                "--valid",
+                str(valid_csv),
+                "--test",
+                str(test_csv),
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 0, "--accept-defaults train print-only exits 0")
+        assert_true(
+            "Generated command:" in proc.stdout and "train_select_evaluate.py" in proc.stdout,
+            "--accept-defaults emits train command without interactive input",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -460,6 +499,7 @@ def main() -> int:
     test_feature_engineering_audit_gate_to_float_isfinite()
     test_mlgg_interactive_train_defaults_are_dependency_safe()
     test_mlgg_interactive_workflow_always_injects_strict()
+    test_mlgg_interactive_accept_defaults_non_blocking()
 
     print(f"\n{'='*50}")
     if _failures:
