@@ -9,9 +9,18 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import warnings
 from itertools import product
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+# Keep loky from probing physical-core internals that print noisy traceback
+# on some macOS/Python combinations. Use (logical_cores - 1) to stay below the
+# logical-core ceiling while preserving parallelism.
+_logical_cores = int(os.cpu_count() or 1)
+_loky_cap = max(1, _logical_cores - 1)
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(_loky_cap))
 
 import joblib
 import numpy as np
@@ -24,6 +33,7 @@ from sklearn.ensemble import (
     HistGradientBoostingClassifier,
     RandomForestClassifier,
 )
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
@@ -65,6 +75,35 @@ MODEL_ALIASES = {
     "hgb": "hist_gradient_boosting_l2",
     "xgb": "xgboost",
 }
+
+
+def configure_runtime_warning_filters() -> None:
+    # Reduce known third-party warning noise in terminal output without masking
+    # gate failures or explicit script validation errors.
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*'penalty' was deprecated in version 1\.8.*",
+        category=FutureWarning,
+        module=r"sklearn\.linear_model\._logistic",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Inconsistent values: penalty=.*l1_ratio=.*",
+        category=UserWarning,
+        module=r"sklearn\.linear_model\._logistic",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*Could not find the number of physical cores.*",
+        category=UserWarning,
+        module=r"joblib\.externals\.loky\.backend\.context",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*max_iter was reached which means the coef_ did not converge.*",
+        category=ConvergenceWarning,
+        module=r"sklearn\.linear_model\._sag",
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -2132,6 +2171,7 @@ def build_ci_matrix_report(
 
 
 def main() -> int:
+    configure_runtime_warning_filters()
     args = parse_args()
     fast_diagnostic_mode = bool(args.fast_diagnostic_mode)
     if args.cv_splits < 3:

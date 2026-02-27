@@ -418,6 +418,7 @@ If any step returns non-zero, stop and block claim release.
   - Supports `init/workflow/train/authority`.
   - Preview command before execution, then require one confirm step.
   - Train wizard defaults `--include-optional-models` to off; enable manually only when optional backends are installed.
+  - Train wizard defaults `--n-jobs` to `1` for cross-platform stability; increase manually for multi-core runs.
   - Train wizard emits `--external-validation-report-out` only when `external_cohort_spec` is provided.
   - Train wizard emits `--feature-engineering-report-out` only when `feature_group_spec` is provided.
   - Profile reuse:

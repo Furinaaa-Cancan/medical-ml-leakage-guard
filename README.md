@@ -35,6 +35,7 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
   - execute only after one confirmation
 - Train wizard safety defaults:
   - optional model backends are **off by default** (avoid hard-fail on missing `xgboost/catboost`)
+  - default `n_jobs` is `1` for maximum cross-platform stability (increase manually when needed)
   - `external_validation_report_out` is emitted only when `external_cohort_spec` is provided
   - `feature_engineering_report_out` is emitted only when `feature_group_spec` is provided
 - Reusable profiles:
@@ -101,6 +102,7 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
   - 二次确认后才执行
 - `train` 向导安全默认：
   - 可选模型后端默认关闭（避免本机未安装 `xgboost/catboost` 时直接失败）
+  - `n_jobs` 默认是 `1`（优先跨平台稳定，需并行时可手动调大）
   - 只有提供 `external_cohort_spec` 才会生成 `external_validation_report_out`
   - 只有提供 `feature_group_spec` 才会生成 `feature_engineering_report_out`
 - 支持配置复用（profile）：

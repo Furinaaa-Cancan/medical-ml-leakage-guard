@@ -567,7 +567,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
             default=bool(seed),
         )
 
-    seed, source = merged_seed("n_jobs", -1, profile, explicit)
+    seed, source = merged_seed("n_jobs", 1, profile, explicit)
     if source == "cli":
         values["n_jobs"] = int(seed)
     else:

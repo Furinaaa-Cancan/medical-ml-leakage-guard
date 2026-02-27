@@ -9,6 +9,7 @@ Tests verify:
 - self_critique_gate: weight normalization sums to 100.
 - run_strict_pipeline: --strict enforcement.
 - publication_gate: fails without --strict.
+- mlgg interactive: safe default train flags and workflow strict injection.
 
 Run:
     python3 scripts/test_gate_smoke.py
@@ -42,8 +43,13 @@ def write_csv(path: Path, rows: List[Dict[str, str]], headers: List[str]) -> Non
         writer.writerows(rows)
 
 
-def run_gate(args: List[str]) -> subprocess.CompletedProcess:
-    return subprocess.run([PYTHON] + args, text=True, capture_output=True)
+def run_gate(args: List[str], input_text: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [PYTHON] + args,
+        text=True,
+        capture_output=True,
+        input=input_text,
+    )
 
 
 def load_report(path: Path) -> Dict[str, Any]:
@@ -362,6 +368,79 @@ def test_feature_engineering_audit_gate_to_float_isfinite() -> None:
 
 
 # ---------------------------------------------------------------------------
+# mlgg interactive: default safety and strict injection
+# ---------------------------------------------------------------------------
+
+def test_mlgg_interactive_train_defaults_are_dependency_safe() -> None:
+    print("\n=== mlgg interactive: train defaults avoid optional dependency hard-fails ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        headers = ["patient_id", "event_time", "age", "y"]
+        train_rows = [{"patient_id": f"tr{i}", "event_time": f"2024-01-{(i%28)+1:02d}", "age": "40", "y": str(i % 2)} for i in range(20)]
+        valid_rows = [{"patient_id": f"va{i}", "event_time": f"2024-02-{(i%28)+1:02d}", "age": "45", "y": str((i + 1) % 2)} for i in range(10)]
+        test_rows = [{"patient_id": f"te{i}", "event_time": f"2024-03-{(i%28)+1:02d}", "age": "50", "y": str(i % 2)} for i in range(10)]
+        train_csv = td / "train.csv"
+        valid_csv = td / "valid.csv"
+        test_csv = td / "test.csv"
+        write_csv(train_csv, train_rows, headers)
+        write_csv(valid_csv, valid_rows, headers)
+        write_csv(test_csv, test_rows, headers)
+
+        # Keep defaults for all prompts after mandatory split paths.
+        prompt_count = 32
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "train",
+                "--print-only",
+                "--train",
+                str(train_csv),
+                "--valid",
+                str(valid_csv),
+                "--test",
+                str(test_csv),
+            ],
+            input_text=("\n" * prompt_count),
+        )
+        assert_true(proc.returncode == 0, "interactive train print-only exits 0")
+        command_lines = [
+            line.strip()
+            for line in proc.stdout.splitlines()
+            if line.strip().startswith("$ ") and "train_select_evaluate.py" in line
+        ]
+        assert_true(bool(command_lines), "interactive train emits generated train command")
+        cmd_line = command_lines[-1] if command_lines else ""
+        assert_true("--include-optional-models" not in cmd_line, "train default omits --include-optional-models")
+        assert_true("--external-validation-report-out" not in cmd_line, "train default omits external report flag without cohort spec")
+        assert_true("--feature-engineering-report-out" not in cmd_line, "train default omits feature engineering report flag without group spec")
+
+
+def test_mlgg_interactive_workflow_always_injects_strict() -> None:
+    print("\n=== mlgg interactive: workflow always injects --strict ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        req = td / "request.json"
+        req.write_text("{}", encoding="utf-8")
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "workflow",
+                "--print-only",
+                "--request",
+                str(req),
+            ],
+            # Prompts: evidence-dir, compare-manifest, allow-missing-compare, continue-on-fail
+            input_text=("\n" * 8),
+        )
+        assert_true(proc.returncode == 0, "interactive workflow print-only exits 0")
+        assert_true("--strict" in proc.stdout, "workflow interactive command includes --strict")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -379,6 +458,8 @@ def main() -> int:
     test_transport_drop_ci_not_computed_sentinel()
     test_feature_engineering_audit_gate_error_codes()
     test_feature_engineering_audit_gate_to_float_isfinite()
+    test_mlgg_interactive_train_defaults_are_dependency_safe()
+    test_mlgg_interactive_workflow_always_injects_strict()
 
     print(f"\n{'='*50}")
     if _failures:
