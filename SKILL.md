@@ -417,6 +417,9 @@ If any step returns non-zero, stop and block claim release.
 - Interactive wizard defaults:
   - Supports `init/workflow/train/authority`.
   - Preview command before execution, then require one confirm step.
+  - Train wizard defaults `--include-optional-models` to off; enable manually only when optional backends are installed.
+  - Train wizard emits `--external-validation-report-out` only when `external_cohort_spec` is provided.
+  - Train wizard emits `--feature-engineering-report-out` only when `feature_group_spec` is provided.
   - Profile reuse:
     - `--profile-name <name> --save-profile`
     - `--profile-name <name> --load-profile`

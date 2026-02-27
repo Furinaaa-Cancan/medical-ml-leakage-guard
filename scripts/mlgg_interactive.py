@@ -257,6 +257,8 @@ def parse_command_overrides(command: str, passthrough: List[str]) -> Dict[str, A
         parser.add_argument("--include-optional-models", action="store_true", default=None)
         parser.add_argument("--n-jobs", type=int)
         parser.add_argument("--calibration-method", choices=list(TRAIN_CALIBRATION_CHOICES))
+        parser.add_argument("--feature-group-spec")
+        parser.add_argument("--external-cohort-spec")
         parser.add_argument("--model-selection-report-out")
         parser.add_argument("--evaluation-report-out")
         parser.add_argument("--prediction-trace-out")
@@ -310,6 +312,8 @@ def profile_allowed_keys(command: str) -> Tuple[str, ...]:
             "include_optional_models",
             "n_jobs",
             "calibration_method",
+            "feature_group_spec",
+            "external_cohort_spec",
             "model_selection_report_out",
             "evaluation_report_out",
             "prediction_trace_out",
@@ -554,7 +558,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
             required=True,
         )
 
-    seed, source = merged_seed("include_optional_models", True, profile, explicit)
+    seed, source = merged_seed("include_optional_models", False, profile, explicit)
     if source == "cli":
         values["include_optional_models"] = bool(seed)
     else:
@@ -590,18 +594,50 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
             default=str(seed),
         )
 
-    artifact_defaults = (
+    seed, source = merged_seed("feature_group_spec", "", profile, explicit)
+    if source == "cli":
+        value = str(seed).strip()
+        if value:
+            value = normalize_path(value)
+            if not Path(value).exists():
+                raise ValueError(f"feature_group_spec path not found: {value}")
+        values["feature_group_spec"] = value
+    else:
+        values["feature_group_spec"] = prompt_path(
+            label="Feature group spec JSON path (optional)",
+            default=str(seed),
+            required=False,
+            must_exist=True,
+            allow_empty=True,
+        )
+
+    seed, source = merged_seed("external_cohort_spec", "", profile, explicit)
+    if source == "cli":
+        value = str(seed).strip()
+        if value:
+            value = normalize_path(value)
+            if not Path(value).exists():
+                raise ValueError(f"external_cohort_spec path not found: {value}")
+        values["external_cohort_spec"] = value
+    else:
+        values["external_cohort_spec"] = prompt_path(
+            label="External cohort spec JSON path (optional)",
+            default=str(seed),
+            required=False,
+            must_exist=True,
+            allow_empty=True,
+        )
+
+    required_artifact_defaults = (
         ("model_selection_report_out", "Model selection report output", "evidence/model_selection_report.json"),
         ("evaluation_report_out", "Evaluation report output", "evidence/evaluation_report.json"),
         ("prediction_trace_out", "Prediction trace output", "evidence/prediction_trace.csv.gz"),
-        ("external_validation_report_out", "External validation report output", "evidence/external_validation_report.json"),
         ("ci_matrix_report_out", "CI matrix report output", "evidence/ci_matrix_report.json"),
         ("distribution_report_out", "Distribution report output", "evidence/distribution_report.json"),
-        ("feature_engineering_report_out", "Feature engineering report output", "evidence/feature_engineering_report.json"),
         ("robustness_report_out", "Robustness report output", "evidence/robustness_report.json"),
         ("seed_sensitivity_out", "Seed sensitivity report output", "evidence/seed_sensitivity_report.json"),
     )
-    for key, label, default in artifact_defaults:
+    for key, label, default in required_artifact_defaults:
         seed, source = merged_seed(key, default, profile, explicit)
         if source == "cli":
             values[key] = normalize_path(require_string(seed, key))
@@ -612,6 +648,67 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
                 required=True,
                 must_exist=False,
             )
+
+    # external validation report must be paired with external cohort spec.
+    seed, source = merged_seed(
+        "external_validation_report_out",
+        "evidence/external_validation_report.json",
+        profile,
+        explicit,
+    )
+    if values.get("external_cohort_spec"):
+        if source == "cli":
+            values["external_validation_report_out"] = normalize_path(
+                require_string(seed, "external_validation_report_out")
+            )
+        else:
+            values["external_validation_report_out"] = prompt_path(
+                label="External validation report output",
+                default=str(seed),
+                required=True,
+                must_exist=False,
+            )
+    else:
+        if source == "cli" and str(seed).strip():
+            raise ValueError(
+                "external_validation_report_out requires external_cohort_spec."
+            )
+        values["external_validation_report_out"] = ""
+
+    # feature engineering report requires feature_group_spec.
+    seed, source = merged_seed(
+        "feature_engineering_report_out",
+        "evidence/feature_engineering_report.json",
+        profile,
+        explicit,
+    )
+    if values.get("feature_group_spec"):
+        if source == "cli":
+            values["feature_engineering_report_out"] = normalize_path(
+                require_string(seed, "feature_engineering_report_out")
+            )
+        else:
+            values["feature_engineering_report_out"] = prompt_path(
+                label="Feature engineering report output",
+                default=str(seed),
+                required=True,
+                must_exist=False,
+            )
+    else:
+        if source == "cli" and str(seed).strip():
+            raise ValueError(
+                "feature_engineering_report_out requires feature_group_spec."
+            )
+        values["feature_engineering_report_out"] = ""
+
+    if bool(values.get("external_cohort_spec")) != bool(values.get("external_validation_report_out")):
+        raise ValueError(
+            "external_cohort_spec and external_validation_report_out must be provided together."
+        )
+    if values.get("feature_engineering_report_out") and not values.get("feature_group_spec"):
+        raise ValueError(
+            "feature_engineering_report_out requires feature_group_spec."
+        )
 
     maybe_warn_optional_backends(
         model_pool=values["model_pool"],
@@ -741,13 +838,19 @@ def build_command(command: str, python_bin: str, values: Dict[str, Any]) -> List
             cmd.append("--include-optional-models")
         cmd.extend(["--n-jobs", str(int(values["n_jobs"]))])
         cmd.extend(["--calibration-method", str(values["calibration_method"])])
+        if str(values.get("feature_group_spec", "")).strip():
+            cmd.extend(["--feature-group-spec", str(values["feature_group_spec"])])
+        if str(values.get("external_cohort_spec", "")).strip():
+            cmd.extend(["--external-cohort-spec", str(values["external_cohort_spec"])])
         cmd.extend(["--model-selection-report-out", str(values["model_selection_report_out"])])
         cmd.extend(["--evaluation-report-out", str(values["evaluation_report_out"])])
         cmd.extend(["--prediction-trace-out", str(values["prediction_trace_out"])])
-        cmd.extend(["--external-validation-report-out", str(values["external_validation_report_out"])])
+        if str(values.get("external_validation_report_out", "")).strip():
+            cmd.extend(["--external-validation-report-out", str(values["external_validation_report_out"])])
         cmd.extend(["--ci-matrix-report-out", str(values["ci_matrix_report_out"])])
         cmd.extend(["--distribution-report-out", str(values["distribution_report_out"])])
-        cmd.extend(["--feature-engineering-report-out", str(values["feature_engineering_report_out"])])
+        if str(values.get("feature_engineering_report_out", "")).strip():
+            cmd.extend(["--feature-engineering-report-out", str(values["feature_engineering_report_out"])])
         cmd.extend(["--robustness-report-out", str(values["robustness_report_out"])])
         cmd.extend(["--seed-sensitivity-out", str(values["seed_sensitivity_out"])])
     elif command == "authority":
