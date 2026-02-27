@@ -65,6 +65,56 @@ def load_report(path: Path) -> Dict[str, Any]:
         return json.load(fh)
 
 
+def sha256_text_file(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_benchmark_registry(
+    path: Path,
+    *,
+    dataset_file: Path,
+    dataset_sha256: str,
+    suite_rows: List[Dict[str, Any]],
+) -> None:
+    registry = {
+        "contract_version": "benchmark_registry.v1",
+        "description": "test registry",
+        "stress_profile_set_default": "strict_v1",
+        "cases": {
+            "uci-breast-cancer-wdbc": {
+                "role": "blocking",
+                "split_seed": 20260224,
+                "minimum_requirements": {"external_min_rows": 10, "external_min_events": 2},
+            }
+        },
+        "dataset_fingerprints": {
+            "uci-breast-cancer-wdbc": {
+                "aggregate_sha256": "",
+                "raw_files": [
+                    {
+                        "path": str(dataset_file),
+                        "sha256": dataset_sha256,
+                    }
+                ],
+            }
+        },
+        "profiles": {
+            "quick": {"suites": suite_rows},
+            "release": {"suites": suite_rows},
+            "extended": {"suites": suite_rows},
+        },
+    }
+    aggregate_row = f"{dataset_file}={dataset_sha256}"
+    import hashlib
+
+    registry["dataset_fingerprints"]["uci-breast-cancer-wdbc"]["aggregate_sha256"] = hashlib.sha256(
+        aggregate_row.encode("utf-8")
+    ).hexdigest()
+    path.write_text(json.dumps(registry, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
 _failures: List[str] = []
@@ -587,6 +637,230 @@ def test_mlgg_authority_wrapper_rejects_conflicting_route_flags() -> None:
         payload.get("code") == "authority_preset_route_override_forbidden",
         "mlgg --error-json emits expected authority preset conflict code",
     )
+
+
+def test_release_benchmark_contract_v2_fields_present() -> None:
+    print("\n=== benchmark-suite: contract v2 required fields present ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--dry-run",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "3",
+            ]
+        )
+        assert_true(proc.returncode == 0, "benchmark dry-run exits 0")
+        report = load_report(out)
+        assert_true(report.get("contract_version") == "release_benchmark_matrix.v2", "benchmark contract is v2")
+        assert_true("status_reason" in report, "benchmark report includes status_reason")
+        assert_true("failure_codes" in report and isinstance(report.get("failure_codes"), list), "benchmark report includes failure_codes")
+        assert_true(report.get("repeat_count") == 3, "benchmark report includes repeat_count")
+        assert_true("repeat_consistent" in report, "benchmark report includes repeat_consistent")
+        assert_true("dataset_registry_sha256" in report, "benchmark report includes dataset_registry_sha256")
+        assert_true("blocking_suite_ids" in report, "benchmark report includes blocking_suite_ids")
+        assert_true("nonblocking_suite_ids" in report, "benchmark report includes nonblocking_suite_ids")
+
+
+def test_release_benchmark_blocking_failure_sets_standard_code() -> None:
+    print("\n=== benchmark-suite: blocking failure emits benchmark_blocking_suite_failed ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        fake_python = td / "fake_python.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "printf '{\"overall_status\":\"fail\",\"passed_count\":0,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":false,\"observed_codes\":[\"scenario_fail\"]}]}' > \"$out\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "1",
+                "--python",
+                str(fake_python),
+            ]
+        )
+        assert_true(proc.returncode == 2, "benchmark blocking failure exits 2")
+        report = load_report(out)
+        assert_true(report.get("overall_status") == "fail", "benchmark blocking failure report status=fail")
+        assert_true(report.get("status_reason") == "benchmark_blocking_suite_failed", "benchmark blocking failure reason matches")
+        codes = report.get("failure_codes", [])
+        assert_true("benchmark_blocking_suite_failed" in codes, "benchmark blocking failure code present")
+
+
+def test_release_benchmark_registry_mismatch_detected() -> None:
+    print("\n=== benchmark-suite: registry mismatch triggers benchmark_registry_mismatch ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        registry_file = td / "benchmark_registry.bad.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256="0" * 64,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--dry-run",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+            ]
+        )
+        assert_true(proc.returncode == 2, "benchmark registry mismatch exits 2")
+        report = load_report(out)
+        assert_true(report.get("status_reason") == "benchmark_registry_mismatch", "registry mismatch status reason matches")
+        assert_true("benchmark_registry_mismatch" in report.get("failure_codes", []), "registry mismatch failure code present")
+
+
+def test_release_benchmark_repeat_inconsistency_detected() -> None:
+    print("\n=== benchmark-suite: repeat inconsistency triggers benchmark_repeat_inconsistent ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        counter = td / "counter.txt"
+        fake_python = td / "fake_python_repeat.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            f"COUNTER='{counter}'\n"
+            "count=0\n"
+            "if [ -f \"$COUNTER\" ]; then count=$(cat \"$COUNTER\"); fi\n"
+            "count=$((count+1))\n"
+            "echo \"$count\" > \"$COUNTER\"\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "if [ \"$count\" -eq 1 ]; then\n"
+            "  printf '{\"overall_status\":\"pass\",\"passed_count\":1,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":true,\"observed_codes\":[]}]}' > \"$out\"\n"
+            "else\n"
+            "  printf '{\"overall_status\":\"fail\",\"passed_count\":0,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":false,\"observed_codes\":[\"scenario_fail\"]}]}' > \"$out\"\n"
+            "fi\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "2",
+                "--python",
+                str(fake_python),
+            ]
+        )
+        assert_true(proc.returncode == 2, "benchmark repeat inconsistency exits 2")
+        report = load_report(out)
+        assert_true(report.get("status_reason") == "benchmark_repeat_inconsistent", "repeat inconsistency status reason matches")
+        assert_true(report.get("repeat_consistent") is False, "repeat consistency flag is false")
+        assert_true("benchmark_repeat_inconsistent" in report.get("failure_codes", []), "repeat inconsistency code present")
 
 
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
@@ -1181,6 +1455,7 @@ def test_mlgg_help_includes_onboarding_and_bootstrap_example() -> None:
     assert_true(proc.returncode == 0, "mlgg --help exits 0")
     body = proc.stdout
     assert_true("onboarding" in body, "mlgg --help lists onboarding command")
+    assert_true("benchmark-suite" in body, "mlgg --help lists benchmark-suite command")
     assert_true("authority-release" in body, "mlgg --help lists authority-release command")
     assert_true("authority-research-heart" in body, "mlgg --help lists authority-research-heart command")
     assert_true(
@@ -1213,6 +1488,10 @@ def main() -> int:
     test_mlgg_interactive_accept_defaults_non_blocking()
     test_mlgg_authority_wrapper_release_and_research_presets()
     test_mlgg_authority_wrapper_rejects_conflicting_route_flags()
+    test_release_benchmark_contract_v2_fields_present()
+    test_release_benchmark_blocking_failure_sets_standard_code()
+    test_release_benchmark_registry_mismatch_detected()
+    test_release_benchmark_repeat_inconsistency_detected()
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()

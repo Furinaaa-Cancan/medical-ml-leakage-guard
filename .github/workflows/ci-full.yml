@@ -8,7 +8,7 @@ on:
 jobs:
   full-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,25 +23,26 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install numpy pandas scikit-learn joblib
 
-      - name: Authority release route
+      - name: Release benchmark suite (blocking)
         run: |
-          python3 scripts/mlgg.py authority-release \
-            --summary-file /tmp/mlgg_authority_release_summary.ci_full.json \
-            --run-tag ci-full-release
-
-      - name: Adversarial suite
-        run: |
-          python3 scripts/mlgg.py adversarial
+          python3 scripts/mlgg.py benchmark-suite \
+            --profile release \
+            --output /tmp/mlgg_release_benchmark_summary.ci_full.json \
+            --artifacts-dir /tmp/mlgg_release_benchmark_runs \
+            --emit-junit /tmp/mlgg_release_benchmark.junit.xml
 
       - name: Collect artifacts
         if: always()
         run: |
           mkdir -p /tmp/mlgg_ci_artifacts
-          if [ -f /tmp/mlgg_authority_release_summary.ci_full.json ]; then
-            cp /tmp/mlgg_authority_release_summary.ci_full.json /tmp/mlgg_ci_artifacts/
+          if [ -f /tmp/mlgg_release_benchmark_summary.ci_full.json ]; then
+            cp /tmp/mlgg_release_benchmark_summary.ci_full.json /tmp/mlgg_ci_artifacts/
           fi
-          if [ -f experiments/authority-e2e/adversarial/adversarial_summary.json ]; then
-            cp experiments/authority-e2e/adversarial/adversarial_summary.json /tmp/mlgg_ci_artifacts/
+          if [ -f /tmp/mlgg_release_benchmark.junit.xml ]; then
+            cp /tmp/mlgg_release_benchmark.junit.xml /tmp/mlgg_ci_artifacts/
+          fi
+          if [ -d /tmp/mlgg_release_benchmark_runs ]; then
+            cp -R /tmp/mlgg_release_benchmark_runs /tmp/mlgg_ci_artifacts/
           fi
 
       - name: Upload artifacts

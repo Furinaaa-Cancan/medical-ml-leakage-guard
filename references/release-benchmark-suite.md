@@ -1,4 +1,4 @@
-# Release Benchmark Suite (v1)
+# Release Benchmark Suite (v2)
 
 Structured benchmark protocol for stability validation of `ml-leakage-guard`.
 
@@ -12,7 +12,7 @@ Structured benchmark protocol for stability validation of `ml-leakage-guard`.
 - Validate **release stability**, not just single-run performance.
 - Cover representative failure modes: leakage, overfit gaps, distribution shift, external transport, calibration/DCA, and fail-closed behavior.
 
-### 2. Profiles
+### 2. Profiles (Registry-locked)
 - `quick`
   - `authority_release_core` (WDBC + CKD stress route)
   - `adversarial_fail_closed`
@@ -30,10 +30,30 @@ Run command:
 python3 scripts/mlgg.py benchmark-suite --profile release
 ```
 
+Reproducibility hard gate (recommended):
+
+```bash
+python3 scripts/mlgg.py benchmark-suite \
+  --profile release \
+  --repeat 3 \
+  --registry-file references/benchmark-registry.json \
+  --emit-junit /tmp/mlgg_release_benchmark.junit.xml
+```
+
 ### 3. Pass Contract
 - Overall matrix passes only if **all blocking suites pass**.
+- Registry must pass fingerprint lock checks (`benchmark_registry.v1`).
+- Repeat consistency must pass (`repeat=3` by default).
 - Non-blocking failures are still reported and must be reviewed before publication claims.
-- Output report: `release_benchmark_matrix.v1`.
+- Output report: `release_benchmark_matrix.v2`.
+- Required fields:
+  - `status_reason`
+  - `failure_codes`
+  - `repeat_count`
+  - `repeat_consistent`
+  - `dataset_registry_sha256`
+  - `blocking_suite_ids`
+  - `nonblocking_suite_ids`
 
 ### 4. Why This Is Better Than "Many Random Datasets"
 - Focuses on **risk coverage** instead of raw dataset count.
@@ -46,6 +66,12 @@ python3 scripts/mlgg.py benchmark-suite --profile release
 - `uci-diabetes-130-readmission`: larger heterogeneous cohort (runtime + transport stress).
 - `uci-heart-disease` (extended profile): high-pressure research stress route.
 
+### 6. Standard Failure Codes
+- `benchmark_registry_missing`
+- `benchmark_registry_mismatch`
+- `benchmark_repeat_inconsistent`
+- `benchmark_blocking_suite_failed`
+
 ---
 
 ## 中文
@@ -54,7 +80,7 @@ python3 scripts/mlgg.py benchmark-suite --profile release
 - 验证的是**发布稳定性**，不是单次分数好看。
 - 覆盖关键风险：泄漏、过拟合 gap、分布漂移、外部迁移、校准/DCA、fail-closed 行为。
 
-### 2. 运行档位
+### 2. 运行档位（registry 锁定）
 - `quick`
   - `authority_release_core`（WDBC + CKD stress）
   - `adversarial_fail_closed`
@@ -72,10 +98,30 @@ python3 scripts/mlgg.py benchmark-suite --profile release
 python3 scripts/mlgg.py benchmark-suite --profile release
 ```
 
+推荐可复现硬门：
+
+```bash
+python3 scripts/mlgg.py benchmark-suite \
+  --profile release \
+  --repeat 3 \
+  --registry-file references/benchmark-registry.json \
+  --emit-junit /tmp/mlgg_release_benchmark.junit.xml
+```
+
 ### 3. 通过标准
 - 仅当**所有阻断套件通过**时，矩阵整体 `pass`。
+- 必须通过 registry 指纹锁定校验（`benchmark_registry.v1`）。
+- 默认 `repeat=3`，重复结论不一致直接 fail。
 - 非阻断失败不会直接拉闸，但会被写入报告并要求审查。
-- 输出契约：`release_benchmark_matrix.v1`。
+- 输出契约：`release_benchmark_matrix.v2`。
+- 必填字段：
+  - `status_reason`
+  - `failure_codes`
+  - `repeat_count`
+  - `repeat_consistent`
+  - `dataset_registry_sha256`
+  - `blocking_suite_ids`
+  - `nonblocking_suite_ids`
 
 ### 4. 为什么不是“数据集越多越好”
 - 核心是**风险覆盖矩阵**，不是无序堆数据。
@@ -87,3 +133,9 @@ python3 scripts/mlgg.py benchmark-suite --profile release
 - `uci-chronic-kidney-disease`：缺失值和外部稳健性压力。
 - `uci-diabetes-130-readmission`：大样本异质性与迁移压力。
 - `uci-heart-disease`（extended）：高压研究路径验证。
+
+### 6. 标准失败码
+- `benchmark_registry_missing`
+- `benchmark_registry_mismatch`
+- `benchmark_repeat_inconsistent`
+- `benchmark_blocking_suite_failed`

@@ -1,0 +1,55 @@
+name: ci-extended
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+jobs:
+  extended-observational:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install numpy pandas scikit-learn joblib
+
+      - name: Extended benchmark suite (observational)
+        continue-on-error: true
+        run: |
+          python3 scripts/mlgg.py benchmark-suite \
+            --profile extended \
+            --repeat 1 \
+            --output /tmp/mlgg_extended_benchmark_summary.ci_extended.json \
+            --artifacts-dir /tmp/mlgg_extended_benchmark_runs \
+            --emit-junit /tmp/mlgg_extended_benchmark.junit.xml
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          mkdir -p /tmp/mlgg_ci_extended_artifacts
+          if [ -f /tmp/mlgg_extended_benchmark_summary.ci_extended.json ]; then
+            cp /tmp/mlgg_extended_benchmark_summary.ci_extended.json /tmp/mlgg_ci_extended_artifacts/
+          fi
+          if [ -f /tmp/mlgg_extended_benchmark.junit.xml ]; then
+            cp /tmp/mlgg_extended_benchmark.junit.xml /tmp/mlgg_ci_extended_artifacts/
+          fi
+          if [ -d /tmp/mlgg_extended_benchmark_runs ]; then
+            cp -R /tmp/mlgg_extended_benchmark_runs /tmp/mlgg_ci_extended_artifacts/
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-extended-artifacts
+          path: /tmp/mlgg_ci_extended_artifacts

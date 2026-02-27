@@ -440,6 +440,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/external-validation-report.example.json`: external validation report template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
 - `references/interactive-profile.example.json`: interactive CLI profile contract example (`contract_version/command/saved_at_utc/argument_values/python/cwd`).
+- `references/benchmark-registry.json`: frozen benchmark dataset registry (contract `benchmark_registry.v1`).
 - `references/stress-seed-search-report.v2.example.json`: stress seed/profile search contract template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
@@ -458,6 +459,7 @@ If any step returns non-zero, stop and block claim release.
     - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
     - `python3 scripts/mlgg.py authority --include-stress-cases`
     - `python3 scripts/mlgg.py benchmark-suite --profile release` (recommended multi-dataset stability verdict)
+    - `python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --registry-file references/benchmark-registry.json`
     - `python3 scripts/mlgg.py authority-release` (recommended release stress path)
     - `python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060` (research/high-pressure mode)
     - preset wrappers are fixed-route; conflicting route flags are rejected fail-closed
@@ -502,7 +504,8 @@ If any step returns non-zero, stop and block claim release.
 - `--stress-seed-search` applies only to `--stress-case-id uci-heart-disease`; other stress cases run without seed search.
 - CI coverage:
   - `.github/workflows/ci-smoke.yml` (push/PR/workflow_dispatch)
-  - `.github/workflows/ci-full.yml` (nightly/workflow_dispatch full regression)
+  - `.github/workflows/ci-full.yml` (nightly/workflow_dispatch release blocking benchmark-suite)
+  - `.github/workflows/ci-extended.yml` (weekly/workflow_dispatch extended observational benchmark-suite)
 - Optional diabetes feasibility auto-scan on failure:
   - `--auto-scan-diabetes-feasibility`
   - `--diabetes-feasibility-target-modes`

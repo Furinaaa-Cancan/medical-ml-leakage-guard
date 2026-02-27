@@ -141,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py workflow -- --help\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
             "  python3 scripts/mlgg.py benchmark-suite --profile release\n"
+            "  python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --emit-junit /tmp/mlgg_benchmark.junit.xml\n"
             "  python3 scripts/mlgg.py authority-release\n"
             "  python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060\n"
             "\n"

@@ -277,6 +277,9 @@ python3 scripts/mlgg.py authority
 # structured multi-dataset release benchmark matrix (recommended stability check)
 python3 scripts/mlgg.py benchmark-suite --profile release
 
+# reproducibility hard gate (default repeat=3) with explicit registry and JUnit
+python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --registry-file references/benchmark-registry.json --emit-junit /tmp/mlgg_release_benchmark.junit.xml
+
 # authority release-grade stress path (recommended wrapper)
 python3 scripts/mlgg.py authority-release
 # equivalent explicit form:
@@ -298,12 +301,14 @@ Notes:
 - Default stress case is `uci-chronic-kidney-disease` for a stable publication-grade path.
 - `uci-heart-disease` stress search is an advanced research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
 - Use `benchmark-suite --profile release` when you need a reproducible multi-dataset stability verdict.
+- `benchmark-suite` report contract is `release_benchmark_matrix.v2` and includes `failure_codes/repeat_count/repeat_consistent/dataset_registry_sha256`.
 - Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
 - `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
 - Use `--error-json` to emit structured failure payloads (`contract_version=mlgg_error.v1`) for automation.
 - CI pipelines:
   - `.github/workflows/ci-smoke.yml` (push/PR fast checks)
-  - `.github/workflows/ci-full.yml` (nightly/manual full regression: authority-release + adversarial)
+  - `.github/workflows/ci-full.yml` (nightly/manual release blocking: `benchmark-suite --profile release`)
+  - `.github/workflows/ci-extended.yml` (weekly observational extended benchmark)
 
 ---
 
@@ -336,6 +341,7 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - `references/Beginner-Quickstart.md`: bilingual beginner tutorial
 - `references/Troubleshooting-Top20.md`: top failure-code remediation
 - `references/release-benchmark-suite.md`: release benchmark matrix profile and pass contract
+- `references/benchmark-registry.json`: frozen benchmark dataset registry (`benchmark_registry.v1`)
 
 ---
 
@@ -616,6 +622,9 @@ python3 scripts/mlgg.py authority
 # 结构化多数据库发布基准矩阵（推荐稳定性检查）
 python3 scripts/mlgg.py benchmark-suite --profile release
 
+# 可复现硬门（默认 repeat=3），显式 registry + JUnit
+python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --registry-file references/benchmark-registry.json --emit-junit /tmp/mlgg_release_benchmark.junit.xml
+
 # authority 发布级 stress 路径（推荐封装）
 python3 scripts/mlgg.py authority-release
 # 等价显式命令：
@@ -637,11 +646,13 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - 默认 stress case 是 `uci-chronic-kidney-disease`，作为稳定的发布级路径。
 - `uci-heart-disease` stress-search 是高级研究型高压基准；在固定严格 floor 下，某些 seed 区间可能不存在 release-ready 候选。
 - 需要“多数据库稳定性结论”时，优先使用 `benchmark-suite --profile release`。
+- `benchmark-suite` 输出契约是 `release_benchmark_matrix.v2`，包含 `failure_codes/repeat_count/repeat_consistent/dataset_registry_sha256`。
 - 交互式 `authority` 向导默认走 CKD 发布路径，heart 会以“高级选项”显示并提示风险。
 - 自动化场景可加 `--error-json`，输出结构化失败载荷（`contract_version=mlgg_error.v1`）。
 - CI 流水线：
   - `.github/workflows/ci-smoke.yml`（push/PR 快速检查）
-  - `.github/workflows/ci-full.yml`（nightly/手动全量回归：authority-release + adversarial）
+  - `.github/workflows/ci-full.yml`（nightly/手动发布阻断：`benchmark-suite --profile release`）
+  - `.github/workflows/ci-extended.yml`（weekly 扩展观察基准）
 - `authority-release` 与 `authority-research-heart` 是固定路线封装；若传入冲突路线参数会 fail-closed 拒绝执行。
 
 ---
@@ -676,6 +687,7 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - `references/Beginner-Quickstart.md`: 双语新手教程
 - `references/Troubleshooting-Top20.md`: 高频失败码修复手册
 - `references/release-benchmark-suite.md`: 发布级基准矩阵档位与通过标准
+- `references/benchmark-registry.json`: 冻结基准数据注册表（`benchmark_registry.v1`）
 
 ---
 
