@@ -1,0 +1,89 @@
+# Release Benchmark Suite (v1)
+
+Structured benchmark protocol for stability validation of `ml-leakage-guard`.
+
+`ml-leakage-guard` 稳定性验证的结构化基准协议。
+
+---
+
+## English
+
+### 1. Goal
+- Validate **release stability**, not just single-run performance.
+- Cover representative failure modes: leakage, overfit gaps, distribution shift, external transport, calibration/DCA, and fail-closed behavior.
+
+### 2. Profiles
+- `quick`
+  - `authority_release_core` (WDBC + CKD stress route)
+  - `adversarial_fail_closed`
+- `release` (recommended)
+  - `authority_release_core`
+  - `authority_release_extended` (+ Diabetes130 large cohort)
+  - `adversarial_fail_closed`
+- `extended`
+  - `release` profile +
+  - `authority_research_heart` (heart stress search; non-blocking by default unless `--heart-blocking`)
+
+Run command:
+
+```bash
+python3 scripts/mlgg.py benchmark-suite --profile release
+```
+
+### 3. Pass Contract
+- Overall matrix passes only if **all blocking suites pass**.
+- Non-blocking failures are still reported and must be reviewed before publication claims.
+- Output report: `release_benchmark_matrix.v1`.
+
+### 4. Why This Is Better Than "Many Random Datasets"
+- Focuses on **risk coverage** instead of raw dataset count.
+- Uses fixed routes and machine-readable summaries for reproducibility.
+- Keeps strict fail-closed publication gates unchanged.
+
+### 5. Core Dataset Coverage
+- `uci-breast-cancer-wdbc`: small/clean baseline for full strict-chain sanity.
+- `uci-chronic-kidney-disease`: missingness-heavy external stability route.
+- `uci-diabetes-130-readmission`: larger heterogeneous cohort (runtime + transport stress).
+- `uci-heart-disease` (extended profile): high-pressure research stress route.
+
+---
+
+## 中文
+
+### 1. 目标
+- 验证的是**发布稳定性**，不是单次分数好看。
+- 覆盖关键风险：泄漏、过拟合 gap、分布漂移、外部迁移、校准/DCA、fail-closed 行为。
+
+### 2. 运行档位
+- `quick`
+  - `authority_release_core`（WDBC + CKD stress）
+  - `adversarial_fail_closed`
+- `release`（推荐）
+  - `authority_release_core`
+  - `authority_release_extended`（增加 Diabetes130 大样本）
+  - `adversarial_fail_closed`
+- `extended`
+  - 在 `release` 基础上增加
+  - `authority_research_heart`（heart 高压研究路线；默认非阻断，可用 `--heart-blocking` 设为阻断）
+
+执行命令：
+
+```bash
+python3 scripts/mlgg.py benchmark-suite --profile release
+```
+
+### 3. 通过标准
+- 仅当**所有阻断套件通过**时，矩阵整体 `pass`。
+- 非阻断失败不会直接拉闸，但会被写入报告并要求审查。
+- 输出契约：`release_benchmark_matrix.v1`。
+
+### 4. 为什么不是“数据集越多越好”
+- 核心是**风险覆盖矩阵**，不是无序堆数据。
+- 路线固定 + 机器可读报告，保证可复现可审计。
+- 不放宽现有 publication-grade 严格门。
+
+### 5. 数据集覆盖定位
+- `uci-breast-cancer-wdbc`：小而稳的全链路基线。
+- `uci-chronic-kidney-disease`：缺失值和外部稳健性压力。
+- `uci-diabetes-130-readmission`：大样本异质性与迁移压力。
+- `uci-heart-disease`（extended）：高压研究路径验证。

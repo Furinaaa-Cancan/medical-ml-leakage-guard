@@ -39,6 +39,10 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
     "summary": (SCRIPTS_ROOT / "render_user_summary.py", "Render user-facing markdown/json summary."),
     "train": (SCRIPTS_ROOT / "train_select_evaluate.py", "Train/select/evaluate and emit evidence artifacts."),
     "authority": (EXPERIMENTS_ROOT / "run_authority_e2e.py", "Run authority E2E benchmark suite."),
+    "benchmark-suite": (
+        EXPERIMENTS_ROOT / "run_release_benchmark_matrix.py",
+        "Run structured multi-dataset stability benchmark matrix (authority + adversarial).",
+    ),
     "authority-release": (
         EXPERIMENTS_ROOT / "run_authority_e2e.py",
         "Run authority E2E with recommended release-grade stress route (CKD).",
@@ -136,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare\n"
             "  python3 scripts/mlgg.py workflow -- --help\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
+            "  python3 scripts/mlgg.py benchmark-suite --profile release\n"
             "  python3 scripts/mlgg.py authority-release\n"
             "  python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060\n"
             "\n"
@@ -145,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Example: `python3 scripts/mlgg.py workflow -- --help`\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
+        allow_abbrev=False,
     )
     parser.add_argument("subcommand", choices=sorted(COMMANDS.keys()), help="Subcommand to execute.")
     parser.add_argument(

@@ -412,7 +412,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/env_doctor.py`: dependency and environment diagnostics with optional-backend checks.
 - `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
 - `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
-- `scripts/mlgg.py`: unified terminal entrypoint for common commands (`interactive/init/doctor/preflight/workflow/strict/summary/train/authority/scan-diabetes/adversarial`).
+- `scripts/mlgg.py`: unified terminal entrypoint for common commands (`interactive/init/doctor/preflight/workflow/strict/summary/train/authority/benchmark-suite/scan-diabetes/adversarial`).
 - `scripts/mlgg_interactive.py`: terminal interactive wizard for core commands (`init/workflow/train/authority`) with command preview, confirm-before-run, and profile save/load.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
@@ -445,6 +445,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
 - `references/top-tier-rigor-checklist.md`: submission-grade hard gates.
 - `references/external-benchmark-comparison.md`: external tool/guideline comparison and gap map.
+- `references/release-benchmark-suite.md`: structured benchmark profile matrix and pass contract.
 - `references/report-template.md`: reporting template for methods/results/robustness.
 
 ## Authority E2E Execution Notes
@@ -456,6 +457,7 @@ If any step returns non-zero, stop and block claim release.
     - `python3 scripts/mlgg.py interactive --command workflow --profile-name demo --save-profile`
     - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
     - `python3 scripts/mlgg.py authority --include-stress-cases`
+    - `python3 scripts/mlgg.py benchmark-suite --profile release` (recommended multi-dataset stability verdict)
     - `python3 scripts/mlgg.py authority-release` (recommended release stress path)
     - `python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060` (research/high-pressure mode)
     - preset wrappers are fixed-route; conflicting route flags are rejected fail-closed
