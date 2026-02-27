@@ -96,6 +96,7 @@
 - Environment details:
 - Config files and random seeds:
 - Interactive execution provenance (if wizard used): `mlgg` command line, `run_tag`, and profile source (`profile_name`, `profile_path`, `profile_contract_version`):
+- Onboarding provenance (if onboarding was used): `onboarding_report.json`, mode (`guided|preview|auto`), and step-level command/exit trace:
 - Signed execution attestation spec (`execution_attestation.json`):
 - Signed payload (`attestation_payload.json`) and detached signature (`attestation.sig`):
 - Revocation list evidence (`key_revocations.json`) and signing key lifecycle evidence:

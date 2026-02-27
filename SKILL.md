@@ -198,6 +198,37 @@ python3 scripts/run_productized_workflow.py \
   --strict
 ```
 
+Novice onboarding wrapper (guided 8-step flow):
+
+```bash
+python3 scripts/mlgg.py onboarding \
+  --project-root /tmp/mlgg_demo \
+  --mode guided \
+  --yes
+```
+
+Onboarding contract:
+- `scripts/mlgg_onboarding.py` is strict-only (no policy downgrade path).
+- Modes:
+  - `guided`: step-by-step command preview + confirmation.
+  - `preview`: print the full 8-step command plan only.
+  - `auto`: execute all steps non-interactively.
+- Step order is fixed:
+  1. `env_doctor.py`
+  2. `init_project.py`
+  3. `generate_demo_medical_dataset.py`
+  4. config alignment to demo schema (`request/lineage/group/external spec`)
+  5. `train_select_evaluate.py`
+  6. `generate_execution_attestation.py` (+ keypair bootstrap if needed)
+  7. `run_productized_workflow.py --strict --allow-missing-compare`
+  8. `run_productized_workflow.py --strict --compare-manifest ...`
+- Required report:
+  - `evidence/onboarding_report.json` (`contract_version=onboarding_report.v1`)
+- Offline demo data artifacts:
+  - `data/train.csv`, `data/valid.csv`, `data/test.csv`
+  - `data/external_2025_q4.csv` (`cross_period`)
+  - `data/external_site_b.csv` (`cross_institution`)
+
 This wrapper runs:
 1. `env_doctor.py`
 2. `schema_preflight.py`
@@ -338,6 +369,13 @@ If any step returns non-zero, stop and block claim release.
 ### scripts/
 - `scripts/run_strict_pipeline.py`: single-entry strict orchestrator.
 - `scripts/request_contract_gate.py`: request schema/path validation and publication-policy anti-downgrade checks.
+- `scripts/mlgg.py`: unified command entrypoint (`onboarding`, `interactive`, `init`, `train`, `workflow`, ...).
+- `scripts/mlgg_onboarding.py`: novice-guided strict onboarding flow and report emitter.
+- `scripts/generate_demo_medical_dataset.py`: offline reproducible demo dataset generator.
+
+### references/
+- `references/Beginner-Quickstart.md`: bilingual novice quickstart (minimal loop + publication-grade loop).
+- `references/Troubleshooting-Top20.md`: high-frequency failure code to diagnosis/fix/verify mapping.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
 - `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt/execution-log/witness-quorum generator for personal users.

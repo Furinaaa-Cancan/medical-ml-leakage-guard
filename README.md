@@ -22,7 +22,20 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 - Unified entrypoint:
   - `python3 scripts/mlgg.py <subcommand> [args]`
 - Core subcommands:
-  - `interactive`, `init`, `doctor`, `preflight`, `workflow`, `strict`, `summary`, `train`, `authority`, `adversarial`
+  - `onboarding`, `interactive`, `init`, `doctor`, `preflight`, `workflow`, `strict`, `summary`, `train`, `authority`, `adversarial`
+
+### Novice Onboarding (V8)
+- One command (recommended for first-time users):
+  - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
+- Modes:
+  - `guided`: step-by-step confirmation
+  - `preview`: print full 8-step command plan only
+  - `auto`: execute full flow non-interactively
+- Fixed flow:
+  - doctor -> init -> demo data -> config alignment -> train -> attestation -> workflow bootstrap -> workflow compare
+- Outputs:
+  - onboarding report: `<project>/evidence/onboarding_report.json`
+  - user summary: `<project>/evidence/user_summary.md`
 
 ### Interactive Wizard (V7)
 - New terminal wizard for core commands: `init / workflow / train / authority`
@@ -45,17 +58,12 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
   - non-blocking run with profile/defaults: `--accept-defaults`
 
 ### Quick Start
-1. Environment check:
-   - `python3 scripts/mlgg.py doctor`
-2. Initialize a project:
-   - non-interactive: `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
-   - interactive: `python3 scripts/mlgg.py init --interactive`
-3. Put split files into `data/train.csv`, `data/valid.csv`, `data/test.csv`.
-4. Generate required training/evaluation evidence artifacts first:
+1. Fastest path (novice):
+   - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
+2. Manual path (advanced):
+   - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
    - `python3 scripts/mlgg.py train --interactive`
-5. Run productized strict flow (first run should bootstrap manifest baseline):
    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
-6. Reproducible follow-up runs:
    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --compare-manifest /tmp/mlgg_demo/evidence/manifest_baseline.bootstrap.json`
 
 Note:
@@ -64,6 +72,8 @@ Note:
 ### Strict Validation and Benchmarks
 - Gate smoke tests:
   - `python3 scripts/test_gate_smoke.py`
+- Onboarding smoke tests:
+  - `python3 scripts/test_onboarding_smoke.py`
 - Authority E2E:
   - `python3 scripts/mlgg.py authority`
 - Adversarial fail-closed checks:
@@ -74,6 +84,8 @@ Note:
 - `references/`: schema/policy/report examples and rigor checklists.
 - `experiments/authority-e2e/`: benchmark datasets, E2E runners, adversarial scenarios.
 - `SKILL.md`: full workflow contract and gate ordering.
+- `references/Beginner-Quickstart.md`: bilingual novice tutorial.
+- `references/Troubleshooting-Top20.md`: high-frequency failure-code remediation guide.
 
 ### Notes
 - This project is for predictive modeling rigor, not causal inference claims.
@@ -97,7 +109,20 @@ Note:
 - 统一命令：
   - `python3 scripts/mlgg.py <subcommand> [args]`
 - 常用子命令：
-  - `interactive`, `init`, `doctor`, `preflight`, `workflow`, `strict`, `summary`, `train`, `authority`, `adversarial`
+  - `onboarding`, `interactive`, `init`, `doctor`, `preflight`, `workflow`, `strict`, `summary`, `train`, `authority`, `adversarial`
+
+### 新手引导（V8）
+- 首次使用推荐一条命令：
+  - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
+- 模式说明：
+  - `guided`：逐步确认执行
+  - `preview`：仅输出完整 8 步命令计划
+  - `auto`：非交互串行执行全部步骤
+- 固定流程：
+  - doctor -> init -> demo 数据 -> 配置对齐 -> train -> attestation -> workflow 首跑 -> workflow 基线对比复跑
+- 关键产物：
+  - 引导报告：`<project>/evidence/onboarding_report.json`
+  - 用户摘要：`<project>/evidence/user_summary.md`
 
 ### 交互式终端向导（V7）
 - 新增交互向导，覆盖核心命令：`init / workflow / train / authority`
@@ -120,17 +145,12 @@ Note:
   - 使用默认值免交互执行：`--accept-defaults`
 
 ### 快速开始
-1. 先做环境检查：
-   - `python3 scripts/mlgg.py doctor`
-2. 初始化项目：
-   - 非交互：`python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
-   - 交互：`python3 scripts/mlgg.py init --interactive`
-3. 将分割数据放入 `data/train.csv`, `data/valid.csv`, `data/test.csv`。
-4. 先运行训练/评估，产出必需证据工件：
+1. 新手最快路径：
+   - `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes`
+2. 手动路径（进阶）：
+   - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
    - `python3 scripts/mlgg.py train --interactive`
-5. 再运行产品化严格流程（首跑需基线引导）：
    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare`
-6. 后续可复现实验运行：
    - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --compare-manifest /tmp/mlgg_demo/evidence/manifest_baseline.bootstrap.json`
 
 说明：
@@ -139,6 +159,8 @@ Note:
 ### 严格验证与基准测试
 - Gate 冒烟测试：
   - `python3 scripts/test_gate_smoke.py`
+- Onboarding 冒烟测试：
+  - `python3 scripts/test_onboarding_smoke.py`
 - Authority E2E：
   - `python3 scripts/mlgg.py authority`
 - 对抗 fail-closed 检查：
@@ -149,6 +171,8 @@ Note:
 - `references/`：schema/policy/report 示例与顶刊级检查清单。
 - `experiments/authority-e2e/`：权威数据集实验、E2E 与对抗脚本。
 - `SKILL.md`：完整流程契约与 gate 顺序。
+- `references/Beginner-Quickstart.md`：双语新手教程。
+- `references/Troubleshooting-Top20.md`：高频失败码修复手册。
 
 ### 说明
 - 该项目面向预测建模严谨性，不直接支持因果结论声明。

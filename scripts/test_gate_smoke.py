@@ -43,12 +43,20 @@ def write_csv(path: Path, rows: List[Dict[str, str]], headers: List[str]) -> Non
         writer.writerows(rows)
 
 
-def run_gate(args: List[str], input_text: str | None = None) -> subprocess.CompletedProcess:
+def run_gate(
+    args: List[str],
+    input_text: str | None = None,
+    env: Dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
     return subprocess.run(
         [PYTHON] + args,
         text=True,
         capture_output=True,
         input=input_text,
+        env=run_env,
     )
 
 
@@ -592,6 +600,74 @@ def test_render_user_summary_propagates_fail_status() -> None:
         assert_true(summary.get("overall_status") == "fail", "summary overall_status is fail")
 
 
+def test_mlgg_onboarding_preview_emits_full_step_plan() -> None:
+    print("\n=== mlgg onboarding: preview mode emits 8-step command plan ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "demo_project"
+        report_path = td / "onboarding_preview_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "onboarding",
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "preview",
+                "--report",
+                str(report_path),
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 0, "onboarding preview exits 0")
+        assert_true(report_path.exists(), "onboarding preview report file exists")
+        report = load_report(report_path)
+        steps = report.get("steps", [])
+        assert_true(isinstance(steps, list) and len(steps) == 8, "onboarding preview contains 8 fixed steps")
+        step_names = [str(row.get("name", "")) for row in steps if isinstance(row, dict)]
+        assert_true("step1_doctor" in step_names, "onboarding preview includes step1_doctor")
+        assert_true("step8_workflow_compare" in step_names, "onboarding preview includes step8_workflow_compare")
+
+
+def test_mlgg_onboarding_missing_openssl_fails_closed() -> None:
+    print("\n=== mlgg onboarding: missing openssl fails closed with actionable message ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "demo_project"
+        report_path = td / "onboarding_fail_report.json"
+        # Keep this test fast and deterministic: guided mode + --yes will stop at the
+        # first preflight where openssl is required and fail closed.
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "onboarding",
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "guided",
+                "--yes",
+                "--report",
+                str(report_path),
+            ],
+            env={"PATH": "/nonexistent"},
+        )
+        assert_true(proc.returncode == 2, "onboarding without openssl exits 2")
+        combined = (proc.stdout + "\n" + proc.stderr).lower()
+        assert_true("onboarding_openssl_missing" in combined, "missing openssl failure marker is present")
+
+
+def test_mlgg_help_includes_onboarding_and_bootstrap_example() -> None:
+    print("\n=== mlgg help: includes onboarding and bootstrap workflow examples ===")
+    proc = run_gate([str(SCRIPTS_DIR / "mlgg.py"), "--help"])
+    assert_true(proc.returncode == 0, "mlgg --help exits 0")
+    body = proc.stdout
+    assert_true("onboarding" in body, "mlgg --help lists onboarding command")
+    assert_true(
+        "--allow-missing-compare" in body,
+        "mlgg --help examples include bootstrap manifest option",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -616,6 +692,9 @@ def main() -> int:
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()
+    test_mlgg_onboarding_preview_emits_full_step_plan()
+    test_mlgg_onboarding_missing_openssl_fails_closed()
+    test_mlgg_help_includes_onboarding_and_bootstrap_example()
 
     print(f"\n{'='*50}")
     if _failures:

@@ -22,6 +22,10 @@ EXPERIMENTS_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 
 
 COMMANDS: Dict[str, Tuple[Path, str]] = {
+    "onboarding": (
+        SCRIPTS_ROOT / "mlgg_onboarding.py",
+        "Run guided novice onboarding (demo data -> train -> attestation -> strict workflow).",
+    ),
     "interactive": (
         SCRIPTS_ROOT / "mlgg_interactive.py",
         "Launch interactive wizard for core commands (init/workflow/train/authority).",
@@ -54,12 +58,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Available commands:\n"
             f"{command_help}\n\n"
             "Examples:\n"
+            "  python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes\n"
             "  python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo\n"
             "  python3 scripts/mlgg.py train --interactive\n"
             "  python3 scripts/mlgg.py interactive --command workflow\n"
             "  python3 scripts/mlgg.py interactive --command train --load-profile --profile-name demo --accept-defaults\n"
-            "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict\n"
+            "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare\n"
+            "  python3 scripts/mlgg.py workflow -- --help\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
+            "\n"
+            "Tip:\n"
+            "  Use `-- --help` to view subcommand-native help.\n"
+            "  Example: `python3 scripts/mlgg.py workflow -- --help`\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
