@@ -1,0 +1,27 @@
+{
+  "contract_version": "v1",
+  "command": "train",
+  "saved_at_utc": "2026-02-27T00:00:00Z",
+  "argument_values": {
+    "train": "/tmp/mlgg_demo/data/train.csv",
+    "valid": "/tmp/mlgg_demo/data/valid.csv",
+    "test": "/tmp/mlgg_demo/data/test.csv",
+    "target_col": "y",
+    "patient_id_col": "patient_id",
+    "model_pool": "logistic_l1,logistic_l2,logistic_elasticnet,random_forest_balanced,extra_trees_balanced,hist_gradient_boosting_l2",
+    "include_optional_models": true,
+    "n_jobs": 8,
+    "calibration_method": "power",
+    "model_selection_report_out": "/tmp/mlgg_demo/evidence/model_selection_report.json",
+    "evaluation_report_out": "/tmp/mlgg_demo/evidence/evaluation_report.json",
+    "prediction_trace_out": "/tmp/mlgg_demo/evidence/prediction_trace.csv.gz",
+    "external_validation_report_out": "/tmp/mlgg_demo/evidence/external_validation_report.json",
+    "ci_matrix_report_out": "/tmp/mlgg_demo/evidence/ci_matrix_report.json",
+    "distribution_report_out": "/tmp/mlgg_demo/evidence/distribution_report.json",
+    "feature_engineering_report_out": "/tmp/mlgg_demo/evidence/feature_engineering_report.json",
+    "robustness_report_out": "/tmp/mlgg_demo/evidence/robustness_report.json",
+    "seed_sensitivity_out": "/tmp/mlgg_demo/evidence/seed_sensitivity_report.json"
+  },
+  "python": "/usr/bin/python3",
+  "cwd": "/Volumes/Seagate/Skill/ml-leakage-guard"
+}

@@ -369,7 +369,8 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/env_doctor.py`: dependency and environment diagnostics with optional-backend checks.
 - `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
 - `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
-- `scripts/mlgg.py`: unified terminal entrypoint for common commands (`init/doctor/preflight/workflow/strict/summary/train/authority/scan-diabetes/adversarial`).
+- `scripts/mlgg.py`: unified terminal entrypoint for common commands (`interactive/init/doctor/preflight/workflow/strict/summary/train/authority/scan-diabetes/adversarial`).
+- `scripts/mlgg_interactive.py`: terminal interactive wizard for core commands (`init/workflow/train/authority`) with command preview, confirm-before-run, and profile save/load.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### references/
@@ -395,6 +396,7 @@ If any step returns non-zero, stop and block claim release.
 - `references/ci-matrix-report.example.json`: CI matrix report template.
 - `references/external-validation-report.example.json`: external validation report template.
 - `references/evaluation-report.example.json`: evaluation metrics report template.
+- `references/interactive-profile.example.json`: interactive CLI profile contract example (`contract_version/command/saved_at_utc/argument_values/python/cwd`).
 - `references/stress-seed-search-report.v2.example.json`: stress seed/profile search contract template.
 - `references/medical-disease-leakage.md`: medical phenotype leakage patterns and controls.
 - `references/leakage-taxonomy.md`: leakage classes, red flags, and mitigations.
@@ -407,8 +409,19 @@ If any step returns non-zero, stop and block claim release.
   - `python3 scripts/mlgg.py <command> [command-args]`
   - Examples:
     - `python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo`
+    - `python3 scripts/mlgg.py train --interactive`
+    - `python3 scripts/mlgg.py interactive --command workflow --profile-name demo --save-profile`
     - `python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict`
     - `python3 scripts/mlgg.py authority --include-stress-cases`
+
+- Interactive wizard defaults:
+  - Supports `init/workflow/train/authority`.
+  - Preview command before execution, then require one confirm step.
+  - Profile reuse:
+    - `--profile-name <name> --save-profile`
+    - `--profile-name <name> --load-profile`
+  - Profile path defaults to `~/.mlgg/profiles` (override with `--profile-dir`).
+  - For workflow wizard, `--strict` is always injected and cannot be bypassed by interactive mode.
 
 - Use isolated output paths in concurrent runs:
   - `--summary-file`

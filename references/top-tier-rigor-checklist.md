@@ -85,6 +85,7 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Log software versions and hardware constraints.
 - [ ] Save data snapshot/version identifiers.
 - [ ] Save full training/evaluation config files.
+- [ ] If interactive wizard was used, archive generated command, `run_tag`, and profile contract/version; verify interactive mode did not bypass strict gate evidence requirements.
 - [ ] Require signed execution attestation (detached signature + public-key verification).
 - [ ] Ensure signed payload covers training command, start/finish timestamps, and critical artifact hashes.
 - [ ] Enforce key-rotation/expiry policy and check revocation list for signing key ID and fingerprint.

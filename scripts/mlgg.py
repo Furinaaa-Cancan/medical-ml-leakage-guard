@@ -22,6 +22,10 @@ EXPERIMENTS_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 
 
 COMMANDS: Dict[str, Tuple[Path, str]] = {
+    "interactive": (
+        SCRIPTS_ROOT / "mlgg_interactive.py",
+        "Launch interactive wizard for core commands (init/workflow/train/authority).",
+    ),
     "init": (SCRIPTS_ROOT / "init_project.py", "Initialize project folders and config templates."),
     "doctor": (SCRIPTS_ROOT / "env_doctor.py", "Check runtime dependencies and optional backends."),
     "preflight": (SCRIPTS_ROOT / "schema_preflight.py", "Validate train/valid/test schema and semantic mapping."),
@@ -39,6 +43,7 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         "Run adversarial fail-closed gate scenarios.",
     ),
 }
+INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,12 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
             f"{command_help}\n\n"
             "Examples:\n"
             "  python3 scripts/mlgg.py init --project-root /tmp/mlgg_demo\n"
+            "  python3 scripts/mlgg.py train --interactive\n"
+            "  python3 scripts/mlgg.py interactive --command workflow\n"
             "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("command", choices=sorted(COMMANDS.keys()), help="Subcommand to execute.")
+    parser.add_argument("subcommand", choices=sorted(COMMANDS.keys()), help="Subcommand to execute.")
     parser.add_argument(
         "--python",
         default=sys.executable,
@@ -71,6 +78,42 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the forwarded command and exit without executing.",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Run selected core command via interactive wizard (init/workflow/train/authority).",
+    )
+    parser.add_argument(
+        "--command",
+        dest="interactive_command",
+        choices=list(INTERACTIVE_CORE_COMMANDS),
+        help="Wizard target command when using subcommand=interactive.",
+    )
+    parser.add_argument(
+        "--profile-name",
+        default="",
+        help="Profile name for interactive mode.",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        default="~/.mlgg/profiles",
+        help="Profile directory for interactive mode.",
+    )
+    parser.add_argument(
+        "--save-profile",
+        action="store_true",
+        help="Save interactive selections into profile.",
+    )
+    parser.add_argument(
+        "--load-profile",
+        action="store_true",
+        help="Load interactive defaults from profile.",
+    )
+    parser.add_argument(
+        "--print-only",
+        action="store_true",
+        help="Interactive mode only: print generated command without execution.",
+    )
     return parser
 
 
@@ -80,23 +123,69 @@ def main() -> int:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
 
-    script_path, _ = COMMANDS[str(args.command)]
-    if not script_path.exists():
-        print(f"[FAIL] Script not found for command '{args.command}': {script_path}", file=sys.stderr)
-        return 2
-
+    subcommand = str(args.subcommand)
     python_bin = str(args.python).strip() or sys.executable
     cwd = Path(str(args.cwd)).expanduser().resolve()
-    cmd = [python_bin, str(script_path), *passthrough]
+    interactive_requested = bool(args.interactive) or subcommand == "interactive"
 
+    if interactive_requested:
+        target_command = str(args.interactive_command).strip() if args.interactive_command else subcommand
+        if target_command == "interactive":
+            print(
+                "[FAIL] interactive mode requires --command "
+                f"({'|'.join(INTERACTIVE_CORE_COMMANDS)}).",
+                file=sys.stderr,
+            )
+            return 2
+        if target_command not in INTERACTIVE_CORE_COMMANDS:
+            print(
+                "[FAIL] --interactive is supported only for: "
+                + ", ".join(INTERACTIVE_CORE_COMMANDS),
+                file=sys.stderr,
+            )
+            return 2
+        wizard_script = COMMANDS["interactive"][0]
+        if not wizard_script.exists():
+            print(f"[FAIL] Interactive script not found: {wizard_script}", file=sys.stderr)
+            return 2
+        cmd = [
+            python_bin,
+            str(wizard_script),
+            "--command",
+            target_command,
+            "--python",
+            python_bin,
+            "--cwd",
+            str(cwd),
+            "--profile-dir",
+            str(args.profile_dir),
+        ]
+        if str(args.profile_name).strip():
+            cmd.extend(["--profile-name", str(args.profile_name).strip()])
+        if args.save_profile:
+            cmd.append("--save-profile")
+        if args.load_profile:
+            cmd.append("--load-profile")
+        if args.print_only:
+            cmd.append("--print-only")
+        cmd.extend(passthrough)
+        print(f"$ {shlex.join(cmd)}")
+        if args.dry_run:
+            return 0
+        proc = subprocess.run(cmd, cwd=str(cwd), text=True)
+        return int(proc.returncode)
+
+    script_path, _ = COMMANDS[subcommand]
+    if not script_path.exists():
+        print(f"[FAIL] Script not found for command '{subcommand}': {script_path}", file=sys.stderr)
+        return 2
+    cmd = [python_bin, str(script_path), *passthrough]
     print(f"$ {shlex.join(cmd)}")
     if args.dry_run:
         return 0
-
     proc = subprocess.run(cmd, cwd=str(cwd), text=True)
     return int(proc.returncode)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
