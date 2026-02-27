@@ -9,6 +9,7 @@ can use one stable command surface in terminal workflows and agent automation.
 from __future__ import annotations
 
 import argparse
+import json
 import shlex
 import subprocess
 import sys
@@ -86,6 +87,7 @@ PRESET_BLOCKED_FLAGS: Dict[str, Tuple[str, ...]] = {
     ),
 }
 AUTHORITY_PRESET_ROUTE_OVERRIDE_FORBIDDEN = "authority_preset_route_override_forbidden"
+MLGG_ERROR_CONTRACT_VERSION = "mlgg_error.v1"
 
 
 def passthrough_contains_flag(passthrough: list[str], flag: str) -> bool:
@@ -95,6 +97,26 @@ def passthrough_contains_flag(passthrough: list[str], flag: str) -> bool:
         if token.startswith(flag + "="):
             return True
     return False
+
+
+def emit_fail(
+    *,
+    code: str,
+    message: str,
+    error_json: bool,
+    details: Dict[str, object] | None = None,
+) -> int:
+    print(f"[FAIL] {code}: {message}", file=sys.stderr)
+    if error_json:
+        payload = {
+            "contract_version": MLGG_ERROR_CONTRACT_VERSION,
+            "status": "fail",
+            "code": code,
+            "message": message,
+            "details": details or {},
+        }
+        print(json.dumps(payload, ensure_ascii=True), file=sys.stderr)
+    return 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -181,6 +203,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Interactive mode only: auto-accept prompt defaults when available.",
     )
+    parser.add_argument(
+        "--error-json",
+        action="store_true",
+        help="Emit machine-readable JSON error payloads on failure.",
+    )
     return parser
 
 
@@ -199,8 +226,11 @@ def main() -> int:
         if subcommand == "interactive" and not args.interactive_command and passthrough and passthrough[0] in {"-h", "--help"}:
             wizard_script = COMMANDS["interactive"][0]
             if not wizard_script.exists():
-                print(f"[FAIL] Interactive script not found: {wizard_script}", file=sys.stderr)
-                return 2
+                return emit_fail(
+                    code="interactive_script_not_found",
+                    message=f"Interactive script not found: {wizard_script}",
+                    error_json=bool(args.error_json),
+                )
             cmd = [python_bin, str(wizard_script), "--help"]
             print(f"$ {shlex.join(cmd)}")
             if args.dry_run:
@@ -209,23 +239,27 @@ def main() -> int:
             return int(proc.returncode)
         target_command = str(args.interactive_command).strip() if args.interactive_command else subcommand
         if target_command == "interactive":
-            print(
-                "[FAIL] interactive mode requires --command "
-                f"({'|'.join(INTERACTIVE_CORE_COMMANDS)}).",
-                file=sys.stderr,
+            return emit_fail(
+                code="interactive_command_missing",
+                message=(
+                    "interactive mode requires --command "
+                    f"({'|'.join(INTERACTIVE_CORE_COMMANDS)})."
+                ),
+                error_json=bool(args.error_json),
             )
-            return 2
         if target_command not in INTERACTIVE_CORE_COMMANDS:
-            print(
-                "[FAIL] --interactive is supported only for: "
-                + ", ".join(INTERACTIVE_CORE_COMMANDS),
-                file=sys.stderr,
+            return emit_fail(
+                code="interactive_command_not_supported",
+                message="--interactive is supported only for: " + ", ".join(INTERACTIVE_CORE_COMMANDS),
+                error_json=bool(args.error_json),
             )
-            return 2
         wizard_script = COMMANDS["interactive"][0]
         if not wizard_script.exists():
-            print(f"[FAIL] Interactive script not found: {wizard_script}", file=sys.stderr)
-            return 2
+            return emit_fail(
+                code="interactive_script_not_found",
+                message=f"Interactive script not found: {wizard_script}",
+                error_json=bool(args.error_json),
+            )
         cmd = [
             python_bin,
             str(wizard_script),
@@ -257,8 +291,12 @@ def main() -> int:
 
     script_path, _ = COMMANDS[subcommand]
     if not script_path.exists():
-        print(f"[FAIL] Script not found for command '{subcommand}': {script_path}", file=sys.stderr)
-        return 2
+        return emit_fail(
+            code="subcommand_script_not_found",
+            message=f"Script not found for command '{subcommand}': {script_path}",
+            error_json=bool(args.error_json),
+            details={"subcommand": subcommand, "script_path": str(script_path)},
+        )
     if subcommand in PRESET_BLOCKED_FLAGS:
         blocked = [
             flag
@@ -266,14 +304,15 @@ def main() -> int:
             if passthrough_contains_flag(passthrough, flag)
         ]
         if blocked:
-            print(
-                "[FAIL] "
-                + AUTHORITY_PRESET_ROUTE_OVERRIDE_FORBIDDEN
-                + ": preset command does not allow overriding fixed route flags: "
-                + ", ".join(blocked),
-                file=sys.stderr,
+            return emit_fail(
+                code=AUTHORITY_PRESET_ROUTE_OVERRIDE_FORBIDDEN,
+                message=(
+                    "preset command does not allow overriding fixed route flags: "
+                    + ", ".join(blocked)
+                ),
+                error_json=bool(args.error_json),
+                details={"subcommand": subcommand, "blocked_flags": blocked},
             )
-            return 2
 
     preset_args = list(COMMAND_PRESETS.get(subcommand, ()))
     cmd = [python_bin, str(script_path), *preset_args, *passthrough]

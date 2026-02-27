@@ -561,6 +561,32 @@ def test_mlgg_authority_wrapper_rejects_conflicting_route_flags() -> None:
         "authority_preset_route_override_forbidden" in research_conflict.stderr,
         "authority-research-heart conflict emits standard failure code",
     )
+    research_conflict_json = run_gate(
+        [
+            str(SCRIPTS_DIR / "mlgg.py"),
+            "authority-research-heart",
+            "--dry-run",
+            "--stress-case-id",
+            "uci-chronic-kidney-disease",
+            "--error-json",
+        ]
+    )
+    assert_true(research_conflict_json.returncode == 2, "authority conflict with --error-json exits 2")
+    stderr_lines = [line.strip() for line in research_conflict_json.stderr.splitlines() if line.strip()]
+    payload = {}
+    if stderr_lines:
+        try:
+            payload = json.loads(stderr_lines[-1])
+        except Exception:
+            payload = {}
+    assert_true(
+        payload.get("contract_version") == "mlgg_error.v1",
+        "mlgg --error-json emits mlgg_error.v1 contract",
+    )
+    assert_true(
+        payload.get("code") == "authority_preset_route_override_forbidden",
+        "mlgg --error-json emits expected authority preset conflict code",
+    )
 
 
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:

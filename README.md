@@ -286,6 +286,9 @@ python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-he
 
 # adversarial fail-closed checks
 python3 scripts/mlgg.py adversarial
+
+# machine-readable failure payload (JSON on stderr)
+python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
 ```
 
 Notes:
@@ -293,6 +296,10 @@ Notes:
 - `uci-heart-disease` stress search is an advanced research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
 - Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
 - `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
+- Use `--error-json` to emit structured failure payloads (`contract_version=mlgg_error.v1`) for automation.
+- CI pipelines:
+  - `.github/workflows/ci-smoke.yml` (push/PR fast checks)
+  - `.github/workflows/ci-full.yml` (nightly/manual full regression: authority-release + adversarial)
 
 ---
 
@@ -312,6 +319,7 @@ Typical diagnosis commands:
 python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict
 python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare
 python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json
+python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
 ```
 
 ---
@@ -612,12 +620,19 @@ python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-he
 
 # 对抗 fail-closed 检查
 python3 scripts/mlgg.py adversarial
+
+# 机器可解析失败输出（stderr JSON）
+python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
 ```
 
 说明：
 - 默认 stress case 是 `uci-chronic-kidney-disease`，作为稳定的发布级路径。
 - `uci-heart-disease` stress-search 是高级研究型高压基准；在固定严格 floor 下，某些 seed 区间可能不存在 release-ready 候选。
 - 交互式 `authority` 向导默认走 CKD 发布路径，heart 会以“高级选项”显示并提示风险。
+- 自动化场景可加 `--error-json`，输出结构化失败载荷（`contract_version=mlgg_error.v1`）。
+- CI 流水线：
+  - `.github/workflows/ci-smoke.yml`（push/PR 快速检查）
+  - `.github/workflows/ci-full.yml`（nightly/手动全量回归：authority-release + adversarial）
 - `authority-release` 与 `authority-research-heart` 是固定路线封装；若传入冲突路线参数会 fail-closed 拒绝执行。
 
 ---
@@ -639,6 +654,7 @@ guided 模式取消后现在会 fail-closed，失败码为：
 python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict
 python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare
 python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json
+python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
 ```
 
 ---

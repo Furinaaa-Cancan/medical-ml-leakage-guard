@@ -1,0 +1,52 @@
+name: ci-full
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  full-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install numpy pandas scikit-learn joblib
+
+      - name: Authority release route
+        run: |
+          python3 scripts/mlgg.py authority-release \
+            --summary-file /tmp/mlgg_authority_release_summary.ci_full.json \
+            --run-tag ci-full-release
+
+      - name: Adversarial suite
+        run: |
+          python3 scripts/mlgg.py adversarial
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          mkdir -p /tmp/mlgg_ci_artifacts
+          if [ -f /tmp/mlgg_authority_release_summary.ci_full.json ]; then
+            cp /tmp/mlgg_authority_release_summary.ci_full.json /tmp/mlgg_ci_artifacts/
+          fi
+          if [ -f experiments/authority-e2e/adversarial/adversarial_summary.json ]; then
+            cp experiments/authority-e2e/adversarial/adversarial_summary.json /tmp/mlgg_ci_artifacts/
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-full-artifacts
+          path: /tmp/mlgg_ci_artifacts

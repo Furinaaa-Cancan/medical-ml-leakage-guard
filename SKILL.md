@@ -459,6 +459,7 @@ If any step returns non-zero, stop and block claim release.
     - `python3 scripts/mlgg.py authority-release` (recommended release stress path)
     - `python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060` (research/high-pressure mode)
     - preset wrappers are fixed-route; conflicting route flags are rejected fail-closed
+    - add `--error-json` for machine-readable failures (`contract_version=mlgg_error.v1`)
 
 - New-user order of operations:
   - `init` -> place split CSVs -> `train` (emit required evidence artifacts) -> `workflow --strict --allow-missing-compare`.
@@ -497,6 +498,9 @@ If any step returns non-zero, stop and block claim release.
 - Use `--run-tag` to bind all generated stress artifacts to a unique execution token.
 - Stress seed-search profile bundles are selected with `--stress-profile-set` (default `strict_v1`).
 - `--stress-seed-search` applies only to `--stress-case-id uci-heart-disease`; other stress cases run without seed search.
+- CI coverage:
+  - `.github/workflows/ci-smoke.yml` (push/PR/workflow_dispatch)
+  - `.github/workflows/ci-full.yml` (nightly/workflow_dispatch full regression)
 - Optional diabetes feasibility auto-scan on failure:
   - `--auto-scan-diabetes-feasibility`
   - `--diabetes-feasibility-target-modes`
