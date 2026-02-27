@@ -32,6 +32,11 @@ SCRIPTS_ROOT = REPO_ROOT / "scripts"
 CONTRACT_VERSION = "onboarding_report.v2"
 
 TROUBLESHOOTING_TOP20: Dict[str, Dict[str, str]] = {
+    "authority_preset_route_override_forbidden": {
+        "diagnose": "python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease",
+        "fix": "authority-release/authority-research-heart 是固定路线封装；移除冲突的 route 参数（如 --stress-case-id/--stress-seed-search）。",
+        "verify": "python3 scripts/mlgg.py authority-release --dry-run",
+    },
     "missing_required_path": {
         "diagnose": "python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict",
         "fix": "确认 request.json 中所有 *_spec / *_report_file 路径存在且可读。",
@@ -790,6 +795,60 @@ def build_next_actions(failure_codes: Sequence[str], status: str, lang: str) -> 
     return actions
 
 
+def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
+    request_path = project_root / "configs" / "request.json"
+    evidence_dir = project_root / "evidence"
+    compare_manifest = evidence_dir / "manifest_baseline.bootstrap.json"
+    return {
+        "workflow_bootstrap": shlex.join(
+            [
+                "python3",
+                "scripts/mlgg.py",
+                "workflow",
+                "--request",
+                str(request_path),
+                "--strict",
+                "--allow-missing-compare",
+            ]
+        ),
+        "workflow_compare": shlex.join(
+            [
+                "python3",
+                "scripts/mlgg.py",
+                "workflow",
+                "--request",
+                str(request_path),
+                "--strict",
+                "--compare-manifest",
+                str(compare_manifest),
+            ]
+        ),
+        "authority_release": shlex.join(
+            [
+                "python3",
+                "scripts/mlgg.py",
+                "authority-release",
+                "--summary-file",
+                str(evidence_dir / "authority_release_summary.json"),
+            ]
+        ),
+        "authority_research_heart": shlex.join(
+            [
+                "python3",
+                "scripts/mlgg.py",
+                "authority-research-heart",
+                "--stress-seed-min",
+                "20250003",
+                "--stress-seed-max",
+                "20250060",
+                "--summary-file",
+                str(evidence_dir / "authority_research_heart_summary.json"),
+            ]
+        ),
+        "adversarial": shlex.join(["python3", "scripts/mlgg.py", "adversarial"]),
+    }
+
+
 def derive_git_commit() -> str:
     try:
         proc = subprocess.run(
@@ -1263,6 +1322,7 @@ def finalize(
         "artifacts": artifacts,
         "failure_codes": failure_codes,
         "next_actions": build_next_actions(failure_codes, status=status, lang=lang),
+        "copy_ready_commands": build_copy_ready_commands(project_root),
     }
     write_json(report_path, report)
 

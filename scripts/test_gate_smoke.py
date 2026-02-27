@@ -543,8 +543,8 @@ def test_mlgg_authority_wrapper_rejects_conflicting_route_flags() -> None:
     )
     assert_true(release_conflict.returncode == 2, "authority-release conflicting route flag exits 2")
     assert_true(
-        "does not allow overriding fixed route flags" in release_conflict.stderr,
-        "authority-release conflict error message is clear",
+        "authority_preset_route_override_forbidden" in release_conflict.stderr,
+        "authority-release conflict emits standard failure code",
     )
 
     research_conflict = run_gate(
@@ -558,8 +558,8 @@ def test_mlgg_authority_wrapper_rejects_conflicting_route_flags() -> None:
     )
     assert_true(research_conflict.returncode == 2, "authority-research-heart conflicting route flag exits 2")
     assert_true(
-        "does not allow overriding fixed route flags" in research_conflict.stderr,
-        "authority-research-heart conflict error message is clear",
+        "authority_preset_route_override_forbidden" in research_conflict.stderr,
+        "authority-research-heart conflict emits standard failure code",
     )
 
 
@@ -967,9 +967,12 @@ def test_mlgg_onboarding_preview_emits_full_step_plan() -> None:
         assert_true(report_path.exists(), "onboarding preview report file exists")
         report = load_report(report_path)
         steps = report.get("steps", [])
+        copy_ready = report.get("copy_ready_commands", {})
         assert_true(report.get("contract_version") == "onboarding_report.v2", "onboarding preview contract_version is v2")
         assert_true(report.get("stop_on_fail") is True, "onboarding preview default stop_on_fail=true")
         assert_true(report.get("termination_reason") == "completed_successfully", "onboarding preview termination_reason is completed_successfully")
+        assert_true(isinstance(copy_ready, dict), "onboarding preview copy_ready_commands is object")
+        assert_true("authority_release" in copy_ready, "onboarding preview copy_ready_commands includes authority_release")
         assert_true(isinstance(steps, list) and len(steps) == 8, "onboarding preview contains 8 fixed steps")
         step_names = [str(row.get("name", "")) for row in steps if isinstance(row, dict)]
         assert_true("step1_doctor" in step_names, "onboarding preview includes step1_doctor")

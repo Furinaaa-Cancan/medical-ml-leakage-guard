@@ -81,6 +81,12 @@ def test_onboarding_preview_report_contract() -> None:
             any("authority-research-heart" in str(item) for item in next_actions),
             "preview next_actions includes advanced heart benchmark command",
         )
+        copy_ready = payload.get("copy_ready_commands", {})
+        assert_true(isinstance(copy_ready, dict), "copy_ready_commands is a dict")
+        assert_true("workflow_bootstrap" in copy_ready, "copy_ready_commands includes workflow_bootstrap")
+        assert_true("workflow_compare" in copy_ready, "copy_ready_commands includes workflow_compare")
+        assert_true("authority_release" in copy_ready, "copy_ready_commands includes authority_release")
+        assert_true("authority_research_heart" in copy_ready, "copy_ready_commands includes authority_research_heart")
         steps = payload.get("steps")
         assert_true(isinstance(steps, list) and len(steps) == 8, "report contains 8 onboarding steps")
 

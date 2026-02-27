@@ -85,6 +85,7 @@ PRESET_BLOCKED_FLAGS: Dict[str, Tuple[str, ...]] = {
         "--no-stress-seed-search",
     ),
 }
+AUTHORITY_PRESET_ROUTE_OVERRIDE_FORBIDDEN = "authority_preset_route_override_forbidden"
 
 
 def passthrough_contains_flag(passthrough: list[str], flag: str) -> bool:
@@ -266,7 +267,9 @@ def main() -> int:
         ]
         if blocked:
             print(
-                "[FAIL] preset command does not allow overriding fixed route flags: "
+                "[FAIL] "
+                + AUTHORITY_PRESET_ROUTE_OVERRIDE_FORBIDDEN
+                + ": preset command does not allow overriding fixed route flags: "
                 + ", ".join(blocked),
                 file=sys.stderr,
             )

@@ -212,6 +212,7 @@ Onboarding contract:
 - Failure behavior:
   - default `--stop-on-fail` (fail-fast)
   - optional `--no-stop-on-fail` (collect full diagnostics while keeping fail-closed result)
+  - wrapper route-conflict failure code: `authority_preset_route_override_forbidden`
 - Modes:
   - `guided`: step-by-step command preview + confirmation.
   - `preview`: print the full 8-step command plan only.
@@ -227,7 +228,7 @@ Onboarding contract:
   8. `run_productized_workflow.py --strict --compare-manifest ...`
 - Required report:
   - `evidence/onboarding_report.json` (`contract_version=onboarding_report.v2`)
-  - report fields include `stop_on_fail`, `termination_reason`, `failure_codes`, `next_actions`
+  - report fields include `stop_on_fail`, `termination_reason`, `failure_codes`, `next_actions`, `copy_ready_commands`
 - Offline demo data artifacts:
   - `data/train.csv`, `data/valid.csv`, `data/test.csv`
   - `data/external_2025_q4.csv` (`cross_period`)

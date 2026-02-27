@@ -99,6 +99,7 @@ English:
   - Step-level command, exit code, and error tails.
   - `stop_on_fail` and `termination_reason` show run-stop semantics.
   - `failure_codes` and `next_actions` provide fail-closed diagnosis guidance.
+  - `copy_ready_commands` gives direct copy/paste commands for rerun/benchmark paths.
 - `user_summary.md`:
   - Human-readable pass/fail summary and key evidence links.
 
@@ -111,6 +112,7 @@ English:
   - 包含逐步命令、退出码和错误尾部信息。
   - `stop_on_fail` 与 `termination_reason` 反映终止语义。
   - `failure_codes` 与 `next_actions` 提供 fail-closed 诊断动作。
+  - `copy_ready_commands` 提供可直接复制执行的复跑/基准命令。
 - `user_summary.md`：
   - 人类可读的通过/失败摘要与关键证据路径。
 

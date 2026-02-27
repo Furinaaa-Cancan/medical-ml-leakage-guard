@@ -1,0 +1,35 @@
+name: ci-smoke
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install numpy pandas scikit-learn joblib
+
+      - name: CLI help sanity
+        run: python3 scripts/mlgg.py --help
+
+      - name: Onboarding smoke
+        run: python3 scripts/test_onboarding_smoke.py
+
+      - name: Gate smoke
+        run: python3 scripts/test_gate_smoke.py

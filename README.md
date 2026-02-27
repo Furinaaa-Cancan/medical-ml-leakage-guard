@@ -91,6 +91,7 @@ After onboarding (or manual workflow), check:
   - `cancelled_by_user`
 - `failure_codes`: merged codes from gate reports + onboarding step-level codes
 - `next_actions`: remediation commands (includes recommended release benchmark and advanced heart research route when onboarding passes)
+- `copy_ready_commands`: copy/paste-ready command block (`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`)
 
 `productized_workflow_report.json` contract is `productized_workflow_report.v2`:
 - `status`: `pass` or `fail`
@@ -122,6 +123,7 @@ r = json.loads(p.read_text(encoding="utf-8"))
 print("status:", r["status"])
 print("termination_reason:", r.get("termination_reason"))
 print("failure_codes:", r.get("failure_codes", []))
+print("copy_ready_commands:", sorted(r.get("copy_ready_commands", {}).keys()))
 PY
 ```
 
@@ -299,6 +301,7 @@ Notes:
 If guided mode is cancelled, onboarding now fails closed with:
 - failure code: `onboarding_step_cancelled`
 - actionable `next_actions` in onboarding report
+- wrapper conflict failure code: `authority_preset_route_override_forbidden`
 
 Use this mapping for top failures:
 - `references/Troubleshooting-Top20.md`
@@ -414,6 +417,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
   - `cancelled_by_user`
 - `failure_codes`: 汇总 gate 报告和 onboarding 步骤级失败码
 - `next_actions`: 直接可执行的修复动作（通过时会给出发布级推荐基准和高级 heart 研究路径）
+- `copy_ready_commands`: 可直接复制执行的命令块（`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`）
 
 `productized_workflow_report.json` 目前契约是 `productized_workflow_report.v2`：
 - `status`: `pass` 或 `fail`
@@ -445,6 +449,7 @@ r = json.loads(p.read_text(encoding="utf-8"))
 print("status:", r["status"])
 print("termination_reason:", r.get("termination_reason"))
 print("failure_codes:", r.get("failure_codes", []))
+print("copy_ready_commands:", sorted(r.get("copy_ready_commands", {}).keys()))
 PY
 ```
 
@@ -621,6 +626,7 @@ python3 scripts/mlgg.py adversarial
 
 guided 模式取消后现在会 fail-closed，失败码为：
 - `onboarding_step_cancelled`
+- `authority_preset_route_override_forbidden`（固定封装命令上传入冲突路线参数）
 
 并在 onboarding 报告中给出 `next_actions`。
 
