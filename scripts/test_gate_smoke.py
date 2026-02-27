@@ -600,6 +600,274 @@ def test_render_user_summary_propagates_fail_status() -> None:
         assert_true(summary.get("overall_status") == "fail", "summary overall_status is fail")
 
 
+def _prepare_wrapper_minimal_project(project_root: Path) -> Path:
+    configs = project_root / "configs"
+    data = project_root / "data"
+    evidence = project_root / "evidence"
+    configs.mkdir(parents=True, exist_ok=True)
+    data.mkdir(parents=True, exist_ok=True)
+    evidence.mkdir(parents=True, exist_ok=True)
+    for split in ("train", "valid", "test"):
+        (data / f"{split}.csv").write_text("patient_id,event_time,y\n1,2020-01-01,0\n", encoding="utf-8")
+    request = {
+        "split_paths": {
+            "train": "../data/train.csv",
+            "valid": "../data/valid.csv",
+            "test": "../data/test.csv",
+        },
+        "label_col": "y",
+        "patient_id_col": "patient_id",
+        "index_time_col": "event_time",
+    }
+    request_path = configs / "request.json"
+    request_path.write_text(json.dumps(request, ensure_ascii=True, indent=2), encoding="utf-8")
+    return request_path
+
+
+def test_wrapper_stale_publication_report_does_not_trigger_bootstrap_retry() -> None:
+    print("\n=== run_productized_workflow: stale publication report does not trigger bootstrap retry ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "proj"
+        request_path = _prepare_wrapper_minimal_project(project_root)
+        evidence = project_root / "evidence"
+        stale_pub = evidence / "publication_gate_report.json"
+        stale_manifest = evidence / "manifest.json"
+        stale_pub.write_text(
+            json.dumps({"status": "fail", "failures": [{"code": "manifest_comparison_missing"}]}, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        stale_manifest.write_text(json.dumps({"stale": True}, ensure_ascii=True, indent=2), encoding="utf-8")
+        old_ts = 946684800  # 2000-01-01 UTC
+        os.utime(stale_pub, (old_ts, old_ts))
+        os.utime(stale_manifest, (old_ts, old_ts))
+
+        fake_python = td / "fake_py.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "  */env_doctor.py) exit 0 ;;\n"
+            "  */schema_preflight.py) exit 0 ;;\n"
+            "  */run_strict_pipeline.py) exit 2 ;;\n"
+            "  */render_user_summary.py) exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+
+        wrapper_report = evidence / "productized_workflow_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "run_productized_workflow.py"),
+                "--request",
+                str(request_path),
+                "--evidence-dir",
+                str(evidence),
+                "--strict",
+                "--allow-missing-compare",
+                "--python",
+                str(fake_python),
+                "--report",
+                str(wrapper_report),
+            ]
+        )
+        assert_true(proc.returncode == 2, "wrapper exits 2 when strict step fails without recoverable bootstrap")
+        report = load_report(wrapper_report)
+        step_names = [str(row.get("name", "")) for row in report.get("steps", []) if isinstance(row, dict)]
+        assert_true(
+            "run_strict_pipeline_with_bootstrap_baseline" not in step_names,
+            "stale publication report does not trigger retry step",
+        )
+        assert_true(report.get("status") == "fail", "wrapper report status=fail when blocking step fails")
+        assert_true(report.get("status_reason") == "blocking_step_failed", "status_reason is blocking_step_failed")
+        assert_true(report.get("bootstrap_recovery_applied") is False, "bootstrap_recovery_applied remains false")
+
+
+def test_wrapper_schema_preflight_failure_causes_fail_even_if_strict_pass() -> None:
+    print("\n=== run_productized_workflow: schema preflight failure blocks pass even if strict passes ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "proj"
+        request_path = _prepare_wrapper_minimal_project(project_root)
+        evidence = project_root / "evidence"
+
+        fake_python = td / "fake_py.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "  */env_doctor.py) exit 0 ;;\n"
+            "  */schema_preflight.py) exit 2 ;;\n"
+            "  */run_strict_pipeline.py) exit 0 ;;\n"
+            "  */render_user_summary.py) exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+
+        wrapper_report = evidence / "productized_workflow_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "run_productized_workflow.py"),
+                "--request",
+                str(request_path),
+                "--evidence-dir",
+                str(evidence),
+                "--strict",
+                "--allow-missing-compare",
+                "--python",
+                str(fake_python),
+                "--report",
+                str(wrapper_report),
+            ]
+        )
+        assert_true(proc.returncode == 2, "wrapper exits 2 when schema_preflight fails")
+        report = load_report(wrapper_report)
+        assert_true(report.get("status") == "fail", "wrapper status=fail")
+        assert_true(report.get("status_reason") == "blocking_step_failed", "status_reason is blocking_step_failed")
+        steps = {str(row.get("name", "")): row for row in report.get("steps", []) if isinstance(row, dict)}
+        assert_true(str(steps.get("schema_preflight", {}).get("status")) == "fail", "schema_preflight step status=fail")
+        assert_true(bool(steps.get("schema_preflight", {}).get("blocking")) is True, "schema_preflight is blocking")
+        assert_true(str(steps.get("run_strict_pipeline", {}).get("status")) == "pass", "strict step may pass but wrapper still fails")
+
+
+def test_wrapper_bootstrap_recovered_path_reports_pass_with_recovered_step() -> None:
+    print("\n=== run_productized_workflow: bootstrap recovered path reports pass with recovered step ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "proj"
+        request_path = _prepare_wrapper_minimal_project(project_root)
+        evidence = project_root / "evidence"
+        counter_file = td / "strict_counter.txt"
+
+        fake_python = td / "fake_py.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            f"COUNTER_FILE='{counter_file}'\n"
+            "if [ \"$1\" = \"\" ]; then exit 0; fi\n"
+            "case \"$1\" in\n"
+            "  */env_doctor.py) exit 0 ;;\n"
+            "  */schema_preflight.py) exit 0 ;;\n"
+            "  */render_user_summary.py) exit 0 ;;\n"
+            "  */run_strict_pipeline.py)\n"
+            "    count=0\n"
+            "    if [ -f \"$COUNTER_FILE\" ]; then count=$(cat \"$COUNTER_FILE\"); fi\n"
+            "    count=$((count+1))\n"
+            "    echo \"$count\" > \"$COUNTER_FILE\"\n"
+            "    evidence_dir=\"\"\n"
+            "    prev=\"\"\n"
+            "    for arg in \"$@\"; do\n"
+            "      if [ \"$prev\" = \"--evidence-dir\" ]; then evidence_dir=\"$arg\"; fi\n"
+            "      prev=\"$arg\"\n"
+            "    done\n"
+            "    if [ \"$count\" -eq 1 ]; then\n"
+            "      if [ -n \"$evidence_dir\" ]; then\n"
+            "        mkdir -p \"$evidence_dir\"\n"
+            "        printf '{\"status\":\"fail\",\"failures\":[{\"code\":\"manifest_comparison_missing\"}]}' > \"$evidence_dir/publication_gate_report.json\"\n"
+            "        printf '{\"manifest\":\"current\"}' > \"$evidence_dir/manifest.json\"\n"
+            "      fi\n"
+            "      exit 2\n"
+            "    fi\n"
+            "    exit 0 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+
+        wrapper_report = evidence / "productized_workflow_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "run_productized_workflow.py"),
+                "--request",
+                str(request_path),
+                "--evidence-dir",
+                str(evidence),
+                "--strict",
+                "--allow-missing-compare",
+                "--python",
+                str(fake_python),
+                "--report",
+                str(wrapper_report),
+            ]
+        )
+        assert_true(proc.returncode == 0, "wrapper exits 0 after successful bootstrap recovery")
+        report = load_report(wrapper_report)
+        assert_true(report.get("status") == "pass", "wrapper status=pass after recovery")
+        assert_true(report.get("status_reason") == "bootstrap_recovered", "status_reason is bootstrap_recovered")
+        assert_true(report.get("bootstrap_recovery_applied") is True, "bootstrap_recovery_applied=true")
+        steps = {str(row.get("name", "")): row for row in report.get("steps", []) if isinstance(row, dict)}
+        strict_step = steps.get("run_strict_pipeline", {})
+        retry_step = steps.get("run_strict_pipeline_with_bootstrap_baseline", {})
+        assert_true(str(strict_step.get("status")) == "recovered", "first strict step status=recovered")
+        assert_true(bool(strict_step.get("blocking")) is False, "recovered strict step is non-blocking")
+        assert_true(
+            str(strict_step.get("recovered_by_step")) == "run_strict_pipeline_with_bootstrap_baseline",
+            "recovered_by_step points to retry step",
+        )
+        assert_true(str(retry_step.get("status")) == "pass", "retry strict step status=pass")
+        assert_true(bool(retry_step.get("blocking")) is True, "retry strict step remains blocking")
+
+
+def test_wrapper_report_contract_v2_fields_present() -> None:
+    print("\n=== run_productized_workflow: report contract v2 fields are present ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "proj"
+        request_path = _prepare_wrapper_minimal_project(project_root)
+        evidence = project_root / "evidence"
+
+        fake_python = td / "fake_py.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+
+        wrapper_report = evidence / "productized_workflow_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "run_productized_workflow.py"),
+                "--request",
+                str(request_path),
+                "--evidence-dir",
+                str(evidence),
+                "--strict",
+                "--allow-missing-compare",
+                "--python",
+                str(fake_python),
+                "--report",
+                str(wrapper_report),
+            ]
+        )
+        assert_true(proc.returncode == 0, "wrapper exits 0 when all steps pass")
+        report = load_report(wrapper_report)
+        assert_true(report.get("contract_version") == "productized_workflow_report.v2", "contract version is v2")
+        assert_true(
+            report.get("status_reason") == "all_blocking_steps_passed",
+            "status_reason is all_blocking_steps_passed for clean pass",
+        )
+        assert_true(isinstance(report.get("blocking_failure_count"), int), "blocking_failure_count is integer")
+        assert_true(isinstance(report.get("recovered_failure_count"), int), "recovered_failure_count is integer")
+        assert_true(isinstance(report.get("bootstrap_recovery_applied"), bool), "bootstrap_recovery_applied is bool")
+        assert_true(
+            report.get("bootstrap_recovery_source") is None or isinstance(report.get("bootstrap_recovery_source"), str),
+            "bootstrap_recovery_source type is valid",
+        )
+        steps = report.get("steps", [])
+        step_fields_ok = True
+        for row in steps:
+            if not isinstance(row, dict):
+                step_fields_ok = False
+                break
+            if not {"status", "blocking", "recovered_by_step"}.issubset(set(row.keys())):
+                step_fields_ok = False
+                break
+        assert_true(step_fields_ok, "all steps contain v2 fields: status/blocking/recovered_by_step")
+
+
 def test_mlgg_onboarding_preview_emits_full_step_plan() -> None:
     print("\n=== mlgg onboarding: preview mode emits 8-step command plan ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -838,6 +1106,10 @@ def main() -> int:
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()
+    test_wrapper_stale_publication_report_does_not_trigger_bootstrap_retry()
+    test_wrapper_schema_preflight_failure_causes_fail_even_if_strict_pass()
+    test_wrapper_bootstrap_recovered_path_reports_pass_with_recovered_step()
+    test_wrapper_report_contract_v2_fields_present()
     test_mlgg_onboarding_preview_emits_full_step_plan()
     test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions()
     test_mlgg_onboarding_guided_cancel_ignores_stale_report_codes()

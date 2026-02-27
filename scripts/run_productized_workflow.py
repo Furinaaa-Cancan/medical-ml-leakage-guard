@@ -11,8 +11,20 @@ import shlex
 import subprocess
 import sys
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+CONTRACT_VERSION = "productized_workflow_report.v2"
+MTIME_EPSILON_SECONDS = 0.5
+BLOCKING_STEP_NAMES = {
+    "env_doctor",
+    "schema_preflight",
+    "run_strict_pipeline",
+    "run_strict_pipeline_with_bootstrap_baseline",
+    "render_user_summary",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +71,9 @@ def run_step(name: str, cmd: List[str]) -> Dict[str, Any]:
         "exit_code": int(proc.returncode),
         "stdout_tail": proc.stdout[-4000:],
         "stderr_tail": proc.stderr[-4000:],
+        "status": "pass" if int(proc.returncode) == 0 else "fail",
+        "blocking": bool(name in BLOCKING_STEP_NAMES),
+        "recovered_by_step": None,
     }
 
 
@@ -117,43 +132,55 @@ def main() -> int:
     scripts_dir = Path(__file__).resolve().parent
 
     steps: List[Dict[str, Any]] = []
+    bootstrap_recovery_applied = False
+    bootstrap_recovery_source: Optional[str] = None
+
+    def append_step(name: str, cmd: List[str]) -> Dict[str, Any]:
+        step = run_step(name, cmd)
+        steps.append(step)
+        return step
+
+    def is_recent(path: Path, min_mtime_epoch: float) -> bool:
+        if not path.exists():
+            return False
+        try:
+            return float(path.stat().st_mtime) >= (float(min_mtime_epoch) - MTIME_EPSILON_SECONDS)
+        except OSError:
+            return False
 
     env_report = evidence_dir / "env_doctor_report.json"
-    steps.append(
-        run_step(
-            "env_doctor",
-            [args.python, str(scripts_dir / "env_doctor.py"), "--report", str(env_report)],
-        )
+    append_step(
+        "env_doctor",
+        [args.python, str(scripts_dir / "env_doctor.py"), "--report", str(env_report)],
     )
 
     schema_report = evidence_dir / "schema_preflight_report.json"
     schema_mapping = evidence_dir / "schema_mapping.json"
-    steps.append(
-        run_step(
-            "schema_preflight",
-            [
-                args.python,
-                str(scripts_dir / "schema_preflight.py"),
-                "--train",
-                str(train_path),
-                "--valid",
-                str(valid_path),
-                "--test",
-                str(test_path),
-                "--target-col",
-                str(request_payload.get("label_col", "y")),
-                "--patient-id-col",
-                str(request_payload.get("patient_id_col", "patient_id")),
-                "--time-col",
-                str(request_payload.get("index_time_col", "event_time")),
-                "--mapping-out",
-                str(schema_mapping),
-                "--report",
-                str(schema_report),
-            ],
-        )
+    append_step(
+        "schema_preflight",
+        [
+            args.python,
+            str(scripts_dir / "schema_preflight.py"),
+            "--train",
+            str(train_path),
+            "--valid",
+            str(valid_path),
+            "--test",
+            str(test_path),
+            "--target-col",
+            str(request_payload.get("label_col", "y")),
+            "--patient-id-col",
+            str(request_payload.get("patient_id_col", "patient_id")),
+            "--time-col",
+            str(request_payload.get("index_time_col", "event_time")),
+            "--mapping-out",
+            str(schema_mapping),
+            "--report",
+            str(schema_report),
+        ],
     )
 
+    strict_run_started_epoch = time.time()
     strict_cmd = [
         args.python,
         str(scripts_dir / "run_strict_pipeline.py"),
@@ -169,31 +196,36 @@ def main() -> int:
         strict_cmd.append("--allow-missing-compare")
     if args.continue_on_fail:
         strict_cmd.append("--continue-on-fail")
-    steps.append(run_step("run_strict_pipeline", strict_cmd))
+    strict_step = append_step("run_strict_pipeline", strict_cmd)
 
-    def _publication_missing_manifest(evidence: Path) -> bool:
+    def _publication_missing_manifest(evidence: Path, min_mtime_epoch: float) -> tuple[bool, Optional[str]]:
         pub_path = evidence / "publication_gate_report.json"
-        payload = load_json(pub_path) if pub_path.exists() else {}
+        if not is_recent(pub_path, min_mtime_epoch):
+            return False, None
+        try:
+            payload = load_json(pub_path)
+        except Exception:
+            return False, None
         failures = payload.get("failures")
         if not isinstance(failures, list):
-            return False
+            return False, None
         for row in failures:
             if isinstance(row, dict) and str(row.get("code")) == "manifest_comparison_missing":
-                return True
-        return False
+                return True, f"{pub_path.name}:manifest_comparison_missing"
+        return False, None
 
-    strict_step = next((x for x in steps if x["name"] == "run_strict_pipeline"), None)
-    strict_exit = int(strict_step["exit_code"]) if isinstance(strict_step, dict) else 2
+    strict_exit = int(strict_step["exit_code"])
     bootstrap_baseline_path: Optional[Path] = None
 
+    missing_manifest, missing_source = _publication_missing_manifest(evidence_dir, strict_run_started_epoch)
     if (
         strict_exit != 0
         and bool(args.allow_missing_compare)
         and not args.compare_manifest
-        and _publication_missing_manifest(evidence_dir)
+        and missing_manifest
     ):
         manifest_path = evidence_dir / "manifest.json"
-        if manifest_path.exists():
+        if is_recent(manifest_path, strict_run_started_epoch):
             bootstrap_baseline_path = evidence_dir / "manifest_baseline.bootstrap.json"
             shutil.copy2(manifest_path, bootstrap_baseline_path)
             strict_retry_cmd = [
@@ -209,37 +241,58 @@ def main() -> int:
             ]
             if args.continue_on_fail:
                 strict_retry_cmd.append("--continue-on-fail")
-            steps.append(run_step("run_strict_pipeline_with_bootstrap_baseline", strict_retry_cmd))
-            strict_step = next(
-                (x for x in steps if x["name"] == "run_strict_pipeline_with_bootstrap_baseline"),
-                strict_step,
-            )
-            strict_exit = int(strict_step["exit_code"]) if isinstance(strict_step, dict) else strict_exit
+            retry_step = append_step("run_strict_pipeline_with_bootstrap_baseline", strict_retry_cmd)
+            strict_exit = int(retry_step["exit_code"])
+            if strict_exit == 0:
+                strict_step["status"] = "recovered"
+                strict_step["blocking"] = False
+                strict_step["recovered_by_step"] = "run_strict_pipeline_with_bootstrap_baseline"
+                bootstrap_recovery_applied = True
+                bootstrap_recovery_source = missing_source
 
     summary_md = evidence_dir / "user_summary.md"
     summary_json = evidence_dir / "user_summary.json"
-    steps.append(
-        run_step(
-            "render_user_summary",
-            [
-                args.python,
-                str(scripts_dir / "render_user_summary.py"),
-                "--evidence-dir",
-                str(evidence_dir),
-                "--request",
-                str(request_path),
-                "--out-markdown",
-                str(summary_md),
-                "--out-json",
-                str(summary_json),
-            ],
-        )
+    append_step(
+        "render_user_summary",
+        [
+            args.python,
+            str(scripts_dir / "render_user_summary.py"),
+            "--evidence-dir",
+            str(evidence_dir),
+            "--request",
+            str(request_path),
+            "--out-markdown",
+            str(summary_md),
+            "--out-json",
+            str(summary_json),
+        ],
     )
 
-    overall_status = "pass" if strict_exit == 0 else "fail"
+    blocking_failure_count = sum(
+        1
+        for step in steps
+        if bool(step.get("blocking")) and str(step.get("status", "")).strip().lower() == "fail"
+    )
+    recovered_failure_count = sum(1 for step in steps if str(step.get("status", "")).strip().lower() == "recovered")
+
+    if blocking_failure_count > 0:
+        overall_status = "fail"
+        status_reason = "blocking_step_failed"
+    elif recovered_failure_count > 0:
+        overall_status = "pass"
+        status_reason = "bootstrap_recovered"
+    else:
+        overall_status = "pass"
+        status_reason = "all_blocking_steps_passed"
 
     wrapper_report = {
+        "contract_version": CONTRACT_VERSION,
         "status": overall_status,
+        "status_reason": status_reason,
+        "blocking_failure_count": int(blocking_failure_count),
+        "recovered_failure_count": int(recovered_failure_count),
+        "bootstrap_recovery_applied": bool(bootstrap_recovery_applied),
+        "bootstrap_recovery_source": bootstrap_recovery_source,
         "request": str(request_path),
         "project_base": str(project_base),
         "evidence_dir": str(evidence_dir),
@@ -264,7 +317,7 @@ def main() -> int:
     print(f"WrapperReport: {out_report}")
     print(f"UserSummaryMarkdown: {summary_md}")
     print(f"UserSummaryJSON: {summary_json}")
-    return 0 if strict_exit == 0 else 2
+    return 0 if overall_status == "pass" else 2
 
 
 if __name__ == "__main__":

@@ -78,6 +78,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
 After onboarding (or manual workflow), check:
 - `<project>/evidence/onboarding_report.json`
 - `<project>/evidence/strict_pipeline_report.json`
+- `<project>/evidence/productized_workflow_report.json`
 - `<project>/evidence/user_summary.md`
 
 `onboarding_report.json` contract is `onboarding_report.v2`:
@@ -90,6 +91,25 @@ After onboarding (or manual workflow), check:
   - `cancelled_by_user`
 - `failure_codes`: merged codes from gate reports + onboarding step-level codes
 - `next_actions`: remediation commands
+
+`productized_workflow_report.json` contract is `productized_workflow_report.v2`:
+- `status`: `pass` or `fail`
+- `status_reason`:
+  - `all_blocking_steps_passed`
+  - `blocking_step_failed`
+  - `bootstrap_recovered`
+- `blocking_failure_count`: count of blocking steps still failed at final state
+- `recovered_failure_count`: count of steps marked as `recovered`
+- `bootstrap_recovery_applied`: whether bootstrap retry recovery was applied
+- `bootstrap_recovery_source`: bootstrap trigger evidence source (or `null`)
+- `steps[]` now includes:
+  - `status`: `pass|fail|recovered`
+  - `blocking`: `true|false`
+  - `recovered_by_step`: retry step name or `null`
+
+Bootstrap isolation rule:
+- Bootstrap retry is triggered only by evidence generated in the current strict run.
+- Historical `publication_gate_report.json` / `manifest.json` are ignored.
 
 Quick inspect with Python:
 
@@ -365,6 +385,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
 重点看：
 - `<project>/evidence/onboarding_report.json`
 - `<project>/evidence/strict_pipeline_report.json`
+- `<project>/evidence/productized_workflow_report.json`
 - `<project>/evidence/user_summary.md`
 
 `onboarding_report.json` 目前契约是 `onboarding_report.v2`：
@@ -377,6 +398,25 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
   - `cancelled_by_user`
 - `failure_codes`: 汇总 gate 报告和 onboarding 步骤级失败码
 - `next_actions`: 直接可执行的修复动作
+
+`productized_workflow_report.json` 目前契约是 `productized_workflow_report.v2`：
+- `status`: `pass` 或 `fail`
+- `status_reason`:
+  - `all_blocking_steps_passed`
+  - `blocking_step_failed`
+  - `bootstrap_recovered`
+- `blocking_failure_count`: 最终仍失败的阻断步骤数量
+- `recovered_failure_count`: 被标记为 `recovered` 的步骤数量
+- `bootstrap_recovery_applied`: 是否触发并应用了 bootstrap 恢复
+- `bootstrap_recovery_source`: 触发恢复的证据来源（或 `null`）
+- `steps[]` 新增字段：
+  - `status`: `pass|fail|recovered`
+  - `blocking`: `true|false`
+  - `recovered_by_step`: 恢复它的重试步骤名或 `null`
+
+bootstrap 隔离规则：
+- 仅本次 strict 运行中产生的证据允许触发 bootstrap 重试。
+- 历史遗留的 `publication_gate_report.json` / `manifest.json` 会被忽略。
 
 快速查看：
 
