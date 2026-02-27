@@ -227,6 +227,27 @@ SUPPORTED_STRESS_CASE_IDS = (
 STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
     "strict_v1": [
         {
+            "profile_id": "valid_valid_cvinner_power",
+            "selection_data": "valid",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "power",
+        },
+        {
+            "profile_id": "valid_valid_cvinner_beta",
+            "selection_data": "valid",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "beta",
+        },
+        {
+            "profile_id": "valid_valid_cvinner_isotonic",
+            "selection_data": "valid",
+            "threshold_selection_split": "valid",
+            "calibration_fit_split": "cv_inner",
+            "calibration_method": "isotonic",
+        },
+        {
             "profile_id": "cvinner_valid_cvinner_power",
             "selection_data": "cv_inner",
             "threshold_selection_split": "valid",
@@ -248,13 +269,6 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
             "calibration_method": "none",
         },
         {
-            "profile_id": "valid_valid_cvinner_power",
-            "selection_data": "valid",
-            "threshold_selection_split": "valid",
-            "calibration_fit_split": "cv_inner",
-            "calibration_method": "power",
-        },
-        {
             "profile_id": "cvinner_valid_valid_power",
             "selection_data": "cv_inner",
             "threshold_selection_split": "valid",
@@ -269,13 +283,6 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
             "calibration_method": "beta",
         },
         {
-            "profile_id": "valid_valid_cvinner_beta",
-            "selection_data": "valid",
-            "threshold_selection_split": "valid",
-            "calibration_fit_split": "cv_inner",
-            "calibration_method": "beta",
-        },
-        {
             "profile_id": "cvinner_valid_valid_beta",
             "selection_data": "cv_inner",
             "threshold_selection_split": "valid",
@@ -285,13 +292,6 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
         {
             "profile_id": "cvinner_valid_cvinner_isotonic",
             "selection_data": "cv_inner",
-            "threshold_selection_split": "valid",
-            "calibration_fit_split": "cv_inner",
-            "calibration_method": "isotonic",
-        },
-        {
-            "profile_id": "valid_valid_cvinner_isotonic",
-            "selection_data": "valid",
             "threshold_selection_split": "valid",
             "calibration_fit_split": "cv_inner",
             "calibration_method": "isotonic",
@@ -1400,7 +1400,9 @@ def split_with_temporal_order(
 
     y = df["y"].to_numpy()
     indices = df.index.to_numpy()
-    risk_proxy = compute_risk_proxy(df, feature_cols) if case_id == "uci-heart-disease" else None
+    # Use risk-aware stratification for every case to reduce split-induced
+    # distribution separability under strict publication gates.
+    risk_proxy = compute_risk_proxy(df, feature_cols)
     external_stratify, _ = build_stratify_labels(df["y"], risk_proxy)
     internal_idx, external_idx = train_test_split(
         indices,
@@ -1513,9 +1515,7 @@ def split_external_pool(
     stratification_keys: List[str] = ["y"]
 
     feature_cols = [c for c in external_df.columns if c not in {"patient_id", "event_time", "y"}]
-    risk_proxy: Optional[pd.Series] = (
-        compute_risk_proxy(external_df, feature_cols) if case_id == "uci-heart-disease" else None
-    )
+    risk_proxy: Optional[pd.Series] = compute_risk_proxy(external_df, feature_cols)
     strata_labels, strata_keys = build_stratify_labels(external_df["y"], risk_proxy)
     if strata_labels is not None:
         stratify_labels = strata_labels
