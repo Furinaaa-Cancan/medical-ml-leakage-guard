@@ -122,6 +122,12 @@ English:
 # Unified CLI help
 python3 scripts/mlgg.py --help
 
+# Recommended release-grade authority benchmark
+python3 scripts/mlgg.py authority-release
+
+# Advanced heart research/high-pressure benchmark
+python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060
+
 # Interactive wizard (init/workflow/train/authority)
 python3 scripts/mlgg.py interactive --command train
 
@@ -131,6 +137,14 @@ python3 scripts/test_gate_smoke.py
 # Onboarding smoke tests
 python3 scripts/test_onboarding_smoke.py
 ```
+
+Notes:
+- `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
+- `authority-research-heart` is advanced mode and may fail by design under strict fixed floors.
+
+说明：
+- `authority-release` 与 `authority-research-heart` 是固定路线封装；冲突路线参数会被 fail-closed 拒绝。
+- `authority-research-heart` 是高级研究模式，在固定严格阈值下可能按设计失败。
 
 ---
 

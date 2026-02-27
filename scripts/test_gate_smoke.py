@@ -530,6 +530,39 @@ def test_mlgg_authority_wrapper_release_and_research_presets() -> None:
     assert_true("--stress-seed-search" in research.stdout, "authority-research-heart injects seed-search")
 
 
+def test_mlgg_authority_wrapper_rejects_conflicting_route_flags() -> None:
+    print("\n=== mlgg wrapper: preset commands reject conflicting route flags ===")
+    release_conflict = run_gate(
+        [
+            str(SCRIPTS_DIR / "mlgg.py"),
+            "authority-release",
+            "--dry-run",
+            "--stress-case-id",
+            "uci-heart-disease",
+        ]
+    )
+    assert_true(release_conflict.returncode == 2, "authority-release conflicting route flag exits 2")
+    assert_true(
+        "does not allow overriding fixed route flags" in release_conflict.stderr,
+        "authority-release conflict error message is clear",
+    )
+
+    research_conflict = run_gate(
+        [
+            str(SCRIPTS_DIR / "mlgg.py"),
+            "authority-research-heart",
+            "--dry-run",
+            "--stress-case-id",
+            "uci-chronic-kidney-disease",
+        ]
+    )
+    assert_true(research_conflict.returncode == 2, "authority-research-heart conflicting route flag exits 2")
+    assert_true(
+        "does not allow overriding fixed route flags" in research_conflict.stderr,
+        "authority-research-heart conflict error message is clear",
+    )
+
+
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
     print("\n=== mlgg interactive: malformed profile value types fail-closed ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1150,6 +1183,7 @@ def main() -> int:
     test_mlgg_interactive_authority_defaults_to_release_stress_path()
     test_mlgg_interactive_accept_defaults_non_blocking()
     test_mlgg_authority_wrapper_release_and_research_presets()
+    test_mlgg_authority_wrapper_rejects_conflicting_route_flags()
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()

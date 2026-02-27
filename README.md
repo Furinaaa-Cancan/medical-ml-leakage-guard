@@ -290,6 +290,7 @@ Notes:
 - Default stress case is `uci-chronic-kidney-disease` for a stable publication-grade path.
 - `uci-heart-disease` stress search is an advanced research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
 - Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
+- `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
 
 ---
 
@@ -612,6 +613,7 @@ python3 scripts/mlgg.py adversarial
 - 默认 stress case 是 `uci-chronic-kidney-disease`，作为稳定的发布级路径。
 - `uci-heart-disease` stress-search 是高级研究型高压基准；在固定严格 floor 下，某些 seed 区间可能不存在 release-ready 候选。
 - 交互式 `authority` 向导默认走 CKD 发布路径，heart 会以“高级选项”显示并提示风险。
+- `authority-release` 与 `authority-research-heart` 是固定路线封装；若传入冲突路线参数会 fail-closed 拒绝执行。
 
 ---
 

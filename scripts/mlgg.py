@@ -69,6 +69,31 @@ COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {
         "--stress-seed-search",
     ),
 }
+PRESET_BLOCKED_FLAGS: Dict[str, Tuple[str, ...]] = {
+    # Keep wrapper semantics strict and auditable: these wrappers should not
+    # allow callers to override the fixed stress route via passthrough flags.
+    "authority-release": (
+        "--include-stress-cases",
+        "--stress-case-id",
+        "--stress-seed-search",
+        "--no-stress-seed-search",
+    ),
+    "authority-research-heart": (
+        "--include-stress-cases",
+        "--stress-case-id",
+        "--stress-seed-search",
+        "--no-stress-seed-search",
+    ),
+}
+
+
+def passthrough_contains_flag(passthrough: list[str], flag: str) -> bool:
+    for token in passthrough:
+        if token == flag:
+            return True
+        if token.startswith(flag + "="):
+            return True
+    return False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -233,6 +258,20 @@ def main() -> int:
     if not script_path.exists():
         print(f"[FAIL] Script not found for command '{subcommand}': {script_path}", file=sys.stderr)
         return 2
+    if subcommand in PRESET_BLOCKED_FLAGS:
+        blocked = [
+            flag
+            for flag in PRESET_BLOCKED_FLAGS[subcommand]
+            if passthrough_contains_flag(passthrough, flag)
+        ]
+        if blocked:
+            print(
+                "[FAIL] preset command does not allow overriding fixed route flags: "
+                + ", ".join(blocked),
+                file=sys.stderr,
+            )
+            return 2
+
     preset_args = list(COMMAND_PRESETS.get(subcommand, ()))
     cmd = [python_bin, str(script_path), *preset_args, *passthrough]
     print(f"$ {shlex.join(cmd)}")

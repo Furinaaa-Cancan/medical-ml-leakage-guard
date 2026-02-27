@@ -457,6 +457,7 @@ If any step returns non-zero, stop and block claim release.
     - `python3 scripts/mlgg.py authority --include-stress-cases`
     - `python3 scripts/mlgg.py authority-release` (recommended release stress path)
     - `python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060` (research/high-pressure mode)
+    - preset wrappers are fixed-route; conflicting route flags are rejected fail-closed
 
 - New-user order of operations:
   - `init` -> place split CSVs -> `train` (emit required evidence artifacts) -> `workflow --strict --allow-missing-compare`.
