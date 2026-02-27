@@ -635,14 +635,33 @@ def ensure_keypair(openssl_bin: str, private_key: Path, public_key: Path) -> Non
             raise RuntimeError(f"key_generation_failed: {shlex.join(cmd)}\n{proc.stderr.strip()}")
 
 
-def collect_failure_codes(project_root: Path) -> List[str]:
+def collect_failure_codes(
+    project_root: Path,
+    *,
+    min_mtime_epoch: Optional[float] = None,
+    exclude_paths: Optional[Sequence[Path]] = None,
+) -> List[str]:
     evidence = project_root / "evidence"
     out: List[str] = []
     if not evidence.exists():
         return out
+    excluded = {p.resolve() for p in (exclude_paths or [])}
+    saw_failed_report_without_code = False
     for p in sorted(evidence.rglob("*report*.json")):
         if not p.is_file():
             continue
+        try:
+            resolved = p.resolve()
+        except Exception:
+            resolved = p
+        if resolved in excluded:
+            continue
+        if min_mtime_epoch is not None:
+            try:
+                if p.stat().st_mtime < float(min_mtime_epoch):
+                    continue
+            except OSError:
+                continue
         try:
             payload = load_json(p)
         except Exception:
@@ -659,8 +678,10 @@ def collect_failure_codes(project_root: Path) -> List[str]:
                     if code not in out:
                         out.append(code)
         status = str(payload.get("status", "")).strip().lower()
-        if status == "fail" and not report_has_code and "onboarding_unknown_failure" not in out:
-            out.append("onboarding_unknown_failure")
+        if status == "fail" and not report_has_code:
+            saw_failed_report_without_code = True
+    if saw_failed_report_without_code and not out:
+        out.append("onboarding_unknown_failure")
     return out
 
 
@@ -675,35 +696,91 @@ def collect_step_failure_codes(steps: Sequence[Dict[str, Any]]) -> List[str]:
     return out
 
 
-def build_next_actions(failure_codes: Sequence[str], status: str) -> List[str]:
+def build_next_actions(failure_codes: Sequence[str], status: str, lang: str) -> List[str]:
+    lang_mode = str(lang).strip().lower()
     actions: List[str] = []
     if "onboarding_step_cancelled" in set(failure_codes):
+        if lang_mode == "zh":
+            return [
+                "onboarding 被用户取消，请从当前命令重新执行。",
+                "跳过逐步确认：python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
+                "收集完整诊断：python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            ]
+        if lang_mode == "en":
+            return [
+                "Onboarding was cancelled by user confirmation; rerun from the same command to continue.",
+                "Run non-interactive confirm mode: python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
+                "Collect full diagnostics without early stop: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            ]
         return [
-            "Onboarding was cancelled by user confirmation; rerun from the same command to continue.",
-            "Run non-interactive confirm mode: python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
-            "Collect full diagnostics without early stop: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            "Onboarding was cancelled by user confirmation / onboarding 被用户取消，请重新执行。",
+            "Run non-interactive confirm mode / 跳过确认: python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
+            "Collect full diagnostics / 收集完整诊断: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
         ]
     if status == "pass" and not failure_codes:
+        if lang_mode == "zh":
+            return [
+                "当前无阻断失败，建议持续使用 compare-manifest 保持可复现复跑。",
+                "复跑命令: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+            ]
+        if lang_mode == "en":
+            return [
+                "No blocking failures. Keep using compare-manifest for reproducible reruns.",
+                "Re-run: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+            ]
         return [
-            "No blocking failures. Keep using compare-manifest for reproducible reruns.",
-            "Re-run: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+            "No blocking failures / 当前无阻断失败，建议持续使用 compare-manifest。",
+            "Re-run / 复跑: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
         ]
     if status != "pass" and not failure_codes:
+        if lang_mode == "zh":
+            return [
+                "检测到阻断失败，但 gate 未返回 failure code。",
+                "请在 onboarding_report.json 中定位首个 status=fail 且 exit_code!=0 的步骤。",
+                "完整诊断重跑: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            ]
+        if lang_mode == "en":
+            return [
+                "Blocking failure detected but no gate failure code was emitted.",
+                "Inspect onboarding_report.json and find the first step with status=fail and non-zero exit_code.",
+                "Re-run full diagnosis: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            ]
         return [
-            "Blocking failure detected but no gate failure code was emitted.",
-            "Inspect onboarding_report.json and find the first step with status=fail and non-zero exit_code.",
-            "Re-run full diagnosis: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            "Blocking failure detected but no gate code / 检测到阻断失败但无 gate 失败码。",
+            "Inspect first failed step in onboarding_report.json / 在报告中定位首个失败步骤。",
+            "Re-run full diagnosis / 完整诊断重跑: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
         ]
     for code in failure_codes[:5]:
         spec = TROUBLESHOOTING_TOP20.get(code)
         if not spec:
-            actions.append(f"{code}: inspect corresponding gate report under <project>/evidence and remediate.")
+            if lang_mode == "zh":
+                actions.append(f"{code}: 查看 <project>/evidence 下对应 gate 报告并修复。")
+            elif lang_mode == "en":
+                actions.append(f"{code}: inspect corresponding gate report under <project>/evidence and remediate.")
+            else:
+                actions.append(f"{code}: inspect gate report / 查看 <project>/evidence 下对应 gate 报告并修复。")
             continue
-        actions.append(
-            f"{code}: 诊断 `{spec['diagnose']}`; 修复 `{spec['fix']}`; 复验 `{spec['verify']}`"
-        )
+        diagnose = spec["diagnose"]
+        verify = spec["verify"]
+        if lang_mode == "zh":
+            actions.append(
+                f"{code}: 诊断 `{diagnose}`; 修复请参考 `references/Troubleshooting-Top20.md`; 复验 `{verify}`"
+            )
+        elif lang_mode == "en":
+            actions.append(
+                f"{code}: diagnose `{diagnose}`; apply fix in `references/Troubleshooting-Top20.md`; verify `{verify}`"
+            )
+        else:
+            actions.append(
+                f"{code}: diagnose/诊断 `{diagnose}`; fix/修复参见 `references/Troubleshooting-Top20.md`; verify/复验 `{verify}`"
+            )
     if not actions:
-        actions.append("Inspect strict pipeline reports under <project>/evidence and rerun workflow.")
+        if lang_mode == "zh":
+            actions.append("查看 <project>/evidence 下 strict pipeline 报告并重跑 workflow。")
+        elif lang_mode == "en":
+            actions.append("Inspect strict pipeline reports under <project>/evidence and rerun workflow.")
+        else:
+            actions.append("Inspect strict pipeline reports / 查看 strict pipeline 报告并重跑 workflow。")
     return actions
 
 
@@ -724,6 +801,7 @@ def derive_git_commit() -> str:
 def main() -> int:
     args = parse_args()
     project_root = Path(args.project_root).expanduser().resolve()
+    run_started_epoch = datetime.now(tz=timezone.utc).timestamp()
     project_root.mkdir(parents=True, exist_ok=True)
     evidence_dir = project_root / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -760,6 +838,7 @@ def main() -> int:
             artifacts=artifacts,
             status=status,
             stop_on_fail=stop_on_fail,
+            run_started_epoch=run_started_epoch,
         )
 
     def should_continue(ok: bool) -> bool:
@@ -1129,10 +1208,15 @@ def finalize(
     artifacts: Dict[str, Any],
     status: str,
     stop_on_fail: bool,
+    run_started_epoch: float,
 ) -> int:
     failure_codes: List[str] = []
     if status != "pass":
-        for code in collect_failure_codes(project_root=project_root):
+        for code in collect_failure_codes(
+            project_root=project_root,
+            min_mtime_epoch=run_started_epoch,
+            exclude_paths=[report_path],
+        ):
             if code not in failure_codes:
                 failure_codes.append(code)
         for code in collect_step_failure_codes(steps):
@@ -1164,7 +1248,7 @@ def finalize(
         "steps": steps,
         "artifacts": artifacts,
         "failure_codes": failure_codes,
-        "next_actions": build_next_actions(failure_codes, status=status),
+        "next_actions": build_next_actions(failure_codes, status=status, lang=lang),
     }
     write_json(report_path, report)
 

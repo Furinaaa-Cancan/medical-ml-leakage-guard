@@ -665,6 +665,45 @@ def test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions() -> None:
         )
 
 
+def test_mlgg_onboarding_guided_cancel_ignores_stale_report_codes() -> None:
+    print("\n=== mlgg onboarding: stale historical report codes are ignored ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "demo_stale"
+        evidence_dir = project_root / "evidence"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        (evidence_dir / "old_report.json").write_text(
+            json.dumps(
+                {
+                    "status": "fail",
+                    "failures": [{"code": "stale_old_failure"}],
+                },
+                ensure_ascii=True,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        report_path = td / "onboarding_cancel_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "onboarding",
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "guided",
+                "--report",
+                str(report_path),
+            ],
+            input_text="n\n",
+        )
+        assert_true(proc.returncode == 2, "guided cancel with stale report exits 2")
+        report = load_report(report_path)
+        failure_codes = report.get("failure_codes", [])
+        assert_true("onboarding_step_cancelled" in failure_codes, "current run cancellation code present")
+        assert_true("stale_old_failure" not in failure_codes, "stale historical failure code not included")
+
+
 def test_mlgg_onboarding_no_stop_on_fail_completes_with_failures() -> None:
     print("\n=== mlgg onboarding: --no-stop-on-fail records completed_with_failures ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -700,6 +739,40 @@ def test_mlgg_onboarding_no_stop_on_fail_completes_with_failures() -> None:
         steps = report.get("steps", [])
         step_names = [str(row.get("name", "")) for row in steps if isinstance(row, dict)]
         assert_true("step8_workflow_compare" in step_names, "--no-stop-on-fail continues through step8")
+
+
+def test_mlgg_interactive_help_passthrough_requires_command_and_returns_script_help() -> None:
+    print("\n=== mlgg interactive: -- --help without --command returns wizard help ===")
+    proc = run_gate([str(SCRIPTS_DIR / "mlgg.py"), "interactive", "--", "--help"])
+    assert_true(proc.returncode == 0, "interactive passthrough help exits 0")
+    body = proc.stdout + "\n" + proc.stderr
+    assert_true("Interactive wizard for ml-leakage-guard core commands." in body, "interactive help content is returned")
+
+
+def test_mlgg_onboarding_unknown_failure_only_when_no_specific_codes() -> None:
+    print("\n=== mlgg onboarding: unknown failure code is fallback only ===")
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("mlgg_onboarding_mod", SCRIPTS_DIR / "mlgg_onboarding.py")
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        evidence = td / "evidence"
+        evidence.mkdir(parents=True, exist_ok=True)
+        (evidence / "with_code_report.json").write_text(
+            json.dumps({"status": "fail", "failures": [{"code": "real_code"}]}, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        (evidence / "without_code_report.json").write_text(
+            json.dumps({"status": "fail"}, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        codes = mod.collect_failure_codes(td, min_mtime_epoch=0.0)  # type: ignore[attr-defined]
+        assert_true("real_code" in codes, "specific failure code is collected")
+        assert_true("onboarding_unknown_failure" not in codes, "unknown failure not added when specific code exists")
 
 
 def test_mlgg_onboarding_missing_openssl_fails_closed() -> None:
@@ -767,7 +840,10 @@ def main() -> int:
     test_render_user_summary_propagates_fail_status()
     test_mlgg_onboarding_preview_emits_full_step_plan()
     test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions()
+    test_mlgg_onboarding_guided_cancel_ignores_stale_report_codes()
     test_mlgg_onboarding_no_stop_on_fail_completes_with_failures()
+    test_mlgg_interactive_help_passthrough_requires_command_and_returns_script_help()
+    test_mlgg_onboarding_unknown_failure_only_when_no_specific_codes()
     test_mlgg_onboarding_missing_openssl_fails_closed()
     test_mlgg_help_includes_onboarding_and_bootstrap_example()
 

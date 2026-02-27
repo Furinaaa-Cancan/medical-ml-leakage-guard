@@ -216,6 +216,7 @@ Entry methods:
 ```bash
 python3 scripts/mlgg.py interactive --command train
 python3 scripts/mlgg.py train --interactive
+python3 scripts/mlgg.py interactive --command train -- --help
 ```
 
 Reusable profiles:
@@ -502,6 +503,7 @@ python3 scripts/mlgg.py workflow \
 ```bash
 python3 scripts/mlgg.py interactive --command train
 python3 scripts/mlgg.py train --interactive
+python3 scripts/mlgg.py interactive --command train -- --help
 ```
 
 profile 复用：

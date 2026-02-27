@@ -63,12 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py train --interactive\n"
             "  python3 scripts/mlgg.py interactive --command workflow\n"
             "  python3 scripts/mlgg.py interactive --command train --load-profile --profile-name demo --accept-defaults\n"
+            "  python3 scripts/mlgg.py interactive --command train -- --help\n"
             "  python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json --strict --allow-missing-compare\n"
             "  python3 scripts/mlgg.py workflow -- --help\n"
             "  python3 scripts/mlgg.py authority --include-stress-cases\n"
             "\n"
             "Tip:\n"
             "  Use `-- --help` to view subcommand-native help.\n"
+            "  For interactive mode, include `--command` before `-- --help`.\n"
             "  Example: `python3 scripts/mlgg.py workflow -- --help`\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
@@ -145,6 +147,17 @@ def main() -> int:
     interactive_requested = bool(args.interactive) or subcommand == "interactive"
 
     if interactive_requested:
+        if subcommand == "interactive" and not args.interactive_command and passthrough and passthrough[0] in {"-h", "--help"}:
+            wizard_script = COMMANDS["interactive"][0]
+            if not wizard_script.exists():
+                print(f"[FAIL] Interactive script not found: {wizard_script}", file=sys.stderr)
+                return 2
+            cmd = [python_bin, str(wizard_script), "--help"]
+            print(f"$ {shlex.join(cmd)}")
+            if args.dry_run:
+                return 0
+            proc = subprocess.run(cmd, cwd=str(cwd), text=True)
+            return int(proc.returncode)
         target_command = str(args.interactive_command).strip() if args.interactive_command else subcommand
         if target_command == "interactive":
             print(
