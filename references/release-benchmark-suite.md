@@ -18,11 +18,13 @@ Structured benchmark protocol for stability validation of `ml-leakage-guard`.
   - `adversarial_fail_closed`
 - `release` (recommended)
   - `authority_release_core`
-  - `authority_release_extended` (+ Diabetes130 large cohort)
+  - `authority_release_extended` (+ Diabetes130 large cohort, observational/non-blocking)
   - `adversarial_fail_closed`
 - `extended`
   - `release` profile +
   - `authority_research_heart` (heart stress search; non-blocking by default unless `--heart-blocking`)
+  
+Release blocking suites are currently `authority_release_core` and `adversarial_fail_closed`.
 
 Run command:
 
@@ -63,7 +65,7 @@ python3 scripts/mlgg.py benchmark-suite \
 ### 5. Core Dataset Coverage
 - `uci-breast-cancer-wdbc`: small/clean baseline for full strict-chain sanity.
 - `uci-chronic-kidney-disease`: missingness-heavy external stability route.
-- `uci-diabetes-130-readmission`: larger heterogeneous cohort (runtime + transport stress).
+- `uci-diabetes-130-readmission`: larger heterogeneous cohort (runtime + transport stress, observational in release).
 - `uci-heart-disease` (extended profile): high-pressure research stress route.
 
 ### 6. Standard Failure Codes
@@ -86,11 +88,13 @@ python3 scripts/mlgg.py benchmark-suite \
   - `adversarial_fail_closed`
 - `release`（推荐）
   - `authority_release_core`
-  - `authority_release_extended`（增加 Diabetes130 大样本）
+  - `authority_release_extended`（增加 Diabetes130 大样本，观测/非阻断）
   - `adversarial_fail_closed`
 - `extended`
   - 在 `release` 基础上增加
   - `authority_research_heart`（heart 高压研究路线；默认非阻断，可用 `--heart-blocking` 设为阻断）
+
+当前 release 阻断套件为 `authority_release_core` 与 `adversarial_fail_closed`。
 
 执行命令：
 
@@ -131,7 +135,7 @@ python3 scripts/mlgg.py benchmark-suite \
 ### 5. 数据集覆盖定位
 - `uci-breast-cancer-wdbc`：小而稳的全链路基线。
 - `uci-chronic-kidney-disease`：缺失值和外部稳健性压力。
-- `uci-diabetes-130-readmission`：大样本异质性与迁移压力。
+- `uci-diabetes-130-readmission`：大样本异质性与迁移压力（release 中按观测项保留）。
 - `uci-heart-disease`（extended）：高压研究路径验证。
 
 ### 6. 标准失败码

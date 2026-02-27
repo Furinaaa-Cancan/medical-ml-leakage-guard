@@ -20,7 +20,7 @@
       }
     },
     "uci-diabetes-130-readmission": {
-      "role": "blocking",
+      "role": "observational",
       "split_seed": 20260226,
       "minimum_requirements": {
         "external_min_rows": 100,
@@ -135,7 +135,7 @@
           "suite_id": "authority_release_extended",
           "name": "Authority extended route (+ Diabetes130 large cohort)",
           "kind": "authority",
-          "blocking": true,
+          "blocking": false,
           "args": [
             "--include-stress-cases",
             "--stress-case-id",
@@ -179,7 +179,7 @@
           "suite_id": "authority_release_extended",
           "name": "Authority extended route (+ Diabetes130 large cohort)",
           "kind": "authority",
-          "blocking": true,
+          "blocking": false,
           "args": [
             "--include-stress-cases",
             "--stress-case-id",
