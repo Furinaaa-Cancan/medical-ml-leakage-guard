@@ -24,6 +24,7 @@ Use this list with strict pipeline failure codes.
 
 | Code | Diagnose | One-step Fix | Verify |
 |---|---|---|---|
+| `onboarding_step_cancelled` | Check `<project>/evidence/onboarding_report.json` for the first cancelled step (`stderr_tail=step_cancelled_by_user`). / 查看 onboarding 报告中首个取消步骤 | Re-run with confirmation bypass: `python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes` (or collect full diagnostics with `--no-stop-on-fail`). / 使用 `--yes` 复跑（或加 `--no-stop-on-fail` 收集全量诊断） | `python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail` |
 | `missing_required_path` | `python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict` | Ensure all `*_spec`/`*_report_file` paths exist in request. / 补齐 request 中全部路径 | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` |
 | `path_not_found` | same as above | Re-run training to regenerate missing evidence, or fix request paths. / 重跑训练或修正路径 | `python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict` |
 | `invalid_evaluation_report` | `python3 scripts/mlgg.py train -- --help` | Re-run `train_select_evaluate.py` and ensure `evaluation_report.json` is complete. / 重新产出完整评估报告 | `python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict` |

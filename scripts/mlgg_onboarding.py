@@ -29,7 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
-CONTRACT_VERSION = "onboarding_report.v1"
+CONTRACT_VERSION = "onboarding_report.v2"
 
 TROUBLESHOOTING_TOP20: Dict[str, Dict[str, str]] = {
     "missing_required_path": {
@@ -147,7 +147,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lang", choices=["bilingual", "zh", "en"], default="bilingual", help="Prompt language mode.")
     parser.add_argument("--yes", action="store_true", help="Auto-confirm all steps in guided mode.")
     parser.add_argument("--strict", action="store_true", default=True, help="Strict mode (always enabled for onboarding).")
-    parser.add_argument("--stop-on-fail", action="store_true", default=True, help="Stop at first failing step.")
+    parser.set_defaults(stop_on_fail=True)
+    stop_group = parser.add_mutually_exclusive_group()
+    stop_group.add_argument("--stop-on-fail", dest="stop_on_fail", action="store_true", help="Stop at first failing step (default).")
+    stop_group.add_argument(
+        "--no-stop-on-fail",
+        dest="stop_on_fail",
+        action="store_false",
+        help="Continue after failures to collect full diagnostics.",
+    )
     parser.add_argument("--python", default=sys.executable, help="Python executable.")
     parser.add_argument("--seed", type=int, default=20260227, help="Demo dataset random seed.")
     parser.add_argument("--run-id", default="", help="Optional fixed run_id; defaults to UTC token.")
@@ -243,6 +251,7 @@ def run_command_step(
                 "exit_code": 2,
                 "stdout_tail": "",
                 "stderr_tail": "step_cancelled_by_user",
+                "failure_code": "onboarding_step_cancelled",
                 "expected_artifacts": expected_text,
                 "status": "fail",
             }
@@ -332,6 +341,7 @@ def run_internal_step(
                 "exit_code": 2,
                 "stdout_tail": "",
                 "stderr_tail": "step_cancelled_by_user",
+                "failure_code": "onboarding_step_cancelled",
                 "expected_artifacts": expected_text,
                 "status": "fail",
             }
@@ -627,44 +637,62 @@ def ensure_keypair(openssl_bin: str, private_key: Path, public_key: Path) -> Non
 
 def collect_failure_codes(project_root: Path) -> List[str]:
     evidence = project_root / "evidence"
-    report_files = [
-        "request_contract_report.json",
-        "execution_attestation_report.json",
-        "clinical_metrics_report.json",
-        "distribution_generalization_report.json",
-        "generalization_gap_report.json",
-        "external_validation_gate_report.json",
-        "calibration_dca_report.json",
-        "ci_matrix_gate_report.json",
-        "publication_gate_report.json",
-    ]
     out: List[str] = []
-    for name in report_files:
-        p = evidence / name
-        if not p.exists():
+    if not evidence.exists():
+        return out
+    for p in sorted(evidence.rglob("*report*.json")):
+        if not p.is_file():
             continue
         try:
             payload = load_json(p)
         except Exception:
             continue
+        report_has_code = False
         failures = payload.get("failures")
-        if not isinstance(failures, list):
-            continue
-        for row in failures:
-            if not isinstance(row, dict):
-                continue
-            code = str(row.get("code", "")).strip()
-            if code and code not in out:
-                out.append(code)
+        if isinstance(failures, list):
+            for row in failures:
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get("code", "")).strip()
+                if code:
+                    report_has_code = True
+                    if code not in out:
+                        out.append(code)
+        status = str(payload.get("status", "")).strip().lower()
+        if status == "fail" and not report_has_code and "onboarding_unknown_failure" not in out:
+            out.append("onboarding_unknown_failure")
     return out
 
 
-def build_next_actions(failure_codes: Sequence[str]) -> List[str]:
+def collect_step_failure_codes(steps: Sequence[Dict[str, Any]]) -> List[str]:
+    out: List[str] = []
+    for row in steps:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("failure_code", "")).strip()
+        if code and code not in out:
+            out.append(code)
+    return out
+
+
+def build_next_actions(failure_codes: Sequence[str], status: str) -> List[str]:
     actions: List[str] = []
-    if not failure_codes:
+    if "onboarding_step_cancelled" in set(failure_codes):
+        return [
+            "Onboarding was cancelled by user confirmation; rerun from the same command to continue.",
+            "Run non-interactive confirm mode: python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
+            "Collect full diagnostics without early stop: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+        ]
+    if status == "pass" and not failure_codes:
         return [
             "No blocking failures. Keep using compare-manifest for reproducible reruns.",
             "Re-run: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+        ]
+    if status != "pass" and not failure_codes:
+        return [
+            "Blocking failure detected but no gate failure code was emitted.",
+            "Inspect onboarding_report.json and find the first step with status=fail and non-zero exit_code.",
+            "Re-run full diagnosis: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
         ]
     for code in failure_codes[:5]:
         spec = TROUBLESHOOTING_TOP20.get(code)
@@ -719,11 +747,25 @@ def main() -> int:
         "request_file": str(project_root / "configs" / "request.json"),
         "onboarding_report": str(report_path),
     }
+    stop_on_fail = bool(args.stop_on_fail)
+
+    def finish(status: str) -> int:
+        return finalize(
+            report_path=report_path,
+            project_root=project_root,
+            run_id=run_id,
+            mode=mode,
+            lang=args.lang,
+            steps=step_rows,
+            artifacts=artifacts,
+            status=status,
+            stop_on_fail=stop_on_fail,
+        )
 
     def should_continue(ok: bool) -> bool:
         if ok:
             return True
-        return not bool(args.stop_on_fail)
+        return not stop_on_fail
 
     # Step 1 doctor
     doctor_report = evidence_dir / "env_doctor_report.json"
@@ -739,7 +781,7 @@ def main() -> int:
     )
     artifacts["env_doctor_report"] = str(doctor_report)
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     # Step 2 init
     init_report = evidence_dir / "init_report.json"
@@ -775,7 +817,7 @@ def main() -> int:
     )
     artifacts["init_report"] = str(init_report)
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     # Step 3 demo data
     demo_report = evidence_dir / "demo_dataset_report.json"
@@ -807,7 +849,7 @@ def main() -> int:
     )
     artifacts["demo_dataset_report"] = str(demo_report)
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     # Step 4 align configs
     ok = run_internal_step(
@@ -826,7 +868,7 @@ def main() -> int:
         ],
     )
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     # Step 5 train
     train_cmd, train_outputs = build_train_command(project_root=project_root, python_bin=python_bin)
@@ -858,7 +900,7 @@ def main() -> int:
     artifacts["train_runtime_config"] = str(train_cfg)
     artifacts.update({k: str(v) for k, v in train_outputs.items()})
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     if mode != "preview":
         try:
@@ -879,7 +921,8 @@ def main() -> int:
                     "status": "fail",
                 }
             )
-            return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+            if not should_continue(False):
+                return finish("fail")
 
     # Step 6 attestation
     def step6_fn() -> None:
@@ -1004,7 +1047,7 @@ def main() -> int:
         ],
     )
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     # Step 7 workflow bootstrap
     workflow_bootstrap_report = evidence_dir / "workflow_report_bootstrap.json"
@@ -1036,7 +1079,7 @@ def main() -> int:
     )
     artifacts["workflow_report_bootstrap"] = str(workflow_bootstrap_report)
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
     # Step 8 workflow compare rerun
     compare_manifest = project_root / "evidence" / "manifest_baseline.bootstrap.json"
@@ -1070,9 +1113,10 @@ def main() -> int:
     )
     artifacts["workflow_report_compare"] = str(workflow_compare_report)
     if not should_continue(ok):
-        return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "fail")
+        return finish("fail")
 
-    return finalize(report_path, project_root, run_id, mode, args.lang, step_rows, artifacts, "pass")
+    has_failed_step = any(str(row.get("status", "")).strip().lower() == "fail" for row in step_rows if isinstance(row, dict))
+    return finish("fail" if has_failed_step else "pass")
 
 
 def finalize(
@@ -1084,8 +1128,28 @@ def finalize(
     steps: List[Dict[str, Any]],
     artifacts: Dict[str, Any],
     status: str,
+    stop_on_fail: bool,
 ) -> int:
-    failure_codes = collect_failure_codes(project_root=project_root) if status != "pass" else []
+    failure_codes: List[str] = []
+    if status != "pass":
+        for code in collect_failure_codes(project_root=project_root):
+            if code not in failure_codes:
+                failure_codes.append(code)
+        for code in collect_step_failure_codes(steps):
+            if code not in failure_codes:
+                failure_codes.append(code)
+        if not failure_codes:
+            failure_codes.append("onboarding_unknown_failure")
+
+    if status == "pass":
+        termination_reason = "completed_successfully"
+    elif "onboarding_step_cancelled" in failure_codes:
+        termination_reason = "cancelled_by_user"
+    elif stop_on_fail:
+        termination_reason = "stopped_on_failure"
+    else:
+        termination_reason = "completed_with_failures"
+
     report = {
         "contract_version": CONTRACT_VERSION,
         "run_id": run_id,
@@ -1093,13 +1157,14 @@ def finalize(
         "mode": mode,
         "lang": lang,
         "strict_mode": True,
-        "stop_on_fail": True,
+        "stop_on_fail": bool(stop_on_fail),
+        "termination_reason": termination_reason,
         "generated_at_utc": utc_now(),
         "project_root": str(project_root),
         "steps": steps,
         "artifacts": artifacts,
         "failure_codes": failure_codes,
-        "next_actions": build_next_actions(failure_codes),
+        "next_actions": build_next_actions(failure_codes, status=status),
     }
     write_json(report_path, report)
 

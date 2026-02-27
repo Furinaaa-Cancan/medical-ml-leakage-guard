@@ -38,6 +38,12 @@ English:
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
 ```
 
+Need full diagnostics without early stop:
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --no-stop-on-fail
+```
+
 Expected key outputs:
 - `/tmp/mlgg_demo/evidence/onboarding_report.json`
 - `/tmp/mlgg_demo/evidence/user_summary.md`
@@ -89,7 +95,10 @@ English:
   - `status=pass`: all strict gates passed.
   - `status=fail`: at least one hard gate blocked release.
 - `onboarding_report.json`:
+  - Contract `onboarding_report.v2`.
   - Step-level command, exit code, and error tails.
+  - `stop_on_fail` and `termination_reason` show run-stop semantics.
+  - `failure_codes` and `next_actions` provide fail-closed diagnosis guidance.
 - `user_summary.md`:
   - Human-readable pass/fail summary and key evidence links.
 
@@ -98,7 +107,10 @@ English:
   - `status=pass`：所有严格门通过。
   - `status=fail`：至少一个硬门阻断发布。
 - `onboarding_report.json`：
+  - 契约版本为 `onboarding_report.v2`。
   - 包含逐步命令、退出码和错误尾部信息。
+  - `stop_on_fail` 与 `termination_reason` 反映终止语义。
+  - `failure_codes` 与 `next_actions` 提供 fail-closed 诊断动作。
 - `user_summary.md`：
   - 人类可读的通过/失败摘要与关键证据路径。
 

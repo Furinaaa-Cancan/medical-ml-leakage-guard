@@ -623,10 +623,83 @@ def test_mlgg_onboarding_preview_emits_full_step_plan() -> None:
         assert_true(report_path.exists(), "onboarding preview report file exists")
         report = load_report(report_path)
         steps = report.get("steps", [])
+        assert_true(report.get("contract_version") == "onboarding_report.v2", "onboarding preview contract_version is v2")
+        assert_true(report.get("stop_on_fail") is True, "onboarding preview default stop_on_fail=true")
+        assert_true(report.get("termination_reason") == "completed_successfully", "onboarding preview termination_reason is completed_successfully")
         assert_true(isinstance(steps, list) and len(steps) == 8, "onboarding preview contains 8 fixed steps")
         step_names = [str(row.get("name", "")) for row in steps if isinstance(row, dict)]
         assert_true("step1_doctor" in step_names, "onboarding preview includes step1_doctor")
         assert_true("step8_workflow_compare" in step_names, "onboarding preview includes step8_workflow_compare")
+
+
+def test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions() -> None:
+    print("\n=== mlgg onboarding: guided cancel emits onboarding_step_cancelled ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "demo_cancel"
+        report_path = td / "onboarding_cancel_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "onboarding",
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "guided",
+                "--report",
+                str(report_path),
+            ],
+            input_text="n\n",
+        )
+        assert_true(proc.returncode == 2, "guided cancel exits 2")
+        assert_true(report_path.exists(), "guided cancel report exists")
+        report = load_report(report_path)
+        failure_codes = report.get("failure_codes", [])
+        next_actions = report.get("next_actions", [])
+        assert_true(report.get("status") == "fail", "guided cancel report status=fail")
+        assert_true("onboarding_step_cancelled" in failure_codes, "guided cancel failure code present")
+        assert_true(report.get("termination_reason") == "cancelled_by_user", "guided cancel termination_reason is cancelled_by_user")
+        assert_true(
+            all("No blocking failures" not in str(item) for item in next_actions),
+            "guided cancel next_actions does not claim no blocking failures",
+        )
+
+
+def test_mlgg_onboarding_no_stop_on_fail_completes_with_failures() -> None:
+    print("\n=== mlgg onboarding: --no-stop-on-fail records completed_with_failures ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "demo_no_stop"
+        report_path = td / "onboarding_no_stop_report.json"
+        fake_python = td / "fake_python.sh"
+        fake_python.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        fake_python.chmod(0o755)
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg_onboarding.py"),
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "auto",
+                "--python",
+                str(fake_python),
+                "--no-stop-on-fail",
+                "--report",
+                str(report_path),
+            ]
+        )
+        assert_true(proc.returncode == 2, "--no-stop-on-fail failure path exits 2")
+        assert_true(report_path.exists(), "--no-stop-on-fail report exists")
+        report = load_report(report_path)
+        assert_true(report.get("status") == "fail", "--no-stop-on-fail report status=fail")
+        assert_true(report.get("stop_on_fail") is False, "--no-stop-on-fail reflected in report")
+        assert_true(
+            report.get("termination_reason") == "completed_with_failures",
+            "--no-stop-on-fail termination_reason is completed_with_failures",
+        )
+        steps = report.get("steps", [])
+        step_names = [str(row.get("name", "")) for row in steps if isinstance(row, dict)]
+        assert_true("step8_workflow_compare" in step_names, "--no-stop-on-fail continues through step8")
 
 
 def test_mlgg_onboarding_missing_openssl_fails_closed() -> None:
@@ -693,6 +766,8 @@ def main() -> int:
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()
     test_mlgg_onboarding_preview_emits_full_step_plan()
+    test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions()
+    test_mlgg_onboarding_no_stop_on_fail_completes_with_failures()
     test_mlgg_onboarding_missing_openssl_fails_closed()
     test_mlgg_help_includes_onboarding_and_bootstrap_example()
 

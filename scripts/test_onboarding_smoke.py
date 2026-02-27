@@ -69,7 +69,9 @@ def test_onboarding_preview_report_contract() -> None:
         assert_true(proc.returncode == 0, "onboarding preview exits 0")
         assert_true(report.exists(), "onboarding preview report exists")
         payload = load_json(report)
-        assert_true(payload.get("contract_version") == "onboarding_report.v1", "report contract_version is v1")
+        assert_true(payload.get("contract_version") == "onboarding_report.v2", "report contract_version is v2")
+        assert_true(payload.get("stop_on_fail") is True, "default stop_on_fail is true")
+        assert_true(payload.get("termination_reason") == "completed_successfully", "preview termination reason is completed_successfully")
         steps = payload.get("steps")
         assert_true(isinstance(steps, list) and len(steps) == 8, "report contains 8 onboarding steps")
 
@@ -123,4 +125,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

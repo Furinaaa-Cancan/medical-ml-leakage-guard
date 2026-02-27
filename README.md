@@ -31,11 +31,15 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
   - `guided`: step-by-step confirmation
   - `preview`: print full 8-step command plan only
   - `auto`: execute full flow non-interactively
+- Failure control:
+  - default: `--stop-on-fail` (enabled by default)
+  - full diagnosis run: `--no-stop-on-fail`
 - Fixed flow:
   - doctor -> init -> demo data -> config alignment -> train -> attestation -> workflow bootstrap -> workflow compare
 - Outputs:
   - onboarding report: `<project>/evidence/onboarding_report.json`
   - user summary: `<project>/evidence/user_summary.md`
+  - onboarding report contract: `onboarding_report.v2` (`stop_on_fail`, `termination_reason`, `failure_codes`, `next_actions`)
 
 ### Interactive Wizard (V7)
 - New terminal wizard for core commands: `init / workflow / train / authority`
@@ -118,11 +122,15 @@ Note:
   - `guided`：逐步确认执行
   - `preview`：仅输出完整 8 步命令计划
   - `auto`：非交互串行执行全部步骤
+- 失败控制：
+  - 默认：`--stop-on-fail`（默认开启）
+  - 全量诊断：`--no-stop-on-fail`
 - 固定流程：
   - doctor -> init -> demo 数据 -> 配置对齐 -> train -> attestation -> workflow 首跑 -> workflow 基线对比复跑
 - 关键产物：
   - 引导报告：`<project>/evidence/onboarding_report.json`
   - 用户摘要：`<project>/evidence/user_summary.md`
+  - 引导报告契约：`onboarding_report.v2`（含 `stop_on_fail`、`termination_reason`、`failure_codes`、`next_actions`）
 
 ### 交互式终端向导（V7）
 - 新增交互向导，覆盖核心命令：`init / workflow / train / authority`
