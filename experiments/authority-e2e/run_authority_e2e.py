@@ -120,6 +120,18 @@ MODEL_POOL_BY_CASE: Dict[str, List[str]] = {
         "extra_trees_balanced",
         "hist_gradient_boosting_l2",
     ],
+    # Stress heart benefits from a broader non-linear pool while keeping
+    # logistic baselines auditable via required_models.
+    "uci-heart-disease": [
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "extra_trees_balanced",
+        "hist_gradient_boosting_l2",
+        "adaboost",
+        "xgboost",
+    ],
     # Large heterogeneous cohort: expand model families and let search pick.
     "uci-diabetes-130-readmission": [
         "logistic_l1",
@@ -134,6 +146,7 @@ MODEL_POOL_BY_CASE: Dict[str, List[str]] = {
 }
 MAX_TRIALS_PER_FAMILY_BY_CASE: Dict[str, int] = {
     "default": 3,
+    "uci-heart-disease": 4,
     "uci-diabetes-130-readmission": 6,
 }
 HYPERPARAM_SEARCH_BY_CASE: Dict[str, str] = {
@@ -160,9 +173,46 @@ HEART_EXTERNAL_INSTITUTION_RAW_FILES: List[Tuple[str, str]] = [
     ("switzerland", "heart_disease_processed.switzerland.data"),
     ("va", "heart_disease_processed.va.data"),
 ]
+# Build heart internal training pool from multiple institutions to reduce
+# single-site bias (while still keeping a disjoint cross-institution cohort).
+HEART_INTERNAL_AUX_RAW_FILES: List[Tuple[str, str]] = [
+    ("va", "heart_disease_processed.va.data"),
+]
+HEART_INTERNAL_SITE_TAGS: List[str] = ["cleveland", "va"]
 HEART_EXTERNAL_SITE_MIN_ROWS = 80
 HEART_EXTERNAL_SITE_EVENT_RATE_MIN = 0.15
-HEART_EXTERNAL_SITE_EVENT_RATE_MAX = 0.70
+# Keep a broad but bounded institution-mix for stress heart: include VA while
+# still excluding extreme prevalence cohorts (e.g., Switzerland ~0.93).
+HEART_EXTERNAL_SITE_EVENT_RATE_MAX = 0.80
+HEART_ALL_FEATURE_COLS: List[str] = [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal",
+]
+# Cross-site stable subset: avoids known severe missingness drift across
+# Hungarian/VA sites while keeping core clinical signals.
+HEART_STABLE_FEATURE_COLS: List[str] = [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+]
 DEFAULT_STRESS_SEED_MIN = 20249900
 DEFAULT_STRESS_SEED_MAX = 20250150
 STRESS_SEARCH_REPORT_CONTRACT_VERSION = "v2"
@@ -302,7 +352,9 @@ def extract_pipeline_root_failures(pipeline_report: Dict[str, Any]) -> Tuple[Lis
         if step_name:
             failed_steps.append(step_name)
         stdout_tail = str(step.get("stdout_tail", "") or "")
+        stderr_tail = str(step.get("stderr_tail", "") or "")
         failure_codes.extend(FAIL_LINE_RE.findall(stdout_tail))
+        failure_codes.extend(FAIL_LINE_RE.findall(stderr_tail))
     dedup_steps = sorted(set(failed_steps))
     dedup_codes = sorted(set(code.strip() for code in failure_codes if str(code).strip()))
     return dedup_steps, dedup_codes
@@ -754,49 +806,46 @@ def calibration_gap_diagnostics(report_path: Path) -> Dict[str, Any]:
 
 
 def load_heart_dataset(raw_path: Path) -> Tuple[pd.DataFrame, List[str]]:
-    cols = [
-        "age",
-        "sex",
-        "cp",
-        "trestbps",
-        "chol",
-        "fbs",
-        "restecg",
-        "thalach",
-        "exang",
-        "oldpeak",
-        "slope",
-        "ca",
-        "thal",
-        "goal",
-    ]
-    df = pd.read_csv(raw_path, header=None, names=cols, na_values="?")
-    df = df.dropna(axis=0).reset_index(drop=True)
-    df["y"] = (pd.to_numeric(df["goal"], errors="coerce") > 0).astype(int)
-    feature_cols = [c for c in cols if c != "goal"]
-    for col in feature_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = df.dropna(axis=0).reset_index(drop=True)
+    cols = HEART_ALL_FEATURE_COLS + ["goal"]
+    frames: List[pd.DataFrame] = []
+
+    sources: List[Tuple[str, Path]] = [("cleveland", raw_path)]
+    for site_tag, filename in HEART_INTERNAL_AUX_RAW_FILES:
+        sources.append((site_tag, RAW_ROOT / filename))
+
+    for site_tag, site_path in sources:
+        if not site_path.exists():
+            continue
+        site_df = pd.read_csv(site_path, header=None, names=cols, na_values="?")
+        for col in HEART_ALL_FEATURE_COLS:
+            site_df[col] = pd.to_numeric(site_df[col], errors="coerce")
+        goal = pd.to_numeric(site_df["goal"], errors="coerce")
+        keep_rows = goal.notna()
+        site_df = site_df.loc[keep_rows].copy().reset_index(drop=True)
+        if site_df.empty:
+            continue
+        site_df["y"] = (pd.to_numeric(site_df["goal"], errors="coerce") > 0).astype(int)
+        site_df["__heart_site_tag"] = site_tag
+        frames.append(site_df)
+
+    if not frames:
+        raise RuntimeError(f"No usable heart source rows found for: {raw_path}")
+    df = pd.concat(frames, axis=0, ignore_index=True)
+    feature_cols = [c for c in HEART_STABLE_FEATURE_COLS if c in HEART_ALL_FEATURE_COLS]
+    # Keep rows with at least one observed predictor; missing values are imputed
+    # downstream by train-only fitted imputers.
+    has_any_feature = df[feature_cols].notna().any(axis=1)
+    df = df.loc[has_any_feature].copy().reset_index(drop=True)
     return df[feature_cols + ["y"]], feature_cols
 
 
-def load_heart_external_institution_pool(case_id: str, feature_cols: List[str]) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
-    cols = [
-        "age",
-        "sex",
-        "cp",
-        "trestbps",
-        "chol",
-        "fbs",
-        "restecg",
-        "thalach",
-        "exang",
-        "oldpeak",
-        "slope",
-        "ca",
-        "thal",
-        "goal",
-    ]
+def load_heart_external_institution_pool(
+    case_id: str,
+    feature_cols: List[str],
+    exclude_site_tags: Optional[List[str]] = None,
+) -> Tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+    cols = HEART_ALL_FEATURE_COLS + ["goal"]
+    excluded = {str(x).strip().lower() for x in (exclude_site_tags or []) if str(x).strip()}
     metadata: Dict[str, Any] = {
         "source": "uci_heart_multi_institution",
         "site_selection_policy": {
@@ -804,6 +853,7 @@ def load_heart_external_institution_pool(case_id: str, feature_cols: List[str]) 
             "event_rate_min": float(HEART_EXTERNAL_SITE_EVENT_RATE_MIN),
             "event_rate_max": float(HEART_EXTERNAL_SITE_EVENT_RATE_MAX),
         },
+        "exclude_site_tags": sorted(excluded),
         "sites": [],
     }
     frames: List[pd.DataFrame] = []
@@ -814,6 +864,10 @@ def load_heart_external_institution_pool(case_id: str, feature_cols: List[str]) 
             "status": "excluded",
             "reason": None,
         }
+        if site_tag.lower() in excluded:
+            site_summary["reason"] = "excluded_training_source"
+            metadata["sites"].append(site_summary)
+            continue
         raw_path = RAW_ROOT / filename
         if not raw_path.exists():
             site_summary["reason"] = "file_missing"
@@ -824,7 +878,7 @@ def load_heart_external_institution_pool(case_id: str, feature_cols: List[str]) 
             site_summary["reason"] = "empty_file"
             metadata["sites"].append(site_summary)
             continue
-        for col in feature_cols:
+        for col in HEART_ALL_FEATURE_COLS:
             raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
         goal = pd.to_numeric(raw_df["goal"], errors="coerce")
         keep_rows = goal.notna()
@@ -1840,6 +1894,29 @@ def update_performance_policy(
     if isinstance(fit_split_token, str) and fit_split_token in {"valid", "cv_inner"}:
         threshold_policy["calibration_fit_split"] = fit_split_token
     policy["threshold_policy"] = threshold_policy
+
+    # Apply model-pool/runtime overrides only for explicitly configured cases.
+    if case_id in MODEL_POOL_BY_CASE or case_id in MAX_TRIALS_PER_FAMILY_BY_CASE:
+        model_pool_block = policy.get("model_pool")
+        if not isinstance(model_pool_block, dict):
+            model_pool_block = {}
+        if case_id in MODEL_POOL_BY_CASE:
+            resolved_pool = resolve_case_model_pool(case_id)
+            if resolved_pool:
+                model_pool_block["models"] = resolved_pool
+            required_models = model_pool_block.get("required_models")
+            if not isinstance(required_models, list) or not required_models:
+                model_pool_block["required_models"] = ["logistic_l2"]
+        if case_id in MAX_TRIALS_PER_FAMILY_BY_CASE:
+            model_pool_block["max_trials_per_family"] = int(MAX_TRIALS_PER_FAMILY_BY_CASE[case_id])
+        if case_id in HYPERPARAM_SEARCH_BY_CASE:
+            search_strategy = str(HYPERPARAM_SEARCH_BY_CASE[case_id]).strip().lower()
+            if search_strategy not in {"random_subsample", "fixed_grid"}:
+                search_strategy = "random_subsample"
+            model_pool_block["search_strategy"] = search_strategy
+        if case_id in N_JOBS_BY_CASE:
+            model_pool_block["n_jobs"] = int(N_JOBS_BY_CASE[case_id])
+        policy["model_pool"] = model_pool_block
     write_json(path, policy)
 
 
@@ -2264,6 +2341,7 @@ def search_heart_feasible_seed(
     external_institution_override, external_institution_metadata = load_heart_external_institution_pool(
         case.case_id,
         feature_cols,
+        exclude_site_tags=HEART_INTERNAL_SITE_TAGS,
     )
     if external_institution_override is None:
         raise RuntimeError("Heart external institution pool unavailable after site-quality filtering.")
@@ -2473,6 +2551,7 @@ def prepare_case_artifacts(
         external_institution_override, external_institution_metadata = load_heart_external_institution_pool(
             case.case_id,
             feature_cols,
+            exclude_site_tags=HEART_INTERNAL_SITE_TAGS,
         )
         if external_institution_override is None:
             raise RuntimeError("Heart external institution pool unavailable after site-quality filtering.")
@@ -3308,6 +3387,7 @@ def main() -> int:
                 external_inst_df, external_inst_meta = load_heart_external_institution_pool(
                     heart_case.case_id,
                     heart_feature_cols,
+                    exclude_site_tags=HEART_INTERNAL_SITE_TAGS,
                 )
                 dataset_fingerprint["external_institution"] = (
                     build_dataset_fingerprint(external_inst_df)
@@ -3373,10 +3453,43 @@ def main() -> int:
                                 else ""
                             )
                             profile_ok = any(p.get("profile_id") == cached_profile for p in stress_profiles)
+                            selection_contract_ok = False
+                            if stress_selection_file.exists():
+                                try:
+                                    selection_payload = load_json(stress_selection_file)
+                                    selection_status = str(selection_payload.get("status", "")).strip().lower()
+                                    selection_seed_raw = selection_payload.get("selected_seed")
+                                    selection_profile_raw = selection_payload.get("selected_profile")
+                                    selection_profile = (
+                                        str(selection_profile_raw).strip()
+                                        if isinstance(selection_profile_raw, str)
+                                        else ""
+                                    )
+                                    selection_contract_ok = bool(
+                                        selection_status == "pass"
+                                        and str(selection_payload.get("contract_version", "")).strip()
+                                        == STRESS_SEARCH_REPORT_CONTRACT_VERSION
+                                        and str(selection_payload.get("search_profile_set", "")).strip() == stress_profile_set
+                                        and str(selection_payload.get("policy_sha256", "")).strip() == policy_sha256
+                                        and isinstance(selection_seed_raw, int)
+                                        and int(selection_seed_raw) == cached_seed
+                                        and selection_profile == cached_profile
+                                    )
+                                    selection_dataset_fingerprint = selection_payload.get("dataset_fingerprint")
+                                    if isinstance(selection_dataset_fingerprint, dict):
+                                        selection_contract_ok = bool(
+                                            selection_contract_ok
+                                            and canonical_json_sha256(selection_dataset_fingerprint)
+                                            == canonical_json_sha256(dataset_fingerprint)
+                                        )
+                                    else:
+                                        selection_contract_ok = False
+                                except Exception:
+                                    selection_contract_ok = False
                             if (
                                 int(args.stress_seed_min) <= cached_seed <= int(args.stress_seed_max)
                                 and profile_ok
-                                and stress_selection_file.exists()
+                                and selection_contract_ok
                             ):
                                 cached_selected_seed = cached_seed
                                 cached_selected_profile = cached_profile

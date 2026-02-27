@@ -73,6 +73,13 @@ def resolve_path(base: Path, value: str) -> Path:
 
 def main() -> int:
     args = parse_args()
+    if not bool(args.strict):
+        print(
+            "[FAIL] run_productized_workflow.py requires --strict for publication-grade workflow.",
+            file=sys.stderr,
+        )
+        return 2
+
     request_path = Path(args.request).expanduser().resolve()
     if not request_path.exists():
         print(f"[FAIL] request file not found: {request_path}", file=sys.stderr)

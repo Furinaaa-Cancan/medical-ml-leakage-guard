@@ -389,7 +389,7 @@ def main() -> int:
                     },
                 )
 
-    strict_optional_components = {"distribution_generalization_report"}
+    strict_optional_components = set()
     for component in (
         "request_report",
         "execution_attestation_report",

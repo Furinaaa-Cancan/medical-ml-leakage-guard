@@ -709,6 +709,7 @@ def main() -> int:
             distribution_report_file,
             "--report",
             str(reports["distribution_generalization_report"]),
+            *strict_flag,
         ],
     ):
         return finalize(args, reports, steps, success=False)
