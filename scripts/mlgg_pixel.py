@@ -1219,6 +1219,43 @@ def step_confirm(state: Dict) -> Any:
     return True
 
 
+_ERROR_PATTERNS = [
+    ("not enough positive", {
+        "en": "Not enough positive (y=1) samples in one or more splits. Try a larger dataset or adjust ratios.",
+        "zh": "一个或多个分割中正样本（y=1）不足。请尝试更大的数据集或调整比例。",
+    }),
+    ("not enough negative", {
+        "en": "Not enough negative (y=0) samples in one or more splits. Check class balance.",
+        "zh": "一个或多个分割中负样本（y=0）不足。请检查类别平衡。",
+    }),
+    ("FileNotFoundError", {
+        "en": "A required file was not found. Check input paths and previous steps.",
+        "zh": "未找到必需的文件。请检查输入路径和前面的步骤。",
+    }),
+    ("column", {
+        "en": "A required column was not found in the CSV. Verify column names match your data.",
+        "zh": "CSV 中未找到必需的列。请确认列名与数据匹配。",
+    }),
+    ("PermissionError", {
+        "en": "Permission denied writing output files. Check directory permissions.",
+        "zh": "写入输出文件时权限被拒绝。请检查目录权限。",
+    }),
+    ("ModuleNotFoundError", {
+        "en": "A required Python package is missing. Run: pip install -r requirements.txt",
+        "zh": "缺少必需的 Python 包。请运行：pip install -r requirements.txt",
+    }),
+]
+
+
+def _friendly_error(err: str) -> str:
+    """Match stderr against known patterns and return a friendly hint."""
+    lower = err.lower()
+    for pattern, msgs in _ERROR_PATTERNS:
+        if pattern.lower() in lower:
+            return msgs.get(LANG, msgs["en"])
+    return ""
+
+
 def step_run(state: Dict) -> Any:
     _clear()
     step_header(10, TOTAL_STEPS, t("s_run"))
@@ -1279,7 +1316,11 @@ def step_run(state: Dict) -> Any:
             completed.append((dl_label, "fail"))
             _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
             print(f"\n  {s('R', t('x_fail'))}")
+            hint = _friendly_error(err) if err else ""
+            if hint:
+                print(f"  {s('C', hint)}")
             if err:
+                print()
                 for l in err.strip().split("\n")[-3:]:
                     print(f"  {DIM}{l}{RST}")
             return True
@@ -1305,16 +1346,20 @@ def step_run(state: Dict) -> Any:
     rc, _, err = run_spinner(cmd, split_label)
     if rc != 0:
         completed.append((split_label, "fail"))
-        _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+        _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
         print(f"\n  {s('R', t('x_fail'))}")
+        hint = _friendly_error(err) if err else ""
+        if hint:
+            print(f"  {s('C', hint)}")
         if err:
+            print()
             for l in err.strip().split("\n")[-3:]:
                 print(f"  {DIM}{l}{RST}")
         return True
     completed.append((split_label, "done"))
 
     # Show split results
-    _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+    _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
     try:
         import pandas as pd
         tr = pd.read_csv(Path(out_data) / "train.csv")
@@ -1367,16 +1412,20 @@ def step_run(state: Dict) -> Any:
     rc, _, err = run_spinner(train_cmd, train_label)
     if rc != 0:
         completed.append((train_label, "fail"))
-        _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+        _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
         print(f"\n  {s('R', t('x_fail'))}")
+        hint = _friendly_error(err) if err else ""
+        if hint:
+            print(f"  {s('C', hint)}")
         if err:
+            print()
             for l in err.strip().split("\n")[-5:]:
                 print(f"  {DIM}{l}{RST}")
         return True
     completed.append((train_label, "done"))
 
     # Show final results
-    _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+    _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
     print()
     box(t("r_train_ok"), [
         f"{t('c_output')} {state['out_dir']}/",
