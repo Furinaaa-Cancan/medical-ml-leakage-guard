@@ -23,6 +23,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +33,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+
+try:
+    import fcntl
+except Exception:  # pragma: no cover - non-posix fallback
+    fcntl = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -310,6 +317,42 @@ STRESS_PROFILE_SETS: Dict[str, List[Dict[str, str]]] = {
 def parse_bool_env(name: str, default: bool = False) -> bool:
     token = str(os.environ.get(name, "1" if default else "0")).strip().lower()
     return token in {"1", "true", "yes", "on"}
+
+
+@contextmanager
+def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
+    """
+    Serialize per-case filesystem mutations to avoid concurrent rmtree/write races.
+    On non-posix platforms (no fcntl), fallback to no-op lock.
+    """
+    if fcntl is None:
+        yield
+        return
+
+    lock_dir = DATA_ROOT / "_locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / f"{str(case_id).strip().lower() or 'unknown'}.lock"
+    started = time.time()
+    with lock_path.open("a+", encoding="utf-8") as fh:
+        while True:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if (time.time() - started) > float(timeout_seconds):
+                    raise TimeoutError(f"case_run_lock_timeout: case_id={case_id} lock={lock_path}")
+                time.sleep(0.2)
+        try:
+            fh.seek(0)
+            fh.truncate(0)
+            fh.write(
+                f"pid={os.getpid()} acquired_at={datetime.now(tz=timezone.utc).isoformat()} case_id={case_id}\n"
+            )
+            fh.flush()
+            os.fsync(fh.fileno())
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 FAIL_LINE_RE = re.compile(r"^\[FAIL\]\s+([a-zA-Z0-9_]+)\s*:", re.MULTILINE)
@@ -3598,12 +3641,13 @@ def main() -> int:
                     case_stress_result = stress_result
                 else:
                     split_seed_override = int(SPLIT_RANDOM_SEED_BY_CASE.get(case.case_id, 20260224))
-            result = prepare_case_artifacts(
-                case,
-                split_seed_override=split_seed_override,
-                stress_search_result=case_stress_result,
-                run_tag=run_tag,
-            )
+            with case_run_lock(case.case_id):
+                result = prepare_case_artifacts(
+                    case,
+                    split_seed_override=split_seed_override,
+                    stress_search_result=case_stress_result,
+                    run_tag=run_tag,
+                )
             results.append(result)
             if str(result.get("status")) != "pass":
                 failed_cases.append(case.case_id)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -45,9 +46,13 @@ def utc_now_text() -> str:
 
 def write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path = path.with_name(
+        f".{path.name}.tmp-{os.getpid()}-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+    )
     with tmp_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
     tmp_path.replace(path)
 
 
@@ -85,6 +90,29 @@ def dedup_keep_order(values: Iterable[str]) -> List[str]:
         seen.add(token)
         out.append(token)
     return out
+
+
+def coerce_string_list(raw: Any) -> List[str]:
+    if isinstance(raw, str):
+        token = raw.strip()
+        return [token] if token else []
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        token = item.strip()
+        if token:
+            out.append(token)
+    return out
+
+
+def coerce_failure_codes(raw: Any, *, fallback: Optional[str] = None) -> List[str]:
+    codes = coerce_string_list(raw)
+    if isinstance(fallback, str) and fallback.strip():
+        codes.append(fallback.strip())
+    return dedup_keep_order(codes)
 
 
 def parse_bool(raw: Any, default: bool = False) -> bool:
@@ -438,6 +466,28 @@ def parse_suite_outcome(kind: str, summary_file: Path, exit_code: int, expected_
                     for token in root_codes:
                         if isinstance(token, str) and token.strip():
                             failure_codes.append(token.strip())
+            metrics_rows: List[str] = []
+            for row in results:
+                if not isinstance(row, dict):
+                    continue
+                case_id = str(row.get("case_id", "")).strip()
+                metrics = row.get("metrics")
+                if not case_id or not isinstance(metrics, dict):
+                    continue
+                metric_items: List[str] = []
+                for metric_key in ("pr_auc", "roc_auc", "f2_beta", "brier"):
+                    value = metrics.get(metric_key)
+                    if isinstance(value, bool):
+                        continue
+                    if isinstance(value, (int, float)):
+                        metric_items.append(f"{metric_key}={float(value):.8f}")
+                if metric_items:
+                    metrics_rows.append(f"{case_id}|{'|'.join(metric_items)}")
+            metrics_rows.sort()
+            if metrics_rows:
+                detail["case_metrics_fingerprint"] = hashlib.sha256(
+                    "\n".join(metrics_rows).encode("utf-8")
+                ).hexdigest()
             if detail.get("failed_cases") and not failure_codes:
                 failure_codes.append("authority_case_failed")
     if detail["status"] != "pass" and not failure_codes:
@@ -451,6 +501,7 @@ def suite_signature(row: Dict[str, Any]) -> str:
         "status": str(row.get("status")),
         "overall_status": str(row.get("overall_status")),
         "failure_codes": sorted(str(x) for x in row.get("failure_codes", []) if isinstance(x, str)),
+        "case_metrics_fingerprint": str(row.get("case_metrics_fingerprint", "")),
     }
     return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
@@ -599,7 +650,10 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
                     if str(row.get("status", "")).strip().lower() == "pass":
                         continue
                     case_id = str(row.get("case_id", "")).strip() or "unknown_case"
-                    root_codes = dedup_keep_order(row.get("root_failure_codes", []))
+                    root_codes = coerce_failure_codes(
+                        row.get("root_failure_codes"),
+                        fallback=str(row.get("root_failure_code_primary", "")).strip() or None,
+                    )
                     floor_violations = extract_floor_violations(row.get("clinical_floor_gap_summary"))
                     case_diag = {
                         "case_id": case_id,
@@ -642,7 +696,7 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
                 "kind": str(suite.get("kind", "")),
                 "status": str(suite.get("status", "")),
                 "summary_file": str(summary_file),
-                "failure_codes": dedup_keep_order(suite.get("failure_codes", [])),
+                "failure_codes": coerce_failure_codes(suite.get("failure_codes")),
                 "repeat_statuses": suite.get("repeat_statuses", []),
                 "case_diagnostics": case_diagnostics,
                 "recommended_actions": dedup_keep_order(recommended_actions),
@@ -746,6 +800,15 @@ def main() -> int:
     for repeat_index in range(1, int(args.repeat) + 1):
         for suite in suites:
             command = list(suite.command)
+            summary_file = suite.summary_file
+            if int(args.repeat) > 1:
+                summary_file = summary_file.with_name(f"{summary_file.stem}.r{repeat_index}{summary_file.suffix}")
+                for flag in ("--summary-file", "--output"):
+                    if flag in command:
+                        pos = command.index(flag)
+                        if pos + 1 < len(command):
+                            command[pos + 1] = str(summary_file)
+                        break
             if suite.kind == "authority":
                 # make repeat runs explicit in downstream authority summary metadata.
                 command.extend(["--run-tag", f"{run_tag}-{suite.suite_id}-r{repeat_index}"])
@@ -762,7 +825,7 @@ def main() -> int:
                     "overall_status": None,
                     "failure_reason": None,
                     "failure_codes": [],
-                    "summary_file": str(suite.summary_file),
+                    "summary_file": str(summary_file),
                     "command": command,
                     "stdout_tail": "",
                     "stderr_tail": "",
@@ -771,7 +834,7 @@ def main() -> int:
                 per_suite_rows[suite.suite_id].append(row)
                 continue
 
-            suite.summary_file.parent.mkdir(parents=True, exist_ok=True)
+            summary_file.parent.mkdir(parents=True, exist_ok=True)
             proc = subprocess.run(
                 command,
                 cwd=str(REPO_ROOT),
@@ -780,7 +843,7 @@ def main() -> int:
             )
             outcome = parse_suite_outcome(
                 suite.kind,
-                suite.summary_file,
+                summary_file,
                 int(proc.returncode),
                 suite.expected_case_ids,
             )
@@ -795,7 +858,7 @@ def main() -> int:
                 "overall_status": outcome.get("overall_status"),
                 "failure_reason": outcome.get("failure_reason"),
                 "failure_codes": outcome.get("failure_codes", []),
-                "summary_file": str(suite.summary_file),
+                "summary_file": str(summary_file),
                 "command": command,
                 "stdout_tail": proc.stdout[-2000:],
                 "stderr_tail": proc.stderr[-2000:],
@@ -841,12 +904,19 @@ def main() -> int:
     nonblocking_failures = dedup_keep_order(nonblocking_failures)
 
     failure_codes: List[str] = []
+    blocking_failure_codes: List[str] = []
+    observational_failure_codes: List[str] = []
     for row in suite_runs:
         if str(row.get("status")) == "pass":
             continue
-        for code in row.get("failure_codes", []):
+        row_codes = coerce_failure_codes(row.get("failure_codes"))
+        for code in row_codes:
             if isinstance(code, str) and code.strip():
                 failure_codes.append(code.strip())
+                if bool(row.get("blocking")):
+                    blocking_failure_codes.append(code.strip())
+                else:
+                    observational_failure_codes.append(code.strip())
 
     if args.dry_run:
         overall_status = "dry_run"
@@ -867,6 +937,8 @@ def main() -> int:
         exit_code = 0
         status_reason = "all_blocking_suites_passed"
     failure_codes = dedup_keep_order(failure_codes)
+    blocking_failure_codes = dedup_keep_order(blocking_failure_codes)
+    observational_failure_codes = dedup_keep_order(observational_failure_codes)
     diagnostics_path = (
         Path(str(args.observational_diagnostics_out)).expanduser().resolve()
         if str(args.observational_diagnostics_out).strip()
@@ -885,6 +957,8 @@ def main() -> int:
         "overall_status": overall_status,
         "status_reason": status_reason,
         "failure_codes": failure_codes,
+        "blocking_failure_codes": blocking_failure_codes,
+        "observational_failure_codes": observational_failure_codes,
         "repeat_count": int(args.repeat),
         "repeat_consistent": repeat_consistent,
         "inconsistent_suite_ids": sorted(inconsistent_suite_ids),

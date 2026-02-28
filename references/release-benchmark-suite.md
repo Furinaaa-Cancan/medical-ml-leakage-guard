@@ -51,6 +51,8 @@ python3 scripts/mlgg.py benchmark-suite \
 - Required fields:
   - `status_reason`
   - `failure_codes`
+  - `blocking_failure_codes`
+  - `observational_failure_codes`
   - `repeat_count`
   - `repeat_consistent`
   - `dataset_registry_sha256`
@@ -124,6 +126,8 @@ python3 scripts/mlgg.py benchmark-suite \
 - 必填字段：
   - `status_reason`
   - `failure_codes`
+  - `blocking_failure_codes`
+  - `observational_failure_codes`
   - `repeat_count`
   - `repeat_consistent`
   - `dataset_registry_sha256`
