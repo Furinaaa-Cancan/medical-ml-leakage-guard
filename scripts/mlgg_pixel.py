@@ -197,31 +197,30 @@ def detect_lang() -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _getch() -> str:
+    """Read one keypress using os.read (unbuffered) to avoid Python stdin buffering."""
     try:
         import tty, termios, select as sel_mod
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
-            termios.tcflush(fd, termios.TCIFLUSH)  # discard buffered input
             tty.setraw(fd)
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
+            ch = os.read(fd, 1)
+            if ch == b"\x1b":
                 if not sel_mod.select([fd], [], [], 0.05)[0]:
-                    return "ESC"  # standalone ESC key
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    if ch3 == "A": return "UP"
-                    if ch3 == "B": return "DOWN"
-                    # Drain remaining bytes of unknown escape sequence
+                    return "ESC"
+                ch2 = os.read(fd, 1)
+                if ch2 == b"[":
+                    ch3 = os.read(fd, 1)
+                    if ch3 == b"A": return "UP"
+                    if ch3 == b"B": return "DOWN"
                     while sel_mod.select([fd], [], [], 0.02)[0]:
-                        sys.stdin.read(1)
+                        os.read(fd, 1)
                 return "ESC"
-            if ch in ("\r", "\n"): return "ENTER"
-            if ch == "\x03": return "CTRL_C"
-            if ch == "\x04": return "CTRL_D"
-            if ch == "q": return "Q"
-            return ch
+            if ch in (b"\r", b"\n"): return "ENTER"
+            if ch == b"\x03": return "CTRL_C"
+            if ch == b"\x04": return "CTRL_D"
+            if ch == b"q": return "Q"
+            return ch.decode("latin-1")
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except Exception:
