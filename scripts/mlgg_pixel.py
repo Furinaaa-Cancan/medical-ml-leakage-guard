@@ -14,7 +14,6 @@ import itertools
 import locale
 import os
 import platform
-import shutil
 import subprocess
 import sys
 import threading
@@ -143,7 +142,6 @@ _T: Dict[str, Dict[str, str]] = {
                          "zh": "\u5b8c\u6210\uff01\u6570\u636e\u96c6\u5206\u5272\u6210\u529f\u3002"},
     "qs_next":          {"en": "Next: select 'Full Pipeline' to train a model.",
                          "zh": "\u4e0b\u4e00\u6b65\uff1a\u9009\u62e9\u300c\u5b8c\u6574\u7ba1\u7ebf\u300d\u6765\u8bad\u7ec3\u6a21\u578b\u3002"},
-    "qs_output":        {"en": "Output:", "zh": "\u8f93\u51fa\u76ee\u5f55\uff1a"},
     "qs_results":       {"en": "Results", "zh": "\u7ed3\u679c"},
     "download_fail":    {"en": "Download failed.", "zh": "\u4e0b\u8f7d\u5931\u8d25\u3002"},
     "split_fail":       {"en": "Split failed.", "zh": "\u5206\u5272\u5931\u8d25\u3002"},
@@ -493,9 +491,15 @@ def scan_csv() -> List[Path]:
     found: List[Path] = []
     for d in [EXAMPLES_DIR, DESKTOP, Path.home()/"Downloads", Path.home()/"Documents", REPO_ROOT, DEFAULT_OUT]:
         if d.is_dir():
-            for f in sorted(d.glob("*.csv"))[:10]:
-                if f not in found and f.stat().st_size > 100:
-                    found.append(f)
+            try:
+                for f in sorted(d.glob("*.csv"))[:10]:
+                    try:
+                        if f not in found and f.stat().st_size > 100:
+                            found.append(f)
+                    except (PermissionError, OSError):
+                        pass
+            except (PermissionError, OSError):
+                pass
     return found[:15]
 
 def csv_cols(path: Path) -> List[str]:
@@ -571,6 +575,9 @@ def pick_columns(csv_path: str) -> Optional[Dict[str, str]]:
     tcol = ""
     if strat == "grouped_temporal":
         rem2 = [c for c in columns if c not in (pid, tgt)]
+        if not rem2:
+            print(f"  {s('R', 'No remaining columns for time.')}")
+            return None
         tci = select(t("sp_pick_time"), rem2)
         if tci < 0: return None
         tcol = rem2[tci]
