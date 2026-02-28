@@ -79,6 +79,7 @@ def test_basic_temporal_split():
         report = json.loads(report_path.read_text())
         assert report["status"] == "pass"
         assert report["strategy"] == "grouped_temporal"
+        assert report.get("contract_version") == "split_report.v1", "report missing or wrong contract_version"
         assert "input_sha256" in report, "report missing SHA256 fingerprint"
         assert len(report["input_sha256"]) == 64, "SHA256 should be 64 hex chars"
         assert "input_rows_excluded" in report, "report missing excluded rows info"

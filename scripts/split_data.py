@@ -12,15 +12,13 @@ Splits a single CSV into train/valid/test with:
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
-import math
 import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -684,6 +682,7 @@ def main() -> int:
 
     # Build report
     report = {
+        "contract_version": "split_report.v1",
         "status": "pass",
         "strategy": args.strategy,
         "seed": args.seed,

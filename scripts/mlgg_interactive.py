@@ -517,6 +517,7 @@ def profile_allowed_keys(command: str) -> Tuple[str, ...]:
             "continue_on_fail",
         ),
         "train": (
+            "__data_mode__",
             "input_csv",
             "split_strategy",
             "split_output_dir",
@@ -1052,8 +1053,12 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
                     must_exist=False,
                 )
 
-        # Ignore columns
-        seed_ignore, source_ignore = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
+        # Ignore columns — default dynamically from user-selected patient_id + time columns
+        _dynamic_ignore_parts = [values["patient_id_col"]]
+        if values.get("time_col"):
+            _dynamic_ignore_parts.append(values["time_col"])
+        _dynamic_ignore_default = ",".join(_dynamic_ignore_parts)
+        seed_ignore, source_ignore = merged_seed("ignore_cols", _dynamic_ignore_default, profile, explicit)
         if source_ignore == "cli":
             values["ignore_cols"] = str(seed_ignore).strip()
         elif input_columns:
