@@ -166,7 +166,7 @@ python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
 
 **Option 1 — Single CSV (recommended for first-time users):**
 
-If you have one complete CSV file, use `split_data.py` to auto-split with medical safety guarantees (patient-level disjoint, temporal ordering, prevalence checks):
+If you have one complete CSV file, use `split_data.py` to auto-split with medical safety guarantees (patient-level disjoint, temporal ordering, prevalence checks, NaN patient_id/target exclusion, row count preservation, SHA256 input fingerprint, min 10 pos/neg per split, atomic file writes):
 
 ```bash
 python3 scripts/mlgg.py split -- \
@@ -344,6 +344,9 @@ python3 scripts/test_gate_smoke.py
 
 # onboarding smoke tests
 python3 scripts/test_onboarding_smoke.py
+
+# split smoke tests (single-CSV workflow)
+python3 scripts/test_split_smoke.py
 
 # authority benchmark suite
 python3 scripts/mlgg.py authority
@@ -615,7 +618,7 @@ python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
 
 **方式 1 — 单个 CSV（推荐新手使用）：**
 
-如果你只有一个完整的 CSV 文件，可以用 `split_data.py` 自动安全分割（患者级不交叉、时间顺序保证、阳性率检查）：
+如果你只有一个完整的 CSV 文件，可以用 `split_data.py` 自动安全分割（患者级不交叉、时间顺序保证、阳性率检查、NaN 患者ID/目标排除、行数守恒断言、SHA256 输入指纹、每组最少 10 正/负样本、原子文件写入）：
 
 ```bash
 python3 scripts/mlgg.py split -- \
