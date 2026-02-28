@@ -1222,7 +1222,10 @@ def _export_cli(state: Dict) -> str:
 
 def step_confirm(state: Dict) -> Any:
     _clear()
-    step_header(9, TOTAL_STEPS, t("s_confirm"))
+    title = t("s_confirm")
+    if state.get("_dry_run"):
+        title += f"  {s('Y', '[DRY RUN]', bold=True)}"
+    step_header(9, TOTAL_STEPS, title)
 
     if state["dataset_key"] == "demo":
         box("Demo Pipeline", [
@@ -1320,6 +1323,17 @@ def step_run(state: Dict) -> Any:
     step_header(10, TOTAL_STEPS, t("s_run"))
 
     source = state["source"]
+
+    # ── Dry-run: print commands, no execution ──
+    if state.get("_dry_run"):
+        import shlex as _shlex
+        print(f"\n  {s('Y', '[DRY RUN]', bold=True)} — commands NOT executed:\n")
+        cli_str = _export_cli(state)
+        for line in cli_str.split("\n"):
+            print(f"  {s('W', line)}")
+        print()
+        print(f"  {DIM}{t('r_next')}{RST}")
+        return True
 
     # ── Demo: run full onboarding pipeline ──
     if source == "demo":
@@ -1525,11 +1539,11 @@ def step_run(state: Dict) -> Any:
 #  MAIN WIZARD
 # ══════════════════════════════════════════════════════════════════════════════
 
-def wizard(force_lang: str = "") -> int:
+def wizard(force_lang: str = "", dry_run: bool = False) -> int:
     global LANG
     LANG = detect_lang()
 
-    state: Dict[str, Any] = {}
+    state: Dict[str, Any] = {"_dry_run": dry_run}
     steps = [step_lang, step_source, step_dataset, step_config,
              step_split, step_models, step_tuning, step_advanced,
              step_confirm, step_run]
@@ -1582,8 +1596,10 @@ def main() -> int:
     parser = _ap.ArgumentParser(description=__doc__, add_help=True)
     parser.add_argument("--lang", choices=["en", "zh"], default="",
                         help="Set language directly, skipping the language selection step.")
+    parser.add_argument("--dry-run", action="store_true", default=False,
+                        help="Print commands without executing them.")
     args, _ = parser.parse_known_args()
-    return wizard(force_lang=args.lang)
+    return wizard(force_lang=args.lang, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
