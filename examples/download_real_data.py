@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import io
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -53,8 +54,22 @@ URLS = {
 
 def download_file(url: str, dest: Path) -> None:
     print(f"  Downloading from {url} ...")
-    urllib.request.urlretrieve(url, str(dest))
-    print(f"  Saved to {dest} ({dest.stat().st_size:,} bytes)")
+    try:
+        urllib.request.urlretrieve(url, str(dest))
+    except urllib.error.HTTPError as e:
+        print(f"  [ERROR] HTTP {e.code}: {e.reason}")
+        print(f"  URL may have moved. Check https://archive.ics.uci.edu/ml/datasets for updates.")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"  [ERROR] Network error: {e.reason}")
+        print(f"  Check your internet connection or try again later.")
+        sys.exit(1)
+    size = dest.stat().st_size
+    if size == 0:
+        print(f"  [ERROR] Downloaded file is empty (0 bytes). URL may be invalid.")
+        dest.unlink(missing_ok=True)
+        sys.exit(1)
+    print(f"  Saved to {dest} ({size:,} bytes)")
 
 
 def add_patient_id_and_time(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
@@ -113,6 +128,9 @@ def prepare_heart(output: Path) -> None:
     df = df[["patient_id", "event_time", "y"] + feature_cols]
 
     df.to_csv(output, index=False)
+    # Clean up temp file if we downloaded
+    if raw_path != local and raw_path.exists():
+        raw_path.unlink()
     pos = int(df["y"].sum())
     neg = len(df) - pos
     print(f"  Output: {output}")
@@ -159,6 +177,9 @@ def prepare_breast(output: Path) -> None:
     df = df[["patient_id", "event_time", "y"] + feature_cols]
 
     df.to_csv(output, index=False)
+    # Clean up temp file if we downloaded
+    if raw_path != local and raw_path.exists():
+        raw_path.unlink()
     pos = int(df["y"].sum())
     neg = len(df) - pos
     print(f"  Output: {output}")
