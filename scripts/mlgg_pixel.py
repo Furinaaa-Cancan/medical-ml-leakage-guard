@@ -269,8 +269,8 @@ def _getch() -> str:
                     if ch3 == b"B": return "DOWN"
                     if ch3 == b"C": return "RIGHT"
                     if ch3 == b"D": return "LEFT"
-                    while sel_mod.select([fd], [], [], 0.02)[0]:
-                        os.read(fd, 1)
+                while sel_mod.select([fd], [], [], 0.02)[0]:
+                    os.read(fd, 1)
                 return "ESC"
             if ch in (b"\r", b"\n"): return "ENTER"
             if ch == b"\x03": return "CTRL_C"
@@ -518,7 +518,7 @@ def run_spinner(cmd: List[str], label: str, cwd: str = "") -> Tuple[int, str, st
 # ══════════════════════════════════════════════════════════════════════════════
 
 _PID_HINTS = ["patient_id", "patientid", "patient", "subject_id", "subjectid",
-              "id", "pid", "mrn", "record_id", "case_id"]
+              "sample_id", "pid", "mrn", "record_id", "case_id"]
 _TGT_HINTS = ["target", "label", "y", "outcome", "diagnosis", "class",
               "result", "status", "disease", "mortality"]
 _TIME_HINTS = ["time", "date", "timestamp", "event_time", "datetime",
@@ -687,7 +687,11 @@ def step_dataset(state: Dict) -> Any:
         default_name = files[ci]
         print(f"\n  {s('W', t('pick_outname'))}")
         sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-        name = input(f"  {s('C','>')} [{default_name}]: ").strip()
+        try:
+            name = input(f"  {s('C','>')} [{default_name}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return BACK
         if name:
             state["out_dir"] = str(DEFAULT_OUT / name)
         return True
@@ -727,7 +731,11 @@ def step_dataset(state: Dict) -> Any:
     default_name = Path(path).stem
     print(f"\n  {s('W', t('pick_outname'))}")
     sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-    name = input(f"  {s('C','>')} [{default_name}]: ").strip()
+    try:
+        name = input(f"  {s('C','>')} [{default_name}]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return BACK
     if name:
         state["out_dir"] = str(DEFAULT_OUT / name)
     return True
