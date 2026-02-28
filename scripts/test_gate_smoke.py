@@ -1251,7 +1251,7 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
             "done\n"
             "mkdir -p \"$(dirname \"$out\")\"\n"
             "if echo \"$script\" | grep -q 'run_authority_e2e.py'; then\n"
-            "  printf '{\"overall_status\":\"fail\",\"results\":[{\"case_id\":\"uci-diabetes-130-readmission\",\"status\":\"fail\",\"failure_code\":\"strict_pipeline_failed\",\"root_failure_code_primary\":\"clinical_floor_npv_not_met\",\"root_failure_codes\":[\"clinical_floor_npv_not_met\",\"clinical_floor_ppv_not_met\"],\"clinical_floor_gap_summary\":{\"minimum_margin\":-0.19,\"internal_test\":{\"floor_metrics\":{\"npv\":{\"required_min\":0.9,\"observed\":0.81,\"margin\":-0.09,\"met\":false},\"ppv\":{\"required_min\":0.55,\"observed\":0.36,\"margin\":-0.19,\"met\":false}}},\"external_cohorts\":[]},\"artifacts\":{\"distribution_report\":\"/tmp/distribution_report.json\",\"external_validation_report\":\"/tmp/external_validation_report.json\"}}]}' > \"$out\"\n"
+            "  printf '{\"overall_status\":\"fail\",\"results\":[{\"case_id\":\"uci-diabetes-130-readmission\",\"status\":\"fail\",\"failure_code\":\"strict_pipeline_failed\",\"root_failure_code_primary\":\"clinical_floor_npv_not_met\",\"root_failure_codes\":[\"clinical_floor_npv_not_met\",\"clinical_floor_ppv_not_met\"],\"clinical_floor_gap_summary\":{\"minimum_margin\":-0.19,\"internal_test\":{\"floor_metrics\":{\"npv\":{\"required_min\":0.9,\"observed\":0.81,\"margin\":-0.09,\"met\":false},\"ppv\":{\"required_min\":0.55,\"observed\":0.36,\"margin\":-0.19,\"met\":false}}},\"external_cohorts\":[]},\"artifacts\":{\"distribution_report\":\"/tmp/distribution_report.json\",\"external_validation_report\":\"/tmp/external_validation_report.json\"},\"diabetes_feasibility_scan\":{\"status\":\"pass\",\"recommended_retry_command\":\"python3 scripts/mlgg.py authority --include-large-cases --include-stress-cases --stress-case-id uci-chronic-kidney-disease --diabetes-target-mode lt30 --diabetes-max-rows 5000\",\"best_candidate\":{\"target_mode\":\"lt30\",\"max_rows\":5000}}}]}' > \"$out\"\n"
             "else\n"
             "  printf '{\"overall_status\":\"pass\",\"passed_count\":1,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":true,\"observed_codes\":[]}]}' > \"$out\"\n"
             "fi\n"
@@ -1304,10 +1304,20 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
         assert_true(isinstance(case_rows, list) and len(case_rows) == 1, "observational diagnostics contains failed case row")
         case_row = case_rows[0] if case_rows else {}
         assert_true(case_row.get("case_id") == "uci-diabetes-130-readmission", "diagnostic case id matches")
+        scan_info = case_row.get("diabetes_feasibility_scan")
+        assert_true(isinstance(scan_info, dict), "diagnostic case row includes diabetes feasibility scan payload")
+        assert_true(
+            str(scan_info.get("status")) == "pass",
+            "diagnostic case row propagates diabetes feasibility scan status",
+        )
         actions = first.get("recommended_actions", [])
         assert_true(
             any("scan-diabetes" in str(item) for item in actions),
             "observational diagnostics include diabetes feasibility scan recommendation",
+        )
+        assert_true(
+            any("Apply feasible diabetes config candidate:" in str(item) for item in actions),
+            "observational diagnostics include feasible diabetes retry command when available",
         )
         assert_true(diag_out.exists(), "observational diagnostics sidecar file exists")
         diag_payload = load_report(diag_out)

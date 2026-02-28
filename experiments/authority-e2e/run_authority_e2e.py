@@ -680,7 +680,7 @@ def parse_args() -> argparse.Namespace:
         "--auto-scan-diabetes-feasibility",
         action="store_true",
         help=(
-            "When stress-case-id=uci-diabetes-130-readmission fails clinical floors, "
+            "When a Diabetes130 case fails clinical floors (stress or include-large-cases), "
             "run an automatic feasibility scan across target_mode/max_rows combinations."
         ),
     )
@@ -3394,12 +3394,6 @@ def maybe_run_auto_diabetes_feasibility_scan(
 ) -> Optional[Dict[str, Any]]:
     if not bool(args.auto_scan_diabetes_feasibility):
         return None
-    if str(stress_case_id).strip() != "uci-diabetes-130-readmission":
-        return {
-            "status": "skipped",
-            "reason": "stress_case_not_diabetes130",
-        }
-
     diabetes_row: Optional[Dict[str, Any]] = next(
         (
             row
@@ -3464,19 +3458,47 @@ def maybe_run_auto_diabetes_feasibility_scan(
 
     scan_status = str(payload.get("overall_status", "")).strip().lower()
     best_candidate = payload.get("best_candidate") if isinstance(payload, dict) else None
+    recommended_retry_command: Optional[str] = None
+    best_mode = None
+    best_rows = None
+    if isinstance(best_candidate, dict):
+        token_mode = str(best_candidate.get("target_mode", "")).strip().lower()
+        token_rows = best_candidate.get("max_rows")
+        if token_mode in {"lt30", "gt30", "any"} and isinstance(token_rows, int):
+            best_mode = token_mode
+            best_rows = int(token_rows)
+            mlgg_path = REPO_ROOT / "scripts" / "mlgg.py"
+            recommended_retry_command = (
+                f"{shlex.quote(sys.executable)} {shlex.quote(str(mlgg_path))} authority "
+                f"--include-large-cases --include-stress-cases "
+                f"--stress-case-id {shlex.quote(str(stress_case_id).strip() or DEFAULT_STRESS_CASE_ID)} "
+                f"--diabetes-target-mode {shlex.quote(best_mode)} --diabetes-max-rows {best_rows}"
+            )
     diabetes_row.setdefault("artifacts", {})
     if isinstance(diabetes_row["artifacts"], dict):
         diabetes_row["artifacts"]["diabetes_feasibility_report"] = str(report_path)
+    trigger_source = "stress_case" if str(stress_case_id).strip() == "uci-diabetes-130-readmission" else "large_case"
     diabetes_row["diabetes_feasibility_scan"] = {
         "status": "pass" if scan_status == "pass" else "fail",
+        "trigger_case_id": "uci-diabetes-130-readmission",
+        "trigger_source": trigger_source,
         "report_file": str(report_path),
         "summary_dir": str(summary_dir),
         "return_code": int(proc.returncode),
         "best_candidate": best_candidate if isinstance(best_candidate, dict) else None,
+        "recommended_retry_command": recommended_retry_command,
     }
     if scan_status != "pass":
-        diabetes_row["failure_code_detail"] = "stress_case_clinical_feasibility_not_found"
+        if trigger_source == "stress_case":
+            diabetes_row["failure_code_detail"] = "stress_case_clinical_feasibility_not_found"
+        else:
+            diabetes_row["failure_code_detail"] = "large_case_clinical_feasibility_not_found"
         diabetes_row["recommended_stress_case_id"] = "uci-chronic-kidney-disease"
+    elif best_mode is not None and best_rows is not None:
+        diabetes_row["feasible_diabetes_configuration"] = {
+            "target_mode": best_mode,
+            "max_rows": best_rows,
+        }
     return diabetes_row.get("diabetes_feasibility_scan")
 
 

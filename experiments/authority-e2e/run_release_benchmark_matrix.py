@@ -715,6 +715,7 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
                         fallback=str(row.get("root_failure_code_primary", "")).strip() or None,
                     )
                     floor_violations = extract_floor_violations(row.get("clinical_floor_gap_summary"))
+                    diabetes_scan = row.get("diabetes_feasibility_scan")
                     case_diag = {
                         "case_id": case_id,
                         "failure_code": row.get("failure_code"),
@@ -727,6 +728,7 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
                         ),
                         "floor_violations": floor_violations[:12],
                         "artifacts": row.get("artifacts") if isinstance(row.get("artifacts"), dict) else {},
+                        "diabetes_feasibility_scan": diabetes_scan if isinstance(diabetes_scan, dict) else None,
                     }
                     case_diagnostics.append(case_diag)
 
@@ -741,6 +743,12 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
                             recommended_actions.append(
                                 "Review distribution_report and external_validation_report for transport stress before attempting floor-preserving model changes."
                             )
+                            if isinstance(diabetes_scan, dict):
+                                retry_cmd = diabetes_scan.get("recommended_retry_command")
+                                if isinstance(retry_cmd, str) and retry_cmd.strip():
+                                    recommended_actions.append(
+                                        f"Apply feasible diabetes config candidate: {retry_cmd.strip()}"
+                                    )
 
         command = suite.get("command")
         rerun_cmd = shlex.join(command) if isinstance(command, list) and command else None
