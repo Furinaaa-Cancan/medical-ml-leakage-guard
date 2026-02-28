@@ -46,6 +46,9 @@ HIDE_CUR = "\033[?25l"
 SHOW_CUR = "\033[?25h"
 ERASE = "\033[2K"
 UP_LINE = "\033[A"
+MOUSE_ON = "\033[?1000h\033[?1006h"   # enable SGR mouse tracking
+MOUSE_OFF = "\033[?1000l\033[?1006l"  # disable mouse tracking
+GET_CURSOR = "\033[6n"                 # request cursor position
 
 def s(fg: str, text: str, bold: bool = False) -> str:
     return f"{BOLD if bold else ''}{FG.get(fg,'')}{text}{RST}"
@@ -70,8 +73,8 @@ _T: Dict[str, Dict[str, str]] = {
     "lang_zh":          {"en": "\u4e2d\u6587", "zh": "\u4e2d\u6587"},
 
     # ── nav hints ─────────────────────────────────────────────────────────
-    "nav_hint":         {"en": "[Up/Down] move  [Enter] select  [q] back",
-                         "zh": "[\u4e0a/\u4e0b] \u79fb\u52a8  [Enter] \u786e\u8ba4  [q] \u8fd4\u56de"},
+    "nav_hint":         {"en": "[Up/Down] move  [Enter] select  [Click] pick  [q] back",
+                         "zh": "[\u4e0a/\u4e0b] \u79fb\u52a8  [Enter] \u786e\u8ba4  [\u70b9\u51fb] \u9009\u62e9  [q] \u8fd4\u56de"},
     "press_enter":      {"en": "Press Enter to return to menu...",
                          "zh": "\u6309 Enter \u8fd4\u56de\u4e3b\u83dc\u5355..."},
     "bye":              {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
@@ -268,18 +271,43 @@ def detect_lang() -> str:
     return "en"
 
 
-# ── raw key input ─────────────────────────────────────────────────────────────
+# ── raw key input (with mouse support) ────────────────────────────────────────
 def _getch() -> str:
+    """Read a keypress. Returns 'MOUSE:row' for mouse clicks."""
     try:
-        import tty, termios
+        import tty, termios, select as sel_mod
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
             ch = sys.stdin.read(1)
             if ch == "\x1b":
-                seq = sys.stdin.read(2)
-                return {"[A": "UP", "[B": "DOWN"}.get(seq, "ESC")
+                # Read more of the escape sequence
+                buf = ""
+                while True:
+                    if not sel_mod.select([fd], [], [], 0.05)[0]:
+                        break
+                    c = sys.stdin.read(1)
+                    buf += c
+                    # SGR mouse: \033[<btn;col;rowM or m
+                    if buf.startswith("[<") and c in ("M", "m"):
+                        # Parse SGR mouse: [<btn;col;row M
+                        try:
+                            parts = buf[2:-1].split(";")
+                            btn = int(parts[0])
+                            row = int(parts[2])
+                            if btn == 0 and c == "M":  # left click press
+                                return f"MOUSE:{row}"
+                        except (ValueError, IndexError):
+                            pass
+                        return ""  # ignore other mouse events
+                    # Arrow keys: [A, [B
+                    if len(buf) == 2 and buf[0] == "[" and buf[1] in "ABCD":
+                        return {"[A": "UP", "[B": "DOWN"}.get(buf, "ESC")
+                    # Other short sequences
+                    if len(buf) >= 6:
+                        break
+                return "ESC"
             if ch in ("\r", "\n"):
                 return "ENTER"
             if ch == "\x03":
@@ -294,6 +322,35 @@ def _getch() -> str:
     except Exception:
         raw = input()
         return raw.strip() or "ENTER"
+
+
+def _cursor_row() -> int:
+    """Get current cursor row (1-indexed). Returns 0 on failure."""
+    try:
+        import tty, termios, select as sel_mod
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            sys.stdout.write(GET_CURSOR)
+            sys.stdout.flush()
+            buf = ""
+            while True:
+                if not sel_mod.select([fd], [], [], 0.1)[0]:
+                    break
+                c = sys.stdin.read(1)
+                buf += c
+                if c == "R":
+                    break
+            # Response: \033[row;colR
+            if "[" in buf and ";" in buf:
+                row_str = buf.split("[")[1].split(";")[0]
+                return int(row_str)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except Exception:
+        pass
+    return 0
 
 
 # ── spinner ───────────────────────────────────────────────────────────────────
@@ -338,19 +395,24 @@ def box(title: str, lines: List[str], color: str = "C", width: int = 0) -> None:
     print(f"  {s(color, '└' + '─' * w + '┘')}")
 
 
-# ── select menu (arrow keys) ─────────────────────────────────────────────────
+# ── select menu (arrow keys + mouse click) ───────────────────────────────────
 def select(title: str, options: List[str], descs: Optional[List[str]] = None) -> int:
-    """Arrow-key menu. Returns 0-based index, -1 on quit."""
+    """Arrow-key + mouse-click menu. Returns 0-based index, -1 on quit."""
     sel = 0
     n = len(options)
     has_desc = descs and len(descs) == n
+    menu_start_row = 0  # absolute terminal row where first option is drawn
 
     def _draw() -> None:
+        nonlocal menu_start_row
         sys.stdout.write(HIDE_CUR)
+        sys.stdout.write(MOUSE_ON)
+        sys.stdout.flush()
         print()
         if title:
             print(f"  {s('C', title, bold=True)}")
         print()
+        menu_start_row = _cursor_row()  # row of first option
         for i in range(n):
             if i == sel:
                 lbl = f" {options[i]} "
@@ -361,6 +423,11 @@ def select(title: str, options: List[str], descs: Optional[List[str]] = None) ->
                 print(f"    {DIM}{options[i]}{RST}{d}")
         print()
         print(f"  {DIM}{t('nav_hint')}{RST}")
+
+    def _cleanup() -> None:
+        sys.stdout.write(MOUSE_OFF)
+        sys.stdout.write(SHOW_CUR)
+        sys.stdout.flush()
 
     extra = (1 if title else 0)
     line_count = n + extra + 3
@@ -373,14 +440,33 @@ def select(title: str, options: List[str], descs: Optional[List[str]] = None) ->
         elif key == "DOWN" and sel < n - 1:
             sel += 1
         elif key == "ENTER":
-            # Flash selection
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            _cleanup()
             return sel
         elif key in ("Q", "CTRL_C", "CTRL_D", "ESC"):
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            _cleanup()
             return -1
-        elif key.isdigit() and 1 <= int(key) <= n:
+        elif key.startswith("MOUSE:"):
+            # Map click row to menu item
+            try:
+                click_row = int(key.split(":")[1])
+                idx = click_row - menu_start_row
+                if 0 <= idx < n:
+                    sel = idx
+                    # Redraw with selection highlighted, then confirm
+                    for _ in range(line_count):
+                        sys.stdout.write(f"{UP_LINE}{ERASE}")
+                    sys.stdout.write("\r"); sys.stdout.flush()
+                    _draw()
+                    # Auto-select on click
+                    _cleanup()
+                    return sel
+            except (ValueError, IndexError):
+                pass
+            continue
+        elif isinstance(key, str) and len(key) == 1 and key.isdigit() and 1 <= int(key) <= n:
             sel = int(key) - 1
+        else:
+            continue
         for _ in range(line_count):
             sys.stdout.write(f"{UP_LINE}{ERASE}")
         sys.stdout.write("\r"); sys.stdout.flush()
@@ -868,4 +954,4 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     finally:
-        sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+        sys.stdout.write(MOUSE_OFF + SHOW_CUR); sys.stdout.flush()
