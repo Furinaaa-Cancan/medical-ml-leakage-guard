@@ -9,9 +9,12 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+
+ALLOWED_SELECTION_SCOPES = {"train_only", "cv_inner_train_only"}
+FORBIDDEN_SCOPE_TOKENS = {"valid", "test", "external", "holdout"}
 
 
 def parse_args() -> argparse.Namespace:
