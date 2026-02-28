@@ -71,15 +71,6 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
     tmp_path.replace(path)
 
 
-def write_json_simple(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-    tmp_path.replace(path)
-
-
 def resolve_path(base: Path, value: str) -> Path:
     p = Path(value).expanduser()
     if not p.is_absolute():
