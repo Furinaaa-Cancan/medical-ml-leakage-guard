@@ -224,6 +224,7 @@ _T: Dict[str, Dict[str, str]] = {
     "r_done":        {"en": "Complete!", "zh": "\u5b8c\u6210\uff01"},
     "r_split_ok":    {"en": "Split Complete!", "zh": "\u5206\u5272\u5b8c\u6210\uff01"},
     "r_train_ok":    {"en": "Training Complete!", "zh": "\u8bad\u7ec3\u5b8c\u6210\uff01"},
+    "r_metrics":     {"en": "Key Metrics (test set)", "zh": "\u5173\u952e\u6307\u6807\uff08\u6d4b\u8bd5\u96c6\uff09"},
     "r_saved":       {"en": "Saved to:", "zh": "\u4fdd\u5b58\u81f3\uff1a"},
     "r_next":        {"en": "All done! Results saved to output directory.",
                       "zh": "\u5168\u90e8\u5b8c\u6210\uff01\u7ed3\u679c\u5df2\u4fdd\u5b58\u81f3\u8f93\u51fa\u76ee\u5f55\u3002"},
@@ -1253,6 +1254,27 @@ def step_run(state: Dict) -> Any:
         "  models/    -- trained model artifact",
         "  data/      -- train / valid / test splits",
     ], color="G")
+
+    # Show key metrics from evaluation report
+    try:
+        eval_path = Path(evidence_dir) / "evaluation_report.json"
+        if eval_path.exists():
+            import json as _json
+            eval_data = _json.loads(eval_path.read_text())
+            metrics = eval_data.get("test", eval_data.get("metrics", {}))
+            if isinstance(metrics, dict):
+                metric_lines = []
+                for key, label in [("roc_auc", "ROC-AUC"), ("pr_auc", "PR-AUC"),
+                                   ("sensitivity", "Sensitivity"), ("specificity", "Specificity"),
+                                   ("accuracy", "Accuracy")]:
+                    val = metrics.get(key)
+                    if val is not None:
+                        metric_lines.append(f"  {label:<14} {float(val):.4f}")
+                if metric_lines:
+                    print()
+                    box(t("r_metrics"), metric_lines, color="C")
+    except Exception:
+        pass
 
     print(f"\n  {DIM}{t('r_next')}{RST}")
     return True
