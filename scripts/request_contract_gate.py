@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue, to_float
+from _gate_utils import add_issue, resolve_path, to_float
 
 
 REQUIRED_STRING_FIELDS = [
@@ -150,15 +150,6 @@ def parse_args() -> argparse.Namespace:
 
 def is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
-
-
-def resolve_path(base: Path, value: str) -> Path:
-    p = Path(value).expanduser()
-    if not p.is_absolute():
-        p = (base / p).resolve()
-    else:
-        p = p.resolve()
-    return p
 
 
 def sha256_file(path: Path) -> str:
@@ -1160,7 +1151,8 @@ def load_json_object(path: str) -> Optional[Dict[str, Any]]:
     try:
         with p.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] load_json_object failed for {p}: {exc}", file=sys.stderr)
         return None
     if isinstance(payload, dict):
         return payload
@@ -1316,7 +1308,8 @@ def validate_cross_artifact_alignment(
                     actual_trace_sha = ""
                     try:
                         actual_trace_sha = sha256_file(Path(prediction_trace_path).expanduser().resolve()).lower()
-                    except Exception:
+                    except Exception as exc:
+                        print(f"[WARN] prediction trace hash failed: {exc}", file=sys.stderr)
                         actual_trace_sha = ""
                     if (
                         recorded_trace_sha
@@ -1340,7 +1333,8 @@ def validate_cross_artifact_alignment(
                     actual_external_sha = ""
                     try:
                         actual_external_sha = sha256_file(Path(external_report_path).expanduser().resolve()).lower()
-                    except Exception:
+                    except Exception as exc:
+                        print(f"[WARN] external report hash failed: {exc}", file=sys.stderr)
                         actual_external_sha = ""
                     if (
                         recorded_external_sha
@@ -3187,4 +3181,4 @@ def finish(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

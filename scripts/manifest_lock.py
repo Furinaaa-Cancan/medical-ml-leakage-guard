@@ -240,4 +240,4 @@ def write_and_exit(manifest: Dict[str, Any], output: str, code: int) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

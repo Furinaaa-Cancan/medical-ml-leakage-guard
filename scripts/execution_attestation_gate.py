@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, resolve_path
 
 
 ALLOWED_SIGNING_METHODS = {"openssl-dgst-sha256"}
@@ -44,15 +44,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def resolve_path(base: Path, value: str) -> Path:
-    p = Path(value).expanduser()
-    if not p.is_absolute():
-        p = (base / p).resolve()
-    else:
-        p = p.resolve()
-    return p
 
 
 def parse_iso_ts(raw: str) -> Optional[dt.datetime]:
@@ -2989,4 +2980,4 @@ def finish(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
