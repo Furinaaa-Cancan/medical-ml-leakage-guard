@@ -579,7 +579,7 @@ def csv_cols(path: Path) -> List[str]:
 def csv_rows(path: Path) -> int:
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            return sum(1 for _ in fh) - 1
+            return max(0, sum(1 for _ in fh) - 1)
     except Exception:
         return 0
 
@@ -768,6 +768,17 @@ def step_config(state: Dict) -> Any:
     csv_path = state["csv_path"]
     columns = csv_cols(Path(csv_path))
     if not columns:
+        _clear()
+        step_header(4, TOTAL_STEPS, t("s_config"))
+        print(f"  {s('R', t('bad_csv'))}")
+        sys.stdout.write(SHOW_CUR)
+        try:
+            input(f"  {DIM}{t('enter_continue')}{RST}")
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return BACK
+
+    if len(columns) < 2:
         _clear()
         step_header(4, TOTAL_STEPS, t("s_config"))
         print(f"  {s('R', t('bad_csv'))}")
