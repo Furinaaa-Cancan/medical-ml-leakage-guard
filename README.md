@@ -10,6 +10,33 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 
 ## English Guide
 
+### 0. Installation (Terminal Quickstart)
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard.git
+cd medical-ml-leakage-guard
+
+# 2. (Recommended) Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate    # macOS/Linux
+# .venv\Scripts\activate     # Windows
+
+# 3. Install dependencies
+python3 -m pip install -r requirements.txt
+
+# 4. Verify installation
+python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py doctor
+
+# 5. Run the full demo (one command, ~3-8 min)
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
+```
+
+That's it! After step 5, check `/tmp/mlgg_demo/evidence/onboarding_report.json` for the result.
+
+---
+
 ### 1. What This Repository Does
 
 **Data leakage** in medical ML means information from outside the intended training scope (e.g., test labels, future timestamps, disease-defining variables) accidentally influences model training. This inflates reported performance and can lead to unsafe clinical decisions.
@@ -461,6 +488,33 @@ For commercial licensing inquiries, please contact the repository owner.
 ---
 
 ## 中文指南
+
+### 0. 安装指引（终端快速开始）
+
+```bash
+# 1. 命令行下载
+git clone https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard.git
+cd medical-ml-leakage-guard
+
+# 2. （推荐）创建虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate    # macOS/Linux
+# .venv\Scripts\activate     # Windows
+
+# 3. 安装依赖
+python3 -m pip install -r requirements.txt
+
+# 4. 验证安装
+python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py doctor
+
+# 5. 一键跑完整 demo（约 3-8 分钟）
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
+```
+
+就这么简单！第 5 步完成后查看 `/tmp/mlgg_demo/evidence/onboarding_report.json` 即可看到结果。
+
+---
 
 ### 1. 这个仓库是做什么的
 
