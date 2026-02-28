@@ -352,7 +352,7 @@ def action_quick_start() -> None:
 
     # Step 2: split
     csv_path = EXAMPLES_DIR / f"{fname}.csv"
-    out_dir = Path(f"/tmp/mlgg_{fname}")
+    out_dir = REPO_ROOT / "output" / fname
     steps[1] = (steps[1][0], "running")
     render_steps(steps, 1)
 
@@ -466,7 +466,7 @@ def action_split() -> None:
     if strategy == "grouped_temporal":
         time_col = ask("Time column", default="event_time")
 
-    output_dir = ask("Output directory", default="/tmp/mlgg_split/data")
+    output_dir = ask("Output directory", default=str(REPO_ROOT / "output" / "split" / "data"))
 
     print()
     print(f"  {c('W', 'Configuration:', bold=True)}")

@@ -15,3 +15,4 @@ experiments/authority-e2e/_feasibility_scan_auto/
 experiments/authority-e2e/*.auto.json
 
 evidence/
+output/
