@@ -49,6 +49,15 @@ GET_CURSOR = "\033[6n"                 # request cursor position
 def s(fg: str, text: str, bold: bool = False) -> str:
     return f"{BOLD if bold else ''}{FG.get(fg,'')}{text}{RST}"
 
+def _wlen(text: str) -> int:
+    """Display width of text -- CJK chars count as 2 columns."""
+    import unicodedata
+    w = 0
+    for ch in text:
+        cat = unicodedata.east_asian_width(ch)
+        w += 2 if cat in ("W", "F") else 1
+    return w
+
 def _clear() -> None:
     os.system("cls" if platform.system() == "Windows" else "clear")
 
@@ -375,14 +384,14 @@ def run_spinner(cmd: List[str], label: str, cwd: str = "") -> Tuple[int, str, st
 
 # ── box drawing ───────────────────────────────────────────────────────────────
 def box(title: str, lines: List[str], color: str = "C", width: int = 0) -> None:
-    w = width or max(max((len(l) for l in lines), default=0), len(title)) + 4
+    w = width or max(max((_wlen(l) for l in lines), default=0), _wlen(title)) + 4
     print(f"  {s(color, '┌' + '─' * w + '┐')}")
     if title:
-        pad = w - len(title) - 2
+        pad = w - _wlen(title) - 2
         print(f"  {s(color, '│')} {s('W', title, bold=True)}{' ' * max(pad,0)}{s(color, '│')}")
         print(f"  {s(color, '├' + '─' * w + '┤')}")
     for line in lines:
-        pad = w - len(line) - 2
+        pad = w - _wlen(line) - 2
         print(f"  {s(color, '│')} {line}{' ' * max(pad, 0)}{s(color, '│')}")
     print(f"  {s(color, '└' + '─' * w + '┘')}")
 
