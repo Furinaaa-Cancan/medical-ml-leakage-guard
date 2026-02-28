@@ -887,20 +887,28 @@ def step_confirm(state: Dict) -> Any:
         fname = Path(state["csv_path"]).name if state.get("csv_path") else "?"
         ratio_str = f"{int(state.get('train_ratio',0.6)*100)}/{int(state.get('valid_ratio',0.2)*100)}/{int(state.get('test_ratio',0.2)*100)}"
         models_str = ", ".join(state.get("_model_labels", ["?"]))
+
+        all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_time'),
+                      t('c_strat'), t('c_ratio'), t('c_models'), t('c_tuning'),
+                      t('c_calib'), t('c_device'), t('c_output')]
+        col_w = max(_wlen(l) for l in all_labels) + 2
+        def _p(label: str) -> str:
+            return label + " " * max(col_w - _wlen(label), 1)
+
         lines = [
-            f"{t('c_file')}      {fname}",
-            f"{t('c_pid')}       {state.get('pid', '?')}",
-            f"{t('c_target')}    {state.get('target', '?')}",
-            f"{t('c_time')}      {state.get('time') or t('c_none')}",
-            f"{t('c_strat')}     {state.get('strategy', '?')}",
-            f"{t('c_ratio')}     {ratio_str}",
+            f"{_p(t('c_file'))}{fname}",
+            f"{_p(t('c_pid'))}{state.get('pid', '?')}",
+            f"{_p(t('c_target'))}{state.get('target', '?')}",
+            f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
+            f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
+            f"{_p(t('c_ratio'))}{ratio_str}",
             "",
-            f"{t('c_models')}    {models_str}",
-            f"{t('c_tuning')}    {state.get('hyperparam_search', '?')}",
-            f"{t('c_calib')}     {state.get('calibration', '?')}",
-            f"{t('c_device')}    {state.get('device', '?')}",
+            f"{_p(t('c_models'))}{models_str}",
+            f"{_p(t('c_tuning'))}{state.get('hyperparam_search', '?')}",
+            f"{_p(t('c_calib'))}{state.get('calibration', '?')}",
+            f"{_p(t('c_device'))}{state.get('device', '?')}",
             "",
-            f"{t('c_output')}    {state['out_dir']}/",
+            f"{_p(t('c_output'))}{state['out_dir']}/",
         ]
         box(t("s_confirm"), lines, color="C")
 
@@ -1025,9 +1033,12 @@ def step_run(state: Dict) -> Any:
     Path(evidence_dir).mkdir(parents=True, exist_ok=True)
     Path(models_dir).mkdir(parents=True, exist_ok=True)
 
-    ignore_cols = state["pid"]
+    ignore_parts = [state["pid"]]
     if state.get("time"):
-        ignore_cols += "," + state["time"]
+        ignore_parts.append(state["time"])
+    if source == "download" and "event_time" not in ignore_parts:
+        ignore_parts.append("event_time")
+    ignore_cols = ",".join(ignore_parts)
 
     train_cmd = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
