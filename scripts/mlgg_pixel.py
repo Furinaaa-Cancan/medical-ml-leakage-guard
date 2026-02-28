@@ -47,7 +47,7 @@ UP_LINE = "\033[A"
 # ── sentinel ──────────────────────────────────────────────────────────────────
 BACK = type("BACK", (), {"__repr__": lambda self: "BACK"})()
 SKIP = type("SKIP", (), {"__repr__": lambda self: "SKIP"})()
-TOTAL_STEPS = 9
+TOTAL_STEPS = 10
 
 def s(fg: str, text: str, bold: bool = False) -> str:
     return f"{BOLD if bold else ''}{FG.get(fg, '')}{text}{RST}"
@@ -211,6 +211,16 @@ _T: Dict[str, Dict[str, str]] = {
     "c_start":       {"en": "Start Pipeline", "zh": "\u5f00\u59cb\u8fd0\u884c"},
     "c_back":        {"en": "Go Back", "zh": "\u8fd4\u56de\u4fee\u6539"},
     "c_export":      {"en": "Export CLI Command", "zh": "\u5bfc\u51fa CLI \u547d\u4ee4"},
+
+    "adv_ask":       {"en": "Configure advanced settings?", "zh": "\u914d\u7f6e\u9ad8\u7ea7\u8bbe\u7f6e\uff1f"},
+    "adv_yes":       {"en": "Yes, customize", "zh": "\u662f\uff0c\u81ea\u5b9a\u4e49"},
+    "adv_no":        {"en": "No, use defaults", "zh": "\u5426\uff0c\u4f7f\u7528\u9ed8\u8ba4\u503c"},
+    "adv_ignore":    {"en": "Ignore columns (comma-separated, non-feature columns to exclude):",
+                      "zh": "\u5ffd\u7565\u5217\uff08\u9017\u53f7\u5206\u9694\uff0c\u6392\u9664\u7684\u975e\u7279\u5f81\u5217\uff09\uff1a"},
+    "adv_njobs":     {"en": "CPU workers (-1 = all cores):", "zh": "CPU \u5de5\u4f5c\u8fdb\u7a0b\uff08-1 = \u6240\u6709\u6838\u5fc3\uff09\uff1a"},
+    "adv_trials":    {"en": "Max trials per model family:", "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf\u6700\u5927\u8bd5\u9a8c\u6b21\u6570\uff1a"},
+    "adv_optional":  {"en": "Include optional model backends when installed?",
+                      "zh": "\u5305\u542b\u5df2\u5b89\u88c5\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1f"},
 
     "x_download":    {"en": "Downloading {ds}...", "zh": "\u6b63\u5728\u4e0b\u8f7d {ds}..."},
     "x_split":       {"en": "Splitting with safety checks...",
@@ -1015,6 +1025,101 @@ def step_tuning(state: Dict) -> Any:
     return True
 
 
+def step_advanced(state: Dict) -> Any:
+    """Advanced settings — ignore-cols, n-jobs, max-trials, optional backends."""
+    if state.get("source") == "demo":
+        return SKIP
+
+    _clear()
+    step_header(8, TOTAL_STEPS, t("s_advanced"))
+
+    ci = select([t("adv_no"), t("adv_yes")], title=t("adv_ask"))
+    if ci < 0:
+        return BACK
+    if ci == 0:
+        # Use defaults
+        ignore_parts = [state.get("pid", "patient_id")]
+        if state.get("time"):
+            ignore_parts.append(state["time"])
+        state.setdefault("ignore_cols", ",".join(ignore_parts))
+        state.setdefault("n_jobs", 1)
+        state.setdefault("max_trials", 20)
+        state.setdefault("include_optional_models", False)
+        return True
+
+    # Customize
+    sub = 0
+    while True:
+        if sub == 0:
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            ignore_parts = [state.get("pid", "patient_id")]
+            if state.get("time"):
+                ignore_parts.append(state["time"])
+            default_ignore = state.get("ignore_cols", ",".join(ignore_parts))
+            print(f"  {s('W', t('adv_ignore'))}")
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            try:
+                raw = input(f"  {s('C','>')} [{default_ignore}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return BACK
+            state["ignore_cols"] = raw if raw else default_ignore
+            sub = 1
+
+        elif sub == 1:
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}\n")
+            print(f"  {s('W', t('adv_njobs'))}")
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            try:
+                raw = input(f"  {s('C','>')} [{state.get('n_jobs', 1)}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                sub = 0; continue
+            try:
+                state["n_jobs"] = int(raw) if raw else state.get("n_jobs", 1)
+            except ValueError:
+                state["n_jobs"] = 1
+            sub = 2
+
+        elif sub == 2:
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}")
+            print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state['n_jobs']))}\n")
+            print(f"  {s('W', t('adv_trials'))}")
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            try:
+                raw = input(f"  {s('C','>')} [{state.get('max_trials', 20)}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                sub = 1; continue
+            try:
+                state["max_trials"] = int(raw) if raw else state.get("max_trials", 20)
+            except ValueError:
+                state["max_trials"] = 20
+            sub = 3
+
+        elif sub == 3:
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}")
+            print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state['n_jobs']))}")
+            print(f"  {s('G', '\u2713')} max_trials = {s('W', str(state['max_trials']))}\n")
+            oi = select(
+                [t("adv_no"), t("adv_yes")],
+                title=t("adv_optional"),
+            )
+            if oi < 0:
+                sub = 2; continue
+            state["include_optional_models"] = (oi == 1)
+            break
+
+    return True
+
+
 def _export_cli(state: Dict) -> str:
     """Build a copy-ready CLI command string from wizard state."""
     import shlex as _shlex
@@ -1058,7 +1163,7 @@ def _export_cli(state: Dict) -> str:
 
 def step_confirm(state: Dict) -> Any:
     _clear()
-    step_header(8, TOTAL_STEPS, t("s_confirm"))
+    step_header(9, TOTAL_STEPS, t("s_confirm"))
 
     if state["dataset_key"] == "demo":
         box("Demo Pipeline", [
@@ -1108,7 +1213,7 @@ def step_confirm(state: Dict) -> Any:
             except (EOFError, KeyboardInterrupt):
                 pass
             _clear()
-            step_header(8, TOTAL_STEPS, t("s_confirm"))
+            step_header(9, TOTAL_STEPS, t("s_confirm"))
             continue
         break
     return True
@@ -1116,7 +1221,7 @@ def step_confirm(state: Dict) -> Any:
 
 def step_run(state: Dict) -> Any:
     _clear()
-    step_header(9, TOTAL_STEPS, t("s_run"))
+    step_header(10, TOTAL_STEPS, t("s_run"))
 
     source = state["source"]
 
@@ -1172,7 +1277,7 @@ def step_run(state: Dict) -> Any:
         )
         if rc != 0:
             completed.append((dl_label, "fail"))
-            _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+            _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
             print(f"\n  {s('R', t('x_fail'))}")
             if err:
                 for l in err.strip().split("\n")[-3:]:
@@ -1181,7 +1286,7 @@ def step_run(state: Dict) -> Any:
         completed.append((dl_label, "done"))
 
     # ── Phase 2: Split ──
-    _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+    _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
     split_label = t("x_split")
     csv_path = state["csv_path"]
 
@@ -1315,7 +1420,7 @@ def wizard(force_lang: str = "") -> int:
 
     state: Dict[str, Any] = {}
     steps = [step_lang, step_source, step_dataset, step_config,
-             step_split, step_models, step_tuning,
+             step_split, step_models, step_tuning, step_advanced,
              step_confirm, step_run]
     skipped: set = set()
     i = 0
