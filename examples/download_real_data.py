@@ -29,11 +29,12 @@ Then split and run the pipeline:
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -215,7 +216,6 @@ def prepare_ckd(output: Path) -> None:
             skipped += 1
     if skipped:
         print(f"  [INFO] Skipped {skipped} malformed row(s) with wrong field count.")
-    import io
     csv_text = "\n".join(clean_lines)
     df = pd.read_csv(io.StringIO(csv_text), header=None, names=columns, na_values=["?"])
 
@@ -224,14 +224,29 @@ def prepare_ckd(output: Path) -> None:
     df["y"] = df[target_col].apply(lambda x: 1 if str(x).strip().lower() in ("ckd", "ckd.") else 0)
     df = df.drop(columns=[target_col])
 
-    # Convert numeric columns
+    # Encode categorical features as binary/numeric before converting
+    BINARY_MAPS: Dict[str, Dict[str, int]] = {
+        "rbc": {"normal": 0, "abnormal": 1},
+        "pc": {"normal": 0, "abnormal": 1},
+        "pcc": {"notpresent": 0, "present": 1},
+        "ba": {"notpresent": 0, "present": 1},
+        "htn": {"no": 0, "yes": 1},
+        "dm": {"no": 0, "yes": 1},
+        "cad": {"no": 0, "yes": 1},
+        "appet": {"good": 0, "poor": 1},
+        "pe": {"no": 0, "yes": 1},
+        "ane": {"no": 0, "yes": 1},
+    }
     for col in df.columns:
         if col == "y":
             continue
-        try:
+        if col in BINARY_MAPS:
+            col_map = BINARY_MAPS[col]
+            df[col] = df[col].apply(
+                lambda x, m=col_map: m.get(str(x).strip().lower()) if pd.notna(x) else np.nan
+            )
+        else:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        except Exception:
-            pass
 
     # Drop columns with >50% missing
     thresh = len(df) * 0.5
