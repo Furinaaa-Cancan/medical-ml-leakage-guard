@@ -193,9 +193,11 @@ def main() -> int:
         split_paths["test"] = args.test
 
     try:
-        headers_by_split = {name: read_csv_header(path) for name, path in split_paths.items()}
+        headers_by_split = {}
+        for name, path in split_paths.items():
+            headers_by_split[name] = read_csv_header(path)
     except Exception as exc:
-        add_issue(failures, "input_error", "Failed to read split headers.", {"error": str(exc)})
+        add_issue(failures, "input_error", f"Failed to read split headers for '{name}'.", {"error": str(exc), "path": str(path)})
         return finish(args, failures, warnings, {}, [], [], {}, [])
 
     header_sets = {name: set(cols) for name, cols in headers_by_split.items()}

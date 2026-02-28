@@ -178,9 +178,22 @@ def prompt_column_choice(
     """Prompt user to select a column from available CSV columns."""
     if PROMPT_AUTO_ACCEPT_DEFAULTS:
         if default and default in columns:
+            if validate_fn:
+                ok, msg = validate_fn(default)
+                if not ok:
+                    print(f"  [WARN] Auto-accepted column '{default}': {msg}", file=sys.stderr)
             return default
-        if required and columns:
-            return columns[0]
+        if default and columns:
+            print(
+                f"  [WARN] Default column '{default}' not found in CSV. "
+                f"Available: {', '.join(columns[:10])}",
+                file=sys.stderr,
+            )
+            if required:
+                raise ValueError(
+                    f"Column '{default}' not found in CSV and --accept-defaults is enabled. "
+                    f"Override with --target-col or --patient-id-col."
+                )
         return default
 
     print(f"\n{label}")
@@ -223,6 +236,16 @@ def prompt_ignore_cols(
 ) -> str:
     """Prompt user to select columns to ignore (non-feature columns)."""
     if PROMPT_AUTO_ACCEPT_DEFAULTS:
+        if columns:
+            default_parts = [s.strip() for s in default.split(",") if s.strip()]
+            existing = [c for c in default_parts if c in columns]
+            dropped = [c for c in default_parts if c not in columns and c != target_col]
+            if dropped:
+                print(
+                    f"  [WARN] Ignore-cols default adjusted: {dropped} not in CSV, removed.",
+                    file=sys.stderr,
+                )
+            return ",".join(existing)
         return default
 
     default_set = set(s.strip() for s in default.split(",") if s.strip())
@@ -861,6 +884,16 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
         )
     else:
         values["patient_id_col"] = prompt_text(label="Patient ID column", default=str(seed_pid), required=True)
+
+    # Cross-validate: target and patient_id must differ
+    if values["target_col"] == values["patient_id_col"]:
+        msg = (
+            f"target_col and patient_id_col are both '{values['target_col']}'. "
+            "These must be different columns."
+        )
+        if PROMPT_AUTO_ACCEPT_DEFAULTS:
+            raise ValueError(msg)
+        print(f"  [WARN] {msg}")
 
     # Ignore columns: show feature preview
     seed_ignore, source_ignore = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)

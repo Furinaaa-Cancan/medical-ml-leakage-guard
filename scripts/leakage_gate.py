@@ -175,7 +175,7 @@ def main() -> int:
             if path:
                 splits[name] = parse_csv(path, name)
     except Exception as exc:
-        add_issue(failures, "io_error", "Failed to read CSV input.", {"error": str(exc)})
+        add_issue(failures, "io_error", f"Failed to read CSV input for '{name}' split.", {"error": str(exc), "path": str(path)})
         return finish(args, splits, failures, warnings)
 
     ignore_cols = parse_comma_set(args.ignore_cols)
