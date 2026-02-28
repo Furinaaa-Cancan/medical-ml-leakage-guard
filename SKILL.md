@@ -498,6 +498,7 @@ If any step returns non-zero, stop and block claim release.
   - `--stress-case-id {uci-diabetes-130-readmission,uci-heart-disease,uci-chronic-kidney-disease,uci-breast-cancer-wdbc}`
   - default is `uci-chronic-kidney-disease` (most stable publication-grade stress path in current benchmark set)
 - Release benchmark blocking suites are `authority_release_core` + `adversarial_fail_closed`; `authority_release_extended` (Diabetes130) is kept as observational/non-blocking in release profile.
+- Non-blocking authority failures are summarized as `observational_diagnostics` in matrix report and written to `*.observational_diagnostics.json` sidecar.
 - Case-specific training configuration is enabled in authority E2E:
   - larger cohorts (e.g., Diabetes130) use expanded model pool (includes `xgboost` when installed), higher `max-trials-per-family`, and multi-core `--n-jobs`.
 - Use `--run-tag` to bind all generated stress artifacts to a unique execution token.

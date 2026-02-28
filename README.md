@@ -303,6 +303,7 @@ Notes:
 - Use `benchmark-suite --profile release` when you need a reproducible multi-dataset stability verdict.
 - `benchmark-suite` report contract is `release_benchmark_matrix.v2` and includes `failure_codes/repeat_count/repeat_consistent/dataset_registry_sha256`.
 - In `release` profile, blocking suites are `authority_release_core` and `adversarial_fail_closed`; `authority_release_extended` (Diabetes130) remains observational/non-blocking and must still be reviewed.
+- For non-blocking authority failures, benchmark-suite also emits `observational_diagnostics` in the matrix report and a sidecar `*.observational_diagnostics.json`.
 - Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
 - `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
 - Use `--error-json` to emit structured failure payloads (`contract_version=mlgg_error.v1`) for automation.
@@ -649,6 +650,7 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - 需要“多数据库稳定性结论”时，优先使用 `benchmark-suite --profile release`。
 - `benchmark-suite` 输出契约是 `release_benchmark_matrix.v2`，包含 `failure_codes/repeat_count/repeat_consistent/dataset_registry_sha256`。
 - `release` 档位当前阻断套件是 `authority_release_core` 与 `adversarial_fail_closed`；`authority_release_extended`（Diabetes130）保留为观测/非阻断，但仍需审查失败原因。
+- 对于非阻断 authority 失败，benchmark-suite 还会在矩阵报告中输出 `observational_diagnostics`，并生成 sidecar `*.observational_diagnostics.json`。
 - 交互式 `authority` 向导默认走 CKD 发布路径，heart 会以“高级选项”显示并提示风险。
 - 自动化场景可加 `--error-json`，输出结构化失败载荷（`contract_version=mlgg_error.v1`）。
 - CI 流水线：

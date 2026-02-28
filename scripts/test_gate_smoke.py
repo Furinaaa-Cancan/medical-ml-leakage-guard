@@ -863,6 +863,102 @@ def test_release_benchmark_repeat_inconsistency_detected() -> None:
         assert_true("benchmark_repeat_inconsistent" in report.get("failure_codes", []), "repeat inconsistency code present")
 
 
+def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failures() -> None:
+    print("\n=== benchmark-suite: non-blocking authority failure emits observational diagnostics ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                },
+                {
+                    "suite_id": "authority_release_extended",
+                    "name": "Authority extended route (+ Diabetes130 large cohort)",
+                    "kind": "authority",
+                    "blocking": False,
+                    "args": [],
+                    "expected_case_ids": [
+                        "uci-diabetes-130-readmission",
+                    ],
+                },
+            ],
+        )
+        fake_python = td / "fake_python_diag.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "script=\"$1\"\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "if echo \"$script\" | grep -q 'run_authority_e2e.py'; then\n"
+            "  printf '{\"overall_status\":\"fail\",\"results\":[{\"case_id\":\"uci-diabetes-130-readmission\",\"status\":\"fail\",\"failure_code\":\"strict_pipeline_failed\",\"root_failure_code_primary\":\"clinical_floor_npv_not_met\",\"root_failure_codes\":[\"clinical_floor_npv_not_met\",\"clinical_floor_ppv_not_met\"],\"clinical_floor_gap_summary\":{\"minimum_margin\":-0.19,\"internal_test\":{\"floor_metrics\":{\"npv\":{\"required_min\":0.9,\"observed\":0.81,\"margin\":-0.09,\"met\":false},\"ppv\":{\"required_min\":0.55,\"observed\":0.36,\"margin\":-0.19,\"met\":false}}},\"external_cohorts\":[]},\"artifacts\":{\"distribution_report\":\"/tmp/distribution_report.json\",\"external_validation_report\":\"/tmp/external_validation_report.json\"}}]}' > \"$out\"\n"
+            "else\n"
+            "  printf '{\"overall_status\":\"pass\",\"passed_count\":1,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":true,\"observed_codes\":[]}]}' > \"$out\"\n"
+            "fi\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        diag_out = td / "observational_diagnostics.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "1",
+                "--python",
+                str(fake_python),
+                "--observational-diagnostics-out",
+                str(diag_out),
+            ]
+        )
+        assert_true(proc.returncode == 0, "benchmark with non-blocking authority failure still exits 0")
+        report = load_report(out)
+        assert_true(report.get("overall_status") == "pass", "overall status remains pass with non-blocking failure")
+        obs_items = report.get("observational_diagnostics", [])
+        assert_true(isinstance(obs_items, list) and len(obs_items) == 1, "observational_diagnostics contains one failed non-blocking suite")
+        first = obs_items[0] if obs_items else {}
+        assert_true(first.get("suite_id") == "authority_release_extended", "observational diagnostics suite id matches")
+        case_rows = first.get("case_diagnostics", [])
+        assert_true(isinstance(case_rows, list) and len(case_rows) == 1, "observational diagnostics contains failed case row")
+        case_row = case_rows[0] if case_rows else {}
+        assert_true(case_row.get("case_id") == "uci-diabetes-130-readmission", "diagnostic case id matches")
+        actions = first.get("recommended_actions", [])
+        assert_true(
+            any("scan-diabetes" in str(item) for item in actions),
+            "observational diagnostics include diabetes feasibility scan recommendation",
+        )
+        assert_true(diag_out.exists(), "observational diagnostics sidecar file exists")
+        diag_payload = load_report(diag_out)
+        assert_true(
+            diag_payload.get("contract_version") == "release_benchmark_observational_diagnostics.v1",
+            "observational diagnostics sidecar contract version matches",
+        )
+
+
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
     print("\n=== mlgg interactive: malformed profile value types fail-closed ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1492,6 +1588,7 @@ def main() -> int:
     test_release_benchmark_blocking_failure_sets_standard_code()
     test_release_benchmark_registry_mismatch_detected()
     test_release_benchmark_repeat_inconsistency_detected()
+    test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failures()
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()

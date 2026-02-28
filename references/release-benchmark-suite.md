@@ -56,6 +56,9 @@ python3 scripts/mlgg.py benchmark-suite \
   - `dataset_registry_sha256`
   - `blocking_suite_ids`
   - `nonblocking_suite_ids`
+- Non-blocking authority failures also emit:
+  - `observational_diagnostics` (embedded in v2 report)
+  - sidecar file `*.observational_diagnostics.json` (`release_benchmark_observational_diagnostics.v1`)
 
 ### 4. Why This Is Better Than "Many Random Datasets"
 - Focuses on **risk coverage** instead of raw dataset count.
@@ -126,6 +129,9 @@ python3 scripts/mlgg.py benchmark-suite \
   - `dataset_registry_sha256`
   - `blocking_suite_ids`
   - `nonblocking_suite_ids`
+- 非阻断 authority 失败会额外输出：
+  - `observational_diagnostics`（内嵌在 v2 报告）
+  - sidecar 文件 `*.observational_diagnostics.json`（`release_benchmark_observational_diagnostics.v1`）
 
 ### 4. 为什么不是“数据集越多越好”
 - 核心是**风险覆盖矩阵**，不是无序堆数据。

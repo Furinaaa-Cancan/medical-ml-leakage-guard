@@ -175,6 +175,14 @@ def parse_args() -> argparse.Namespace:
         help="Optional JUnit XML output path for CI consumption.",
     )
     parser.add_argument(
+        "--observational-diagnostics-out",
+        default="",
+        help=(
+            "Optional path to write non-blocking failure diagnostics JSON. "
+            "If omitted, a sidecar file is written next to --output."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands and write dry-run report without execution.",
@@ -488,6 +496,162 @@ def write_junit(path: Path, suite_runs: List[Dict[str, Any]], overall_status: st
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
+def _to_float_or_none(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        token = value.strip()
+        if not token:
+            return None
+        try:
+            return float(token)
+        except Exception:
+            return None
+    return None
+
+
+def extract_floor_violations(clinical_floor_gap_summary: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    if not isinstance(clinical_floor_gap_summary, dict):
+        return out
+
+    def collect_rows(
+        *,
+        scope: str,
+        cohort_id: Optional[str],
+        cohort_type: Optional[str],
+        metrics_payload: Any,
+    ) -> None:
+        if not isinstance(metrics_payload, dict):
+            return
+        for metric_name, metric_row in metrics_payload.items():
+            if not isinstance(metric_row, dict):
+                continue
+            margin = _to_float_or_none(metric_row.get("margin"))
+            met = bool(metric_row.get("met"))
+            if margin is None:
+                continue
+            if met and margin >= 0.0:
+                continue
+            out.append(
+                {
+                    "scope": scope,
+                    "cohort_id": cohort_id,
+                    "cohort_type": cohort_type,
+                    "metric": str(metric_name),
+                    "required_min": _to_float_or_none(metric_row.get("required_min")),
+                    "observed": _to_float_or_none(metric_row.get("observed")),
+                    "margin": float(margin),
+                }
+            )
+
+    internal = clinical_floor_gap_summary.get("internal_test")
+    if isinstance(internal, dict):
+        collect_rows(
+            scope="internal_test",
+            cohort_id="internal_test",
+            cohort_type=None,
+            metrics_payload=internal.get("floor_metrics"),
+        )
+    external_rows = clinical_floor_gap_summary.get("external_cohorts")
+    if isinstance(external_rows, list):
+        for row in external_rows:
+            if not isinstance(row, dict):
+                continue
+            collect_rows(
+                scope="external",
+                cohort_id=str(row.get("cohort_id", "")).strip() or None,
+                cohort_type=str(row.get("cohort_type", "")).strip() or None,
+                metrics_payload=row.get("floor_metrics"),
+            )
+    out.sort(key=lambda row: float(row.get("margin", 0.0)))
+    return out
+
+
+def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    diagnostics: List[Dict[str, Any]] = []
+    for suite in suite_rows:
+        if bool(suite.get("blocking")):
+            continue
+        if str(suite.get("status", "")).strip().lower() == "pass":
+            continue
+        if str(suite.get("kind", "")).strip().lower() != "authority":
+            continue
+
+        summary_file = Path(str(suite.get("summary_file", "")).strip())
+        summary_payload: Dict[str, Any] = {}
+        parse_error: Optional[str] = None
+        try:
+            summary_payload = load_json(summary_file)
+        except Exception as exc:
+            parse_error = str(exc)
+
+        case_diagnostics: List[Dict[str, Any]] = []
+        recommended_actions: List[str] = []
+        if parse_error is None:
+            rows = summary_payload.get("results")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("status", "")).strip().lower() == "pass":
+                        continue
+                    case_id = str(row.get("case_id", "")).strip() or "unknown_case"
+                    root_codes = dedup_keep_order(row.get("root_failure_codes", []))
+                    floor_violations = extract_floor_violations(row.get("clinical_floor_gap_summary"))
+                    case_diag = {
+                        "case_id": case_id,
+                        "failure_code": row.get("failure_code"),
+                        "root_failure_code_primary": row.get("root_failure_code_primary"),
+                        "root_failure_codes": root_codes,
+                        "minimum_floor_margin": (
+                            _to_float_or_none((row.get("clinical_floor_gap_summary") or {}).get("minimum_margin"))
+                            if isinstance(row.get("clinical_floor_gap_summary"), dict)
+                            else None
+                        ),
+                        "floor_violations": floor_violations[:12],
+                        "artifacts": row.get("artifacts") if isinstance(row.get("artifacts"), dict) else {},
+                    }
+                    case_diagnostics.append(case_diag)
+
+                    if any(code.startswith("clinical_floor_") for code in root_codes):
+                        recommended_actions.append(
+                            "Clinical floors not met: inspect floor_violations and re-run feasibility scan before changing benchmark role."
+                        )
+                        if case_id == "uci-diabetes-130-readmission":
+                            recommended_actions.append(
+                                "Run diabetes feasibility sweep: python3 scripts/mlgg.py scan-diabetes --target-modes gt30,any,lt30 --max-rows-options 20000,0"
+                            )
+                            recommended_actions.append(
+                                "Review distribution_report and external_validation_report for transport stress before attempting floor-preserving model changes."
+                            )
+
+        command = suite.get("command")
+        rerun_cmd = shlex.join(command) if isinstance(command, list) and command else None
+        if rerun_cmd:
+            recommended_actions.append(f"One-step rerun: {rerun_cmd}")
+        if not recommended_actions:
+            recommended_actions.append("Review summary_file and failed case root_failure_codes, then rerun the suite once for confirmation.")
+
+        diagnostics.append(
+            {
+                "suite_id": str(suite.get("suite_id")),
+                "suite_name": str(suite.get("name", "")),
+                "kind": str(suite.get("kind", "")),
+                "status": str(suite.get("status", "")),
+                "summary_file": str(summary_file),
+                "failure_codes": dedup_keep_order(suite.get("failure_codes", [])),
+                "repeat_statuses": suite.get("repeat_statuses", []),
+                "case_diagnostics": case_diagnostics,
+                "recommended_actions": dedup_keep_order(recommended_actions),
+                "summary_parse_error": parse_error,
+            }
+        )
+    return diagnostics
+
+
 def main() -> int:
     args = parse_args()
     if int(args.repeat) < 1:
@@ -511,6 +675,11 @@ def main() -> int:
             registry_fail_message = message or "dataset fingerprint mismatch."
 
     if registry_fail_code is not None:
+        diagnostics_path = (
+            Path(str(args.observational_diagnostics_out)).expanduser().resolve()
+            if str(args.observational_diagnostics_out).strip()
+            else output_path.with_name(output_path.stem + ".observational_diagnostics.json")
+        )
         report = {
             "contract_version": "release_benchmark_matrix.v2",
             "generated_at_utc": utc_now_text(),
@@ -530,13 +699,26 @@ def main() -> int:
             "blocking_failures": [],
             "nonblocking_failure_count": 0,
             "nonblocking_failures": [],
+            "observational_diagnostics_file": str(diagnostics_path),
+            "observational_diagnostics": [],
             "suites": [],
             "suite_runs": [],
             "registry_error_message": registry_fail_message,
         }
         write_json_atomic(output_path, report)
+        write_json_atomic(
+            diagnostics_path,
+            {
+                "contract_version": "release_benchmark_observational_diagnostics.v1",
+                "generated_at_utc": utc_now_text(),
+                "overall_status": "not_available",
+                "status_reason": registry_fail_code,
+                "items": [],
+            },
+        )
         print(f"[FAIL] {registry_fail_code}: {registry_fail_message}")
         print(f"Release benchmark matrix summary: {output_path}")
+        print(f"Observational diagnostics: {diagnostics_path}")
         if str(args.emit_junit).strip():
             write_junit(Path(str(args.emit_junit)).expanduser().resolve(), [], "fail", [registry_fail_code])
         return 2
@@ -685,6 +867,12 @@ def main() -> int:
         exit_code = 0
         status_reason = "all_blocking_suites_passed"
     failure_codes = dedup_keep_order(failure_codes)
+    diagnostics_path = (
+        Path(str(args.observational_diagnostics_out)).expanduser().resolve()
+        if str(args.observational_diagnostics_out).strip()
+        else output_path.with_name(output_path.stem + ".observational_diagnostics.json")
+    )
+    observational_diagnostics = build_observational_diagnostics(suite_rows if not args.dry_run else [])
 
     report: Dict[str, Any] = {
         "contract_version": "release_benchmark_matrix.v2",
@@ -706,15 +894,31 @@ def main() -> int:
         "blocking_failures": blocking_failures,
         "nonblocking_failure_count": len(nonblocking_failures),
         "nonblocking_failures": nonblocking_failures,
+        "observational_diagnostics_file": str(diagnostics_path),
+        "observational_diagnostics": observational_diagnostics,
         "suite_runs": suite_runs,
         "suites": suite_rows,
     }
     write_json_atomic(output_path, report)
+    write_json_atomic(
+        diagnostics_path,
+        {
+            "contract_version": "release_benchmark_observational_diagnostics.v1",
+            "generated_at_utc": utc_now_text(),
+            "repo_root": str(REPO_ROOT),
+            "run_tag": run_tag,
+            "profile": str(args.profile),
+            "overall_status": overall_status,
+            "status_reason": status_reason,
+            "items": observational_diagnostics,
+        },
+    )
     if str(args.emit_junit).strip():
         junit_path = Path(str(args.emit_junit)).expanduser().resolve()
         write_junit(junit_path, suite_runs, overall_status, failure_codes)
         print(f"JUnit summary: {junit_path}")
     print(f"Release benchmark matrix summary: {output_path}")
+    print(f"Observational diagnostics: {diagnostics_path}")
     if overall_status == "fail" and blocking_failures:
         rerun_cmd = (
             "python3 scripts/mlgg.py benchmark-suite --profile "
