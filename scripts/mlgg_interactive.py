@@ -326,6 +326,7 @@ def parse_command_overrides(command: str, passthrough: List[str]) -> Dict[str, A
         parser.add_argument("--test")
         parser.add_argument("--target-col")
         parser.add_argument("--patient-id-col")
+        parser.add_argument("--ignore-cols")
         parser.add_argument("--model-pool")
         parser.add_argument("--include-optional-models", action="store_true", default=None)
         parser.add_argument("--ensemble-top-k", type=int)
@@ -382,6 +383,7 @@ def profile_allowed_keys(command: str) -> Tuple[str, ...]:
             "test",
             "target_col",
             "patient_id_col",
+            "ignore_cols",
             "model_pool",
             "include_optional_models",
             "ensemble_top_k",
@@ -723,6 +725,16 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
         else:
             values[key] = prompt_text(label=label, default=str(seed), required=True)
 
+    seed, source = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
+    if source == "cli":
+        values["ignore_cols"] = str(seed).strip()
+    else:
+        values["ignore_cols"] = prompt_text(
+            label="Ignore columns CSV (non-feature columns to exclude)",
+            default=str(seed),
+            required=False,
+        )
+
     seed, source = merged_seed("model_pool", TRAIN_MODEL_POOL_DEFAULT, profile, explicit)
     if source == "cli":
         values["model_pool"] = require_string(seed, "model_pool")
@@ -1051,6 +1063,8 @@ def build_command(command: str, python_bin: str, values: Dict[str, Any]) -> List
         cmd.extend(["--test", str(values["test"])])
         cmd.extend(["--target-col", str(values["target_col"])])
         cmd.extend(["--patient-id-col", str(values["patient_id_col"])])
+        if str(values.get("ignore_cols", "")).strip():
+            cmd.extend(["--ignore-cols", str(values["ignore_cols"])])
         cmd.extend(["--model-pool", str(values["model_pool"])])
         if bool(values.get("include_optional_models", False)):
             cmd.append("--include-optional-models")
