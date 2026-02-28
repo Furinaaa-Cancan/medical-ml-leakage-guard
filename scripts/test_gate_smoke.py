@@ -973,6 +973,79 @@ def test_release_benchmark_repeat_detects_authority_metric_drift() -> None:
         )
 
 
+def test_release_benchmark_repeat_detects_adversarial_count_drift() -> None:
+    print("\n=== benchmark-suite: repeat inconsistency catches adversarial count drift ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        counter = td / "counter_adv_counts.txt"
+        fake_python = td / "fake_python_adversarial_count_drift.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            f"COUNTER='{counter}'\n"
+            "count=0\n"
+            "if [ -f \"$COUNTER\" ]; then count=$(cat \"$COUNTER\"); fi\n"
+            "count=$((count+1))\n"
+            "echo \"$count\" > \"$COUNTER\"\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "printf '{\"overall_status\":\"pass\",\"passed_count\":%s,\"scenario_count\":%s,\"results\":[{\"name\":\"s1\",\"passed\":true,\"observed_codes\":[]}]}' \"$count\" \"$count\" > \"$out\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "2",
+                "--python",
+                str(fake_python),
+            ]
+        )
+        assert_true(proc.returncode == 2, "adversarial count drift triggers repeat inconsistency exit 2")
+        report = load_report(out)
+        assert_true(
+            report.get("status_reason") == "benchmark_repeat_inconsistent",
+            "adversarial count drift status reason is repeat inconsistency",
+        )
+        assert_true(report.get("repeat_consistent") is False, "adversarial count drift sets repeat_consistent=false")
+        assert_true(
+            "benchmark_repeat_inconsistent" in report.get("failure_codes", []),
+            "adversarial count drift includes repeat inconsistency code",
+        )
+
+
 def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failures() -> None:
     print("\n=== benchmark-suite: non-blocking authority failure emits observational diagnostics ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1793,6 +1866,7 @@ def main() -> int:
     test_release_benchmark_registry_failure_contract_fields_present()
     test_release_benchmark_repeat_inconsistency_detected()
     test_release_benchmark_repeat_detects_authority_metric_drift()
+    test_release_benchmark_repeat_detects_adversarial_count_drift()
     test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failures()
     test_release_benchmark_repeat_outputs_are_not_overwritten()
     test_authority_e2e_gitignore_covers_runtime_outputs()

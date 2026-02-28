@@ -497,11 +497,46 @@ def parse_suite_outcome(kind: str, summary_file: Path, exit_code: int, expected_
 
 
 def suite_signature(row: Dict[str, Any]) -> str:
+    def norm_str_list(raw: Any) -> List[str]:
+        if not isinstance(raw, list):
+            return []
+        out: List[str] = []
+        for item in raw:
+            token = str(item).strip()
+            if token:
+                out.append(token)
+        return sorted(out)
+
+    def norm_int(raw: Any) -> Optional[int]:
+        if isinstance(raw, bool):
+            return None
+        if isinstance(raw, int):
+            return int(raw)
+        if isinstance(raw, float):
+            return int(raw)
+        if isinstance(raw, str):
+            token = raw.strip()
+            if not token:
+                return None
+            try:
+                return int(token)
+            except Exception:
+                return None
+        return None
+
     payload = {
         "status": str(row.get("status")),
         "overall_status": str(row.get("overall_status")),
+        "failure_reason": str(row.get("failure_reason", "")),
         "failure_codes": sorted(str(x) for x in row.get("failure_codes", []) if isinstance(x, str)),
         "case_metrics_fingerprint": str(row.get("case_metrics_fingerprint", "")),
+        "case_count": norm_int(row.get("case_count")),
+        "failed_cases": norm_str_list(row.get("failed_cases")),
+        "actual_case_ids": norm_str_list(row.get("actual_case_ids")),
+        "expected_case_ids": norm_str_list(row.get("expected_case_ids")),
+        "passed_count": norm_int(row.get("passed_count")),
+        "scenario_count": norm_int(row.get("scenario_count")),
+        "failed_scenarios": norm_int(row.get("failed_scenarios")),
     }
     return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
