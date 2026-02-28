@@ -9,11 +9,9 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
-
-ALLOWED_SELECTION_SCOPES = {"train_only", "cv_inner_train_only"}
-FORBIDDEN_SCOPE_TOKENS = {"valid", "test", "external"}
+from _gate_utils import add_issue, load_json_from_str as load_json, to_float
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,37 +23,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output gate report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
-
-
-def load_json(path: str) -> Dict[str, Any]:
-    p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be object.")
-    return payload
-
-
-def to_float(value: Any) -> Optional[float]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        v = float(value)
-        return v if math.isfinite(v) else None
-    if isinstance(value, str):
-        token = value.strip()
-        if not token:
-            return None
-        try:
-            v = float(token)
-        except ValueError:
-            return None
-        return v if math.isfinite(v) else None
-    return None
 
 
 def extract_groups(spec: Dict[str, Any]) -> Dict[str, List[str]]:

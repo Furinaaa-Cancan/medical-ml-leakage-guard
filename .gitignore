@@ -2,8 +2,16 @@
 .DS_Store
 __pycache__/
 *.pyc
+*.egg-info/
+.venv/
+venv/
+.env
+
 experiments/authority-e2e/authority_e2e_summary*.json
 experiments/authority-e2e/stress_seed_search_report*.json
 experiments/authority-e2e/stress_seed_selection*.json
 experiments/authority-e2e/stress_seed_*.json
+experiments/authority-e2e/_feasibility_scan_auto/
+experiments/authority-e2e/*.auto.json
+
 evidence/

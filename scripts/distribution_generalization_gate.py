@@ -17,6 +17,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
+from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+
 
 SUPPORTED_EXTERNAL_TYPES = {"cross_period", "cross_institution"}
 
@@ -36,19 +38,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output gate report.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
-
-
-def load_json(path: str) -> Dict[str, Any]:
-    p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be object.")
-    return payload
 
 
 def parse_selected_features_from_evaluation_report(path: Optional[str]) -> List[str]:
@@ -79,24 +68,6 @@ def parse_selected_features_from_evaluation_report(path: Optional[str]) -> List[
         seen.add(name)
         deduped.append(name)
     return deduped
-
-
-def to_float(value: Any) -> Optional[float]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)) and math.isfinite(float(value)):
-        return float(value)
-    if isinstance(value, str):
-        token = value.strip()
-        if not token:
-            return None
-        try:
-            parsed = float(token)
-        except ValueError:
-            return None
-        if math.isfinite(parsed):
-            return float(parsed)
-    return None
 
 
 def parse_ignore_cols(raw: str, target_col: str) -> List[str]:

@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+
 
 DEFAULT_REQUIRED_METRICS = [
     "accuracy",
@@ -40,38 +42,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
-
-
-def load_json(path: str) -> Dict[str, Any]:
-    p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be object.")
-    return payload
 
 
 def canonical_metric_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
-def to_float(value: Any) -> Optional[float]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)) and math.isfinite(float(value)):
-        return float(value)
-    if isinstance(value, str):
-        token = value.strip()
-        if not token:
-            return None
-        try:
-            parsed = float(token)
-        except ValueError:
-            return None
-        return parsed if math.isfinite(parsed) else None
-    return None
 
 
 def to_int(value: Any) -> Optional[int]:

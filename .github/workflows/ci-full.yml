@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install numpy pandas scikit-learn joblib
+          python3 -m pip install -r requirements.txt
 
       - name: Release benchmark suite (blocking)
         run: |

@@ -30,7 +30,13 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 Install core dependencies:
 
 ```bash
-python3 -m pip install -U numpy pandas scikit-learn joblib
+python3 -m pip install -r requirements.txt
+```
+
+Install optional model backends:
+
+```bash
+python3 -m pip install -r requirements-optional.txt
 ```
 
 Check runtime environment:
@@ -353,10 +359,14 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 ---
 
 ### 9. Repository Map
-- `scripts/`: gates, trainers, wrappers, and CLI tools
-- `references/`: schema/policy/report examples and checklists
-- `experiments/authority-e2e/`: authority and adversarial runners
-- `SKILL.md`: full workflow contract and gate ordering
+- `scripts/`: gates, trainers, wrappers, CLI tools, and shared utilities (`_gate_utils.py`)
+- `references/`: schema/policy/report examples, checklists, and benchmark registry
+- `experiments/authority-e2e/`: authority and adversarial runners with UCI public datasets
+- `agents/`: OpenAI agent interface definition (`openai.yaml`)
+- `.github/workflows/`: CI pipelines (smoke / full / extended)
+- `SKILL.md`: full workflow contract, gate ordering, and medical non-negotiable rules
+- `requirements.txt`: core Python dependencies
+- `requirements-optional.txt`: optional model backend dependencies (`xgboost`, `catboost`)
 - `references/Beginner-Quickstart.md`: bilingual beginner tutorial
 - `references/Troubleshooting-Top20.md`: top failure-code remediation
 - `references/release-benchmark-suite.md`: release benchmark matrix profile and pass contract
@@ -394,7 +404,13 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 安装核心依赖：
 
 ```bash
-python3 -m pip install -U numpy pandas scikit-learn joblib
+python3 -m pip install -r requirements.txt
+```
+
+安装可选模型后端：
+
+```bash
+python3 -m pip install -r requirements-optional.txt
 ```
 
 环境体检：
@@ -710,10 +726,14 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 ---
 
 ### 9. 目录结构
-- `scripts/`: gate、训练器、封装器、CLI
-- `references/`: schema/policy/report 示例与检查清单
-- `experiments/authority-e2e/`: authority/adversarial 实验脚本
-- `SKILL.md`: 完整流程契约与 gate 顺序
+- `scripts/`: gate、训练器、封装器、CLI 工具及共享工具模块（`_gate_utils.py`）
+- `references/`: schema/policy/report 示例、检查清单与基准注册表
+- `experiments/authority-e2e/`: UCI 公开数据集上的 authority/adversarial 实验脚本
+- `agents/`: OpenAI agent 接口定义（`openai.yaml`）
+- `.github/workflows/`: CI 流水线（smoke / full / extended）
+- `SKILL.md`: 完整流程契约、gate 顺序与医学不可协商规则
+- `requirements.txt`: 核心 Python 依赖
+- `requirements-optional.txt`: 可选模型后端依赖（`xgboost`、`catboost`）
 - `references/Beginner-Quickstart.md`: 双语新手教程
 - `references/Troubleshooting-Top20.md`: 高频失败码修复手册
 - `references/release-benchmark-suite.md`: 发布级基准矩阵档位与通过标准
