@@ -275,6 +275,11 @@ def _getch() -> str:
                     if ch3 == b"B": return "DOWN"
                     if ch3 == b"C": return "RIGHT"
                     if ch3 == b"D": return "LEFT"
+                    if ch3 in (b"5", b"6"):
+                        if sel_mod.select([fd], [], [], 0.05)[0]:
+                            ch4 = os.read(fd, 1)
+                            if ch4 == b"~":
+                                return "PAGE_UP" if ch3 == b"5" else "PAGE_DOWN"
                 while sel_mod.select([fd], [], [], 0.02)[0]:
                     os.read(fd, 1)
                 return "ESC"
@@ -368,6 +373,16 @@ def select(options: List[str], descs: Optional[List[str]] = None,
             sel += 1
             if sel >= offset + max_vis:
                 offset = sel - max_vis + 1
+        elif key == "PAGE_UP":
+            sel = max(sel - max_vis, 0)
+            offset = max(offset - max_vis, 0)
+            if sel < offset:
+                offset = sel
+        elif key == "PAGE_DOWN":
+            sel = min(sel + max_vis, n - 1)
+            offset = min(offset + max_vis, max(n - max_vis, 0))
+            if sel >= offset + max_vis:
+                offset = sel - max_vis + 1
         elif key == "ENTER":
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return sel
@@ -448,6 +463,16 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
                 offset = sel
         elif key == "DOWN" and sel < n - 1:
             sel += 1
+            if sel >= offset + max_vis:
+                offset = sel - max_vis + 1
+        elif key == "PAGE_UP":
+            sel = max(sel - max_vis, 0)
+            offset = max(offset - max_vis, 0)
+            if sel < offset:
+                offset = sel
+        elif key == "PAGE_DOWN":
+            sel = min(sel + max_vis, n - 1)
+            offset = min(offset + max_vis, max(n - max_vis, 0))
             if sel >= offset + max_vis:
                 offset = sel - max_vis + 1
         elif key == "SPACE":
