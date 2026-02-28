@@ -55,7 +55,7 @@ URLS = {
 def download_file(url: str, dest: Path) -> None:
     print(f"  Downloading from {url} ...")
     try:
-        urllib.request.urlretrieve(url, str(dest))
+        resp = urllib.request.urlopen(url, timeout=60)
     except urllib.error.HTTPError as e:
         print(f"  [ERROR] HTTP {e.code}: {e.reason}")
         print(f"  URL may have moved. Check https://archive.ics.uci.edu/ml/datasets for updates.")
@@ -64,6 +64,22 @@ def download_file(url: str, dest: Path) -> None:
         print(f"  [ERROR] Network error: {e.reason}")
         print(f"  Check your internet connection or try again later.")
         sys.exit(1)
+    total = int(resp.headers.get("Content-Length", 0))
+    downloaded = 0
+    chunk_size = 8192
+    with open(dest, "wb") as fh:
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            fh.write(chunk)
+            downloaded += len(chunk)
+            if total > 0:
+                pct = int(downloaded * 100 / total)
+                print(f"\r  Progress: {pct}% ({downloaded:,}/{total:,} bytes)", end="", file=sys.stderr)
+            else:
+                print(f"\r  Downloaded: {downloaded:,} bytes", end="", file=sys.stderr)
+    print(file=sys.stderr)  # newline after progress
     size = dest.stat().st_size
     if size == 0:
         print(f"  [ERROR] Downloaded file is empty (0 bytes). URL may be invalid.")
