@@ -2004,6 +2004,41 @@ def test_mlgg_subcommand_direct_help_for_onboarding_and_interactive_train() -> N
     )
 
 
+def test_mlgg_subcommand_direct_help_with_global_options() -> None:
+    print("\n=== mlgg help: direct subcommand help still works with global options ===")
+    onboarding_help = run_gate(
+        [
+            str(SCRIPTS_DIR / "mlgg.py"),
+            "--python",
+            sys.executable,
+            "onboarding",
+            "--help",
+        ]
+    )
+    assert_true(onboarding_help.returncode == 0, "global --python + onboarding --help exits 0")
+    onboarding_body = onboarding_help.stdout + "\n" + onboarding_help.stderr
+    assert_true(
+        "Guided novice onboarding for ml-leakage-guard." in onboarding_body,
+        "global --python still routes to onboarding help",
+    )
+    interactive_help = run_gate(
+        [
+            str(SCRIPTS_DIR / "mlgg.py"),
+            "--cwd",
+            "/tmp",
+            "train",
+            "--interactive",
+            "--help",
+        ]
+    )
+    assert_true(interactive_help.returncode == 0, "global --cwd + train --interactive --help exits 0")
+    interactive_body = interactive_help.stdout + "\n" + interactive_help.stderr
+    assert_true(
+        "Interactive wizard for ml-leakage-guard core commands." in interactive_body,
+        "global --cwd still routes to interactive wizard help",
+    )
+
+
 def test_mlgg_onboarding_unknown_failure_only_when_no_specific_codes() -> None:
     print("\n=== mlgg onboarding: unknown failure code is fallback only ===")
     import importlib.util
@@ -2123,6 +2158,7 @@ def main() -> int:
     test_mlgg_onboarding_no_stop_on_fail_completes_with_failures()
     test_mlgg_interactive_help_passthrough_requires_command_and_returns_script_help()
     test_mlgg_subcommand_direct_help_for_onboarding_and_interactive_train()
+    test_mlgg_subcommand_direct_help_with_global_options()
     test_mlgg_onboarding_unknown_failure_only_when_no_specific_codes()
     test_mlgg_onboarding_missing_openssl_fails_closed()
     test_mlgg_help_includes_onboarding_and_bootstrap_example()

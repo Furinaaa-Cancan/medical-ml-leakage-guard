@@ -107,6 +107,13 @@ def _extract_option_value(argv: list[str], option: str, default: str) -> str:
     return default
 
 
+def _find_subcommand(argv: list[str]) -> tuple[int, str] | None:
+    for idx, token in enumerate(argv):
+        if token in COMMANDS:
+            return idx, str(token)
+    return None
+
+
 def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
     """
     Forward intuitive help forms like:
@@ -116,20 +123,22 @@ def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
     """
     if not raw_argv:
         return None
-    subcommand = str(raw_argv[0]).strip()
-    if subcommand not in COMMANDS:
+    hit = _find_subcommand(raw_argv)
+    if not hit:
         return None
-    if not any(token in {"-h", "--help"} for token in raw_argv[1:]):
+    subcommand_index, subcommand = hit
+    suffix = raw_argv[subcommand_index + 1 :]
+    if not any(token in {"-h", "--help"} for token in suffix):
         return None
     # Keep explicit passthrough handling in normal parse flow.
-    if "--" in raw_argv[1:]:
+    if "--" in suffix:
         return None
 
-    python_bin = _extract_option_value(raw_argv[1:], "--python", sys.executable)
-    cwd_raw = _extract_option_value(raw_argv[1:], "--cwd", str(REPO_ROOT))
+    python_bin = _extract_option_value(raw_argv, "--python", sys.executable)
+    cwd_raw = _extract_option_value(raw_argv, "--cwd", str(REPO_ROOT))
     cwd = Path(cwd_raw).expanduser().resolve()
 
-    interactive_requested = subcommand == "interactive" or "--interactive" in raw_argv[1:]
+    interactive_requested = subcommand == "interactive" or "--interactive" in raw_argv
     if interactive_requested:
         wizard_script = COMMANDS["interactive"][0]
         if not wizard_script.exists():
@@ -137,7 +146,7 @@ def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
             return 2
         target_command = subcommand if subcommand in INTERACTIVE_CORE_COMMANDS else ""
         if subcommand == "interactive":
-            target_command = _extract_option_value(raw_argv[1:], "--command", "")
+            target_command = _extract_option_value(raw_argv, "--command", "")
         cmd = [python_bin, str(wizard_script)]
         if target_command in INTERACTIVE_CORE_COMMANDS:
             cmd.extend(["--command", target_command])

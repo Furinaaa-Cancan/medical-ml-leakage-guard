@@ -212,10 +212,11 @@ Onboarding contract:
 - Failure behavior:
   - default `--stop-on-fail` (fail-fast)
   - optional `--no-stop-on-fail` (collect full diagnostics while keeping fail-closed result)
+  - guided mode without interactive stdin fails closed with `onboarding_interactive_input_unavailable` (use `--yes` or `--mode auto`)
   - wrapper route-conflict failure code: `authority_preset_route_override_forbidden`
 - Modes:
   - `guided`: step-by-step command preview + confirmation.
-  - `preview`: print the full 8-step command plan only.
+  - `preview`: print the full 8-step command plan only; report includes `preview_only=true` and `display_status=preview`.
   - `auto`: execute all steps non-interactively.
 - Step order is fixed:
   1. `env_doctor.py`
@@ -228,7 +229,8 @@ Onboarding contract:
   8. `run_productized_workflow.py --strict --compare-manifest ...`
 - Required report:
   - `evidence/onboarding_report.json` (`contract_version=onboarding_report.v2`)
-  - report fields include `stop_on_fail`, `termination_reason`, `failure_codes`, `next_actions`, `copy_ready_commands`
+  - report fields include `stop_on_fail`, `termination_reason`, `failure_codes`, `next_actions`, `copy_ready_commands`, `preview_only`, `display_status`
+  - `copy_ready_commands` uses absolute `mlgg.py` path so commands are runnable from any working directory.
 - Offline demo data artifacts:
   - `data/train.csv`, `data/valid.csv`, `data/test.csv`
   - `data/external_2025_q4.csv` (`cross_period`)
@@ -474,6 +476,7 @@ If any step returns non-zero, stop and block claim release.
   - Preview command before execution, then require one confirm step.
   - Train wizard defaults `--include-optional-models` to off; enable manually only when optional backends are installed.
   - Train wizard defaults `--n-jobs` to `1` for cross-platform stability; increase manually for multi-core runs.
+  - Train wizard default artifact outputs are auto-scoped to split project base (`<project>/evidence`) inferred from train split path.
   - Train wizard emits `--external-validation-report-out` only when `external_cohort_spec` is provided.
   - Train wizard emits `--feature-engineering-report-out` only when `feature_group_spec` is provided.
   - Profile reuse:
@@ -482,6 +485,7 @@ If any step returns non-zero, stop and block claim release.
     - `--accept-defaults` for non-blocking execution with defaults/profile values
   - Profile path defaults to `~/.mlgg/profiles` (override with `--profile-dir`).
   - For workflow wizard, `--strict` is always injected and cannot be bypassed by interactive mode.
+  - Workflow wizard first-run default enables `--allow-missing-compare` when no baseline manifest is provided/found.
   - Workflow wizard now auto-suggests evidence output under request project base (`<project>/evidence` when request is under `configs/`).
   - Authority wizard now defaults to release-grade stress path (`--include-stress-cases --stress-case-id uci-chronic-kidney-disease`);
     selecting `uci-heart-disease` is treated as advanced research/high-pressure mode.
