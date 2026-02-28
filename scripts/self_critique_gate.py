@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from _gate_utils import add_issue, load_json_from_str as load_json
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run self-critique scoring on evidence artifacts.")
@@ -58,19 +60,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail when warnings exist or score below threshold.")
     return parser.parse_args()
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
-
-
-def load_json(path: str) -> Dict[str, Any]:
-    p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be an object.")
-    return payload
 
 
 def score_component(report: Dict[str, Any], hard_weight: float, warn_penalty: float) -> float:

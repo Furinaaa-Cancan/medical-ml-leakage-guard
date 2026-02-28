@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from _gate_utils import add_issue
+
 
 DEFAULT_THRESHOLDS: Dict[str, float] = {
     "pr_auc_std_max": 0.03,
@@ -31,10 +33,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
 
 
 def load_json_object(path: str) -> Dict[str, Any]:

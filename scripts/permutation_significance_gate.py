@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from _gate_utils import add_issue
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate whether model metric beats permutation null.")
@@ -37,10 +39,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
 
 
 def parse_finite_float(value: Any) -> float:

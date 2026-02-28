@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from _gate_utils import add_issue
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check Python/runtime dependencies for ml-leakage-guard.")
@@ -35,10 +37,6 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
         fh.write("\n")
     tmp_path.replace(path)
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
 
 
 def parse_required_optional(raw: str) -> List[str]:

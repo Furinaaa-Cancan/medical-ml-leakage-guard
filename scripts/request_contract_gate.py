@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from _gate_utils import add_issue
+
 
 REQUIRED_STRING_FIELDS = [
     "study_id",
@@ -144,8 +146,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
 
 
 def is_finite_number(value: Any) -> bool:

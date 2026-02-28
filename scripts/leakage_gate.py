@@ -22,6 +22,8 @@ import re
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from _gate_utils import add_issue
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run strict anti-leakage checks on CSV splits.")
@@ -157,8 +159,6 @@ def epoch_to_iso(ts: Optional[float]) -> Optional[str]:
     return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def add_issue(issues: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    issues.append({"code": code, "message": message, "details": details})
 
 
 def main() -> int:

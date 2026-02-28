@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from _gate_utils import add_issue
+
 
 TARGET_ALIASES = ["y", "label", "target", "outcome", "class", "readmitted", "event"]
 PATIENT_ID_ALIASES = ["patient_id", "patientid", "subject_id", "person_id", "id"]
@@ -41,10 +43,6 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
         fh.write("\n")
     tmp_path.replace(path)
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
 
 
 def normalize_col(name: str) -> str:

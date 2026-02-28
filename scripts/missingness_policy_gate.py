@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from _gate_utils import add_issue
+
 
 MISSING_TOKENS = {"", "na", "nan", "null", "none", "n/a", "?"}
 
@@ -37,10 +39,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def add_issue(bucket: List[Dict[str, Any]], code: str, message: str, details: Dict[str, Any]) -> None:
-    bucket.append({"code": code, "message": message, "details": details})
 
 
 def is_missing(value: str) -> bool:
