@@ -46,11 +46,14 @@ AUTHORITY_STRESS_CASE_CHOICES = (
 )
 TRAIN_MODEL_POOL_DEFAULT = (
     "logistic_l1,logistic_l2,logistic_elasticnet,"
-    "random_forest_balanced,extra_trees_balanced,hist_gradient_boosting_l2"
+    "random_forest_balanced,extra_trees_balanced,hist_gradient_boosting_l2,"
+    "svm_linear,svm_rbf"
 )
 TRAIN_OPTIONAL_BACKEND_HINTS = {
     "xgboost": "pip install xgboost",
     "catboost": "pip install catboost",
+    "lightgbm": "pip install lightgbm",
+    "tabpfn": "pip install tabpfn",
 }
 
 
@@ -325,6 +328,7 @@ def parse_command_overrides(command: str, passthrough: List[str]) -> Dict[str, A
         parser.add_argument("--patient-id-col")
         parser.add_argument("--model-pool")
         parser.add_argument("--include-optional-models", action="store_true", default=None)
+        parser.add_argument("--ensemble-top-k", type=int)
         parser.add_argument("--n-jobs", type=int)
         parser.add_argument("--calibration-method", choices=list(TRAIN_CALIBRATION_CHOICES))
         parser.add_argument("--feature-group-spec")
@@ -380,6 +384,7 @@ def profile_allowed_keys(command: str) -> Tuple[str, ...]:
             "patient_id_col",
             "model_pool",
             "include_optional_models",
+            "ensemble_top_k",
             "n_jobs",
             "calibration_method",
             "feature_group_spec",
@@ -562,7 +567,7 @@ def require_string(value: Any, field: str) -> str:
 def maybe_warn_optional_backends(model_pool: str, include_optional_models: bool) -> None:
     requested = [x.strip().lower() for x in str(model_pool).split(",") if x.strip()]
     if include_optional_models:
-        requested.extend(["xgboost", "catboost"])
+        requested.extend(["xgboost", "catboost", "lightgbm", "tabpfn"])
     requested = sorted(set(requested))
     for backend, install_hint in TRAIN_OPTIONAL_BACKEND_HINTS.items():
         if backend not in requested:
@@ -735,6 +740,17 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
         values["include_optional_models"] = prompt_bool(
             "Include optional model backends when installed (--include-optional-models)?",
             default=bool(seed),
+        )
+
+    seed, source = merged_seed("ensemble_top_k", 0, profile, explicit)
+    if source == "cli":
+        values["ensemble_top_k"] = int(seed) if seed is not None else 0
+    else:
+        values["ensemble_top_k"] = prompt_int(
+            label="Ensemble top-K (0=disabled; 3+ builds voting/stacking from top-K base models)",
+            default=int(seed) if seed is not None else 0,
+            min_value=0,
+            max_value=20,
         )
 
     seed, source = merged_seed("n_jobs", 1, profile, explicit)
@@ -1038,6 +1054,9 @@ def build_command(command: str, python_bin: str, values: Dict[str, Any]) -> List
         cmd.extend(["--model-pool", str(values["model_pool"])])
         if bool(values.get("include_optional_models", False)):
             cmd.append("--include-optional-models")
+        ensemble_top_k = int(values.get("ensemble_top_k", 0) or 0)
+        if ensemble_top_k > 0:
+            cmd.extend(["--ensemble-top-k", str(ensemble_top_k)])
         cmd.extend(["--n-jobs", str(int(values["n_jobs"]))])
         cmd.extend(["--calibration-method", str(values["calibration_method"])])
         if str(values.get("feature_group_spec", "")).strip():
