@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--require-optional-models",
         default="",
-        help="Comma-separated optional backends that must be installed (xgboost,catboost).",
+        help="Comma-separated optional backends that must be installed (xgboost,catboost,lightgbm,tabpfn).",
     )
     parser.add_argument("--strict", action="store_true", help="Treat optional warnings as failures.")
     parser.add_argument("--report", help="Optional output JSON report path.")
@@ -54,7 +54,7 @@ def main() -> int:
     warnings: List[Dict[str, Any]] = []
 
     required_optional = parse_required_optional(args.require_optional_models)
-    optional_packages = {"xgboost": "xgboost", "catboost": "catboost"}
+    optional_packages = {"xgboost": "xgboost", "catboost": "catboost", "lightgbm": "lightgbm", "tabpfn": "tabpfn"}
     core_packages = {"numpy": "numpy", "pandas": "pandas", "scikit-learn": "sklearn", "joblib": "joblib"}
 
     package_status: Dict[str, Any] = {}
