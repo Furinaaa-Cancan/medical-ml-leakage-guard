@@ -47,7 +47,7 @@ UP_LINE = "\033[A"
 # ── sentinel ──────────────────────────────────────────────────────────────────
 BACK = type("BACK", (), {"__repr__": lambda self: "BACK"})()
 SKIP = type("SKIP", (), {"__repr__": lambda self: "SKIP"})()
-TOTAL_STEPS = 6
+TOTAL_STEPS = 9
 
 def s(fg: str, text: str, bold: bool = False) -> str:
     return f"{BOLD if bold else ''}{FG.get(fg, '')}{text}{RST}"
@@ -91,6 +91,8 @@ _T: Dict[str, Dict[str, str]] = {
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [q] \u8fd4\u56de"},
     "nav_first":     {"en": "[\u2191\u2193] move  [Enter] next  [q] quit",
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [q] \u9000\u51fa"},
+    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] toggle  [Enter] confirm  [a] all  [q] back",
+                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u5207\u6362  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [q] \u8fd4\u56de"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
@@ -99,7 +101,10 @@ _T: Dict[str, Dict[str, str]] = {
     "s_lang":        {"en": "Language", "zh": "\u8bed\u8a00"},
     "s_source":      {"en": "Data Source", "zh": "\u6570\u636e\u6765\u6e90"},
     "s_dataset":     {"en": "Dataset", "zh": "\u6570\u636e\u96c6"},
-    "s_config":      {"en": "Configure", "zh": "\u914d\u7f6e"},
+    "s_config":      {"en": "Columns", "zh": "\u5217\u914d\u7f6e"},
+    "s_split":       {"en": "Split", "zh": "\u5206\u5272\u914d\u7f6e"},
+    "s_models":      {"en": "Models", "zh": "\u6a21\u578b\u9009\u62e9"},
+    "s_tuning":      {"en": "Tuning", "zh": "\u8c03\u4f18\u914d\u7f6e"},
     "s_confirm":     {"en": "Confirm", "zh": "\u786e\u8ba4"},
     "s_run":         {"en": "Execute", "zh": "\u6267\u884c"},
 
@@ -146,28 +151,75 @@ _T: Dict[str, Dict[str, str]] = {
     "strat_stratified_d": {"en": "Preserve positive rate across splits",
                            "zh": "\u4fdd\u6301\u5404\u5206\u5272\u7684\u9633\u6027\u7387\u4e00\u81f4"},
 
+    "pick_ratio":    {"en": "Train / Valid / Test ratio", "zh": "\u8bad\u7ec3 / \u9a8c\u8bc1 / \u6d4b\u8bd5 \u6bd4\u4f8b"},
+    "ratio_60":      {"en": "60 / 20 / 20  (standard)", "zh": "60 / 20 / 20  \uff08\u6807\u51c6\uff09"},
+    "ratio_70":      {"en": "70 / 15 / 15  (more training)", "zh": "70 / 15 / 15  \uff08\u66f4\u591a\u8bad\u7ec3\uff09"},
+    "ratio_80":      {"en": "80 / 10 / 10  (small datasets)", "zh": "80 / 10 / 10  \uff08\u5c0f\u6570\u636e\u96c6\uff09"},
+
+    "pick_models":   {"en": "Select models to train", "zh": "\u9009\u62e9\u8981\u8bad\u7ec3\u7684\u6a21\u578b"},
+    "m_logistic_l1": {"en": "Logistic L1 (Lasso)", "zh": "\u903b\u8f91\u56de\u5f52 L1 (Lasso)"},
+    "m_logistic_l2": {"en": "Logistic L2 (Ridge)", "zh": "\u903b\u8f91\u56de\u5f52 L2 (Ridge)"},
+    "m_elasticnet":  {"en": "Logistic ElasticNet", "zh": "\u903b\u8f91\u56de\u5f52 ElasticNet"},
+    "m_rf":          {"en": "Random Forest", "zh": "\u968f\u673a\u68ee\u6797"},
+    "m_extra":       {"en": "Extra Trees", "zh": "\u6781\u7aef\u968f\u673a\u6811"},
+    "m_hgb":         {"en": "Hist Gradient Boosting", "zh": "\u76f4\u65b9\u56fe\u68af\u5ea6\u63d0\u5347"},
+    "m_ada":         {"en": "AdaBoost", "zh": "AdaBoost"},
+    "m_xgb":         {"en": "XGBoost (optional)", "zh": "XGBoost\uff08\u53ef\u9009\uff09"},
+    "m_cat":         {"en": "CatBoost (optional)", "zh": "CatBoost\uff08\u53ef\u9009\uff09"},
+
+    "pick_tuning":   {"en": "Hyperparameter search", "zh": "\u8d85\u53c2\u6570\u641c\u7d22\u7b56\u7565"},
+    "tune_fixed":    {"en": "Fixed Grid", "zh": "\u56fa\u5b9a\u7f51\u683c"},
+    "tune_fixed_d":  {"en": "Fast, predefined hyperparameters",
+                      "zh": "\u5feb\u901f\uff0c\u9884\u5b9a\u4e49\u8d85\u53c2\u6570"},
+    "tune_random":   {"en": "Random Search", "zh": "\u968f\u673a\u641c\u7d22"},
+    "tune_random_d": {"en": "Sample random combinations",
+                      "zh": "\u968f\u673a\u91c7\u6837\u8d85\u53c2\u6570\u7ec4\u5408"},
+    "tune_optuna":   {"en": "Optuna (Bayesian)", "zh": "Optuna\uff08\u8d1d\u53f6\u65af\u4f18\u5316\uff09"},
+    "tune_optuna_d": {"en": "Smart search, needs optuna package",
+                      "zh": "\u667a\u80fd\u641c\u7d22\uff0c\u9700\u5b89\u88c5 optuna"},
+
+    "pick_calib":    {"en": "Probability calibration", "zh": "\u6982\u7387\u6821\u51c6\u65b9\u6cd5"},
+    "calib_none":    {"en": "None", "zh": "\u65e0"},
+    "calib_sig":     {"en": "Sigmoid (Platt)", "zh": "Sigmoid (Platt)"},
+    "calib_iso":     {"en": "Isotonic", "zh": "Isotonic\uff08\u4fdd\u5e8f\uff09"},
+
+    "pick_device":   {"en": "Compute device", "zh": "\u8ba1\u7b97\u8bbe\u5907"},
+    "dev_auto":      {"en": "Auto", "zh": "\u81ea\u52a8"},
+    "dev_auto_d":    {"en": "MPS on Mac, CUDA if available, else CPU",
+                      "zh": "Mac \u7528 MPS\uff0c\u6709 CUDA \u7528 GPU\uff0c\u5426\u5219 CPU"},
+    "dev_cpu":       {"en": "CPU", "zh": "CPU"},
+    "dev_gpu":       {"en": "GPU / MPS", "zh": "GPU / MPS"},
+
     "c_file":        {"en": "File:", "zh": "\u6587\u4ef6\uff1a"},
     "c_pid":         {"en": "Patient ID:", "zh": "\u60a3\u8005 ID\uff1a"},
     "c_target":      {"en": "Target:", "zh": "\u76ee\u6807\uff1a"},
     "c_time":        {"en": "Time:", "zh": "\u65f6\u95f4\uff1a"},
     "c_strat":       {"en": "Strategy:", "zh": "\u7b56\u7565\uff1a"},
+    "c_ratio":       {"en": "Ratio:", "zh": "\u6bd4\u4f8b\uff1a"},
+    "c_models":      {"en": "Models:", "zh": "\u6a21\u578b\uff1a"},
+    "c_tuning":      {"en": "Tuning:", "zh": "\u8c03\u4f18\uff1a"},
+    "c_calib":       {"en": "Calibration:", "zh": "\u6821\u51c6\uff1a"},
+    "c_device":      {"en": "Device:", "zh": "\u8bbe\u5907\uff1a"},
     "c_output":      {"en": "Output:", "zh": "\u8f93\u51fa\uff1a"},
-    "c_none":        {"en": "(none)", "zh": "(\u65e0)"},
+    "c_none":        {"en": "(none)", "zh": "\uff08\u65e0\uff09"},
     "c_start":       {"en": "Start Pipeline", "zh": "\u5f00\u59cb\u8fd0\u884c"},
     "c_back":        {"en": "Go Back", "zh": "\u8fd4\u56de\u4fee\u6539"},
 
     "x_download":    {"en": "Downloading {ds}...", "zh": "\u6b63\u5728\u4e0b\u8f7d {ds}..."},
     "x_split":       {"en": "Splitting with safety checks...",
                       "zh": "\u6b63\u5728\u5b89\u5168\u5206\u5272..."},
+    "x_train":       {"en": "Training {n} model(s)...",
+                      "zh": "\u6b63\u5728\u8bad\u7ec3 {n} \u4e2a\u6a21\u578b..."},
     "x_pipeline":    {"en": "Running full pipeline...",
                       "zh": "\u6b63\u5728\u8fd0\u884c\u5b8c\u6574\u7ba1\u7ebf..."},
     "x_fail":        {"en": "Failed.", "zh": "\u5931\u8d25\u3002"},
 
     "r_done":        {"en": "Complete!", "zh": "\u5b8c\u6210\uff01"},
     "r_split_ok":    {"en": "Split Complete!", "zh": "\u5206\u5272\u5b8c\u6210\uff01"},
+    "r_train_ok":    {"en": "Training Complete!", "zh": "\u8bad\u7ec3\u5b8c\u6210\uff01"},
     "r_saved":       {"en": "Saved to:", "zh": "\u4fdd\u5b58\u81f3\uff1a"},
-    "r_next":        {"en": "Data ready. Re-run wizard and choose Demo to train.",
-                      "zh": "\u6570\u636e\u5df2\u5c31\u7eea\u3002\u91cd\u65b0\u8fd0\u884c\u5e76\u9009\u62e9\u6f14\u793a\u6a21\u5f0f\u53ef\u5f00\u59cb\u8bad\u7ec3\u3002"},
+    "r_next":        {"en": "All done! Results saved to output directory.",
+                      "zh": "\u5168\u90e8\u5b8c\u6210\uff01\u7ed3\u679c\u5df2\u4fdd\u5b58\u81f3\u8f93\u51fa\u76ee\u5f55\u3002"},
 
     "rows":          {"en": "rows", "zh": "\u884c"},
     "patients":      {"en": "patients", "zh": "\u60a3\u8005"},
@@ -219,7 +271,9 @@ def _getch() -> str:
             if ch in (b"\r", b"\n"): return "ENTER"
             if ch == b"\x03": return "CTRL_C"
             if ch == b"\x04": return "CTRL_D"
+            if ch == b" ": return "SPACE"
             if ch == b"q": return "Q"
+            if ch == b"a": return "A"
             return ch.decode("latin-1")
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -304,6 +358,76 @@ def select(options: List[str], descs: Optional[List[str]] = None,
         _draw()
 
 
+def multi_select(options: List[str], descs: Optional[List[str]] = None,
+                 title: str = "", defaults: Optional[List[int]] = None) -> Optional[List[int]]:
+    """Multi-select with checkboxes. Returns list of indices or None on quit."""
+    sel = 0
+    n = len(options)
+    if n == 0:
+        return None
+    has_desc = descs and len(descs) == n
+    checked: set = set(defaults or [])
+    maxw = _cols() - 10
+
+    def _draw() -> None:
+        sys.stdout.write(HIDE_CUR); sys.stdout.flush()
+        if title:
+            print(f"  {s('C', title, bold=True)}")
+            print()
+        for i in range(n):
+            mark = s('G', '\u2713') if i in checked else ' '
+            lbl = _trunc(options[i], maxw - 10)
+            if i == sel:
+                line = f"  {s('C','>', bold=True)} [{mark}] {BG['b']}{FG['W']}{BOLD}{lbl}{RST}"
+                desc_room = maxw - _wlen(options[i]) - 14
+                if has_desc and descs[i] and desc_room > 8:
+                    d = _trunc(descs[i], desc_room)
+                    line += f"  {s('C', d)}"
+                print(line)
+            else:
+                line = f"    [{mark}] {DIM}{lbl}{RST}"
+                desc_room = maxw - _wlen(options[i]) - 14
+                if has_desc and descs[i] and desc_room > 8:
+                    d = _trunc(descs[i], desc_room)
+                    line += f"  {DIM}{d}{RST}"
+                print(line)
+        print()
+        print(f"  {DIM}{t('ms_hint')}{RST}")
+
+    title_lines = 2 if title else 0
+    line_count = n + title_lines + 2
+
+    _draw()
+    while True:
+        key = _getch()
+        if key == "UP" and sel > 0:
+            sel -= 1
+        elif key == "DOWN" and sel < n - 1:
+            sel += 1
+        elif key == "SPACE":
+            if sel in checked:
+                checked.discard(sel)
+            else:
+                checked.add(sel)
+        elif key == "A":
+            if len(checked) == n:
+                checked.clear()
+            else:
+                checked = set(range(n))
+        elif key == "ENTER":
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            return sorted(checked)
+        elif key in ("Q", "CTRL_C", "CTRL_D", "ESC"):
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            return None
+        else:
+            continue
+        for _ in range(line_count):
+            sys.stdout.write(f"{UP_LINE}{ERASE}")
+        sys.stdout.write("\r"); sys.stdout.flush()
+        _draw()
+
+
 def box(title: str, lines: List[str], color: str = "C") -> None:
     maxw = _cols() - 6
     w = min(max(max((_wlen(l) for l in lines), default=0), _wlen(title)) + 4, maxw)
@@ -347,25 +471,6 @@ def run_spinner(cmd: List[str], label: str, cwd: str = "") -> Tuple[int, str, st
         p = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT),
                            capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
-
-
-def render_steps(steps: List[Tuple[str, str]]) -> None:
-    for i, (label, st) in enumerate(steps):
-        num = f"{i+1}/{len(steps)}"
-        if st == "running":
-            print(f"  {s('C', num, True)}  {s('C','>>>')}  {s('W', label, True)}")
-        elif st == "done":
-            print(f"  {s('G', num)}  {s('G','[ok]')}  {s('W', label)}")
-        elif st == "fail":
-            print(f"  {s('R', num)}  {s('R','[!!]')}  {s('R', label)}")
-        else:
-            print(f"  {DIM}{num}  [ ]  {label}{RST}")
-
-
-def erase_n(n: int) -> None:
-    for _ in range(n):
-        sys.stdout.write(f"{UP_LINE}{ERASE}")
-    sys.stdout.write("\r"); sys.stdout.flush()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -452,6 +557,24 @@ LOGO = f"""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  MODEL POOL
+# ══════════════════════════════════════════════════════════════════════════════
+
+MODEL_POOL = [
+    ("logistic_l1",               "m_logistic_l1"),
+    ("logistic_l2",               "m_logistic_l2"),
+    ("logistic_elasticnet",       "m_elasticnet"),
+    ("random_forest_balanced",    "m_rf"),
+    ("extra_trees_balanced",      "m_extra"),
+    ("hist_gradient_boosting_l2", "m_hgb"),
+    ("adaboost",                  "m_ada"),
+    ("xgboost",                   "m_xgb"),
+    ("catboost",                  "m_cat"),
+]
+DEFAULT_MODELS = [0, 1, 3, 5]  # L1, L2, RF, HGB
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  WIZARD STEPS
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -491,6 +614,13 @@ def step_dataset(state: Dict) -> Any:
         state["target"] = "y"
         state["time"] = "event_time"
         state["strategy"] = "grouped_temporal"
+        state["train_ratio"] = 0.6
+        state["valid_ratio"] = 0.2
+        state["test_ratio"] = 0.2
+        state["model_pool"] = ""
+        state["hyperparam_search"] = "fixed_grid"
+        state["calibration"] = "none"
+        state["device"] = "auto"
         state["out_dir"] = str(DEFAULT_OUT / "pipeline")
         return SKIP
 
@@ -513,7 +643,6 @@ def step_dataset(state: Dict) -> Any:
         state["pid"] = "patient_id"
         state["target"] = "y"
         state["time"] = "event_time"
-        state["strategy"] = "grouped_temporal"
         return True
 
     # source == "csv"
@@ -551,6 +680,7 @@ def step_dataset(state: Dict) -> Any:
 
 
 def step_config(state: Dict) -> Any:
+    """Column selection -- Patient ID + Target (CSV mode only)."""
     if state.get("source") in ("demo", "download"):
         return SKIP
 
@@ -569,6 +699,9 @@ def step_config(state: Dict) -> Any:
 
     detected = detect_columns(columns)
     rows = csv_rows(Path(csv_path))
+    state["_columns"] = columns
+    state["_detected"] = detected
+    state["_rows"] = rows
 
     def _config_header(*chosen: Tuple[str, str]) -> None:
         _clear()
@@ -585,7 +718,7 @@ def step_config(state: Dict) -> Any:
             print(f"  {s('G', '\u2713')} {label} {s('W', value)}")
         print()
 
-    # Patient ID -- put auto-detected first
+    # Patient ID
     _config_header()
     pid_opts = columns[:]
     if detected["pid"] and detected["pid"] in pid_opts:
@@ -606,8 +739,21 @@ def step_config(state: Dict) -> Any:
     if ti < 0: return BACK
     tgt = tgt_opts[ti]
 
+    state["pid"] = pid
+    state["target"] = tgt
+    return True
+
+
+def step_split(state: Dict) -> Any:
+    """Strategy + time column (if temporal) + split ratio."""
+    if state.get("source") == "demo":
+        return SKIP
+
+    source = state["source"]
+    _clear()
+    step_header(5, TOTAL_STEPS, t("s_split"))
+
     # Strategy
-    _config_header((t("c_pid"), pid), (t("c_target"), tgt))
     si = select(
         [t("strat_temporal"), t("strat_random"), t("strat_stratified")],
         [t("strat_temporal_d"), t("strat_random_d"), t("strat_stratified_d")],
@@ -615,38 +761,121 @@ def step_config(state: Dict) -> Any:
     )
     if si < 0: return BACK
     strat = ["grouped_temporal", "grouped_random", "stratified_grouped"][si]
+    state["strategy"] = strat
 
-    # Time column
+    # Time column (if temporal strategy)
     tcol = ""
     if strat == "grouped_temporal":
-        _config_header((t("c_pid"), pid), (t("c_target"), tgt), (t("c_strat"), strat))
-        rem2 = [c for c in columns if c not in (pid, tgt)]
-        if not rem2:
-            print(f"  {s('R', t('no_time_col'))}")
-            sys.stdout.write(SHOW_CUR)
-            try:
-                input(f"  {DIM}{t('enter_continue')}{RST}")
-            except (EOFError, KeyboardInterrupt):
-                pass
-            return BACK
-        time_opts = rem2[:]
-        if detected["time"] and detected["time"] in time_opts:
-            time_opts.remove(detected["time"])
-            time_opts.insert(0, detected["time"])
-        tci = select(time_opts, title=t("pick_time"))
-        if tci < 0: return BACK
-        tcol = time_opts[tci]
-
-    state["pid"] = pid
-    state["target"] = tgt
-    state["strategy"] = strat
+        if source == "csv":
+            columns = state.get("_columns", [])
+            pid = state.get("pid", "")
+            tgt = state.get("target", "")
+            detected = state.get("_detected", {})
+            rem = [c for c in columns if c not in (pid, tgt)]
+            if not rem:
+                print(f"\n  {s('R', t('no_time_col'))}")
+                sys.stdout.write(SHOW_CUR)
+                try:
+                    input(f"  {DIM}{t('enter_continue')}{RST}")
+                except (EOFError, KeyboardInterrupt):
+                    pass
+                return BACK
+            _clear()
+            step_header(5, TOTAL_STEPS, t("s_split"))
+            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}\n")
+            time_opts = rem[:]
+            if detected.get("time") and detected["time"] in time_opts:
+                time_opts.remove(detected["time"])
+                time_opts.insert(0, detected["time"])
+            tci = select(time_opts, title=t("pick_time"))
+            if tci < 0: return BACK
+            tcol = time_opts[tci]
+        else:
+            tcol = state.get("time", "event_time")
     state["time"] = tcol
+
+    # Ratio
+    _clear()
+    step_header(5, TOTAL_STEPS, t("s_split"))
+    print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+    if tcol:
+        print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+    print()
+    ri = select(
+        [t("ratio_60"), t("ratio_70"), t("ratio_80")],
+        title=t("pick_ratio"),
+    )
+    if ri < 0: return BACK
+    ratios = [(0.6, 0.2, 0.2), (0.7, 0.15, 0.15), (0.8, 0.1, 0.1)]
+    state["train_ratio"], state["valid_ratio"], state["test_ratio"] = ratios[ri]
+    return True
+
+
+def step_models(state: Dict) -> Any:
+    """Multi-select model families."""
+    if state.get("source") == "demo":
+        return SKIP
+
+    _clear()
+    step_header(6, TOTAL_STEPS, t("s_models"))
+
+    labels = [t(key) for _, key in MODEL_POOL]
+    selected = multi_select(labels, title=t("pick_models"), defaults=DEFAULT_MODELS)
+    if selected is None:
+        return BACK
+    if not selected:
+        selected = list(DEFAULT_MODELS)
+    state["model_pool"] = ",".join(MODEL_POOL[i][0] for i in selected)
+    state["_model_labels"] = [labels[i] for i in selected]
+    return True
+
+
+def step_tuning(state: Dict) -> Any:
+    """Tuning strategy + calibration + device."""
+    if state.get("source") == "demo":
+        return SKIP
+
+    _clear()
+    step_header(7, TOTAL_STEPS, t("s_tuning"))
+
+    # Tuning strategy
+    ti = select(
+        [t("tune_fixed"), t("tune_random"), t("tune_optuna")],
+        [t("tune_fixed_d"), t("tune_random_d"), t("tune_optuna_d")],
+        title=t("pick_tuning"),
+    )
+    if ti < 0: return BACK
+    state["hyperparam_search"] = ["fixed_grid", "random_subsample", "optuna"][ti]
+
+    # Calibration
+    _clear()
+    step_header(7, TOTAL_STEPS, t("s_tuning"))
+    print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
+    ci = select(
+        [t("calib_none"), t("calib_sig"), t("calib_iso")],
+        title=t("pick_calib"),
+    )
+    if ci < 0: return BACK
+    state["calibration"] = ["none", "sigmoid", "isotonic"][ci]
+
+    # Device
+    _clear()
+    step_header(7, TOTAL_STEPS, t("s_tuning"))
+    print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+    print(f"  {s('G', '\u2713')} {t('c_calib')} {s('W', state['calibration'])}\n")
+    di = select(
+        [t("dev_auto"), t("dev_cpu"), t("dev_gpu")],
+        [t("dev_auto_d"), "", ""],
+        title=t("pick_device"),
+    )
+    if di < 0: return BACK
+    state["device"] = ["auto", "cpu", "gpu"][di]
     return True
 
 
 def step_confirm(state: Dict) -> Any:
     _clear()
-    step_header(5, TOTAL_STEPS, t("s_confirm"))
+    step_header(8, TOTAL_STEPS, t("s_confirm"))
 
     if state["dataset_key"] == "demo":
         box("Demo Pipeline", [
@@ -656,14 +885,24 @@ def step_confirm(state: Dict) -> Any:
         ], color="C")
     else:
         fname = Path(state["csv_path"]).name if state.get("csv_path") else "?"
-        box(t("s_confirm"), [
-            f"{t('c_file')}    {fname}",
-            f"{t('c_pid')}     {state.get('pid', '?')}",
-            f"{t('c_target')}  {state.get('target', '?')}",
-            f"{t('c_time')}    {state.get('time') or t('c_none')}",
-            f"{t('c_strat')}   {state.get('strategy', '?')}",
-            f"{t('c_output')}  {state['out_dir']}/",
-        ], color="C")
+        ratio_str = f"{int(state.get('train_ratio',0.6)*100)}/{int(state.get('valid_ratio',0.2)*100)}/{int(state.get('test_ratio',0.2)*100)}"
+        models_str = ", ".join(state.get("_model_labels", ["?"]))
+        lines = [
+            f"{t('c_file')}      {fname}",
+            f"{t('c_pid')}       {state.get('pid', '?')}",
+            f"{t('c_target')}    {state.get('target', '?')}",
+            f"{t('c_time')}      {state.get('time') or t('c_none')}",
+            f"{t('c_strat')}     {state.get('strategy', '?')}",
+            f"{t('c_ratio')}     {ratio_str}",
+            "",
+            f"{t('c_models')}    {models_str}",
+            f"{t('c_tuning')}    {state.get('hyperparam_search', '?')}",
+            f"{t('c_calib')}     {state.get('calibration', '?')}",
+            f"{t('c_device')}    {state.get('device', '?')}",
+            "",
+            f"{t('c_output')}    {state['out_dir']}/",
+        ]
+        box(t("s_confirm"), lines, color="C")
 
     print()
     ci = select([t("c_start"), t("c_back")])
@@ -674,7 +913,7 @@ def step_confirm(state: Dict) -> Any:
 
 def step_run(state: Dict) -> Any:
     _clear()
-    step_header(6, TOTAL_STEPS, t("s_run"))
+    step_header(9, TOTAL_STEPS, t("s_run"))
 
     source = state["source"]
 
@@ -700,44 +939,40 @@ def step_run(state: Dict) -> Any:
                     print(f"  {DIM}{l}{RST}")
         return True
 
-    # ── Download + Split flow ──
-    steps_list: List[Tuple[str, str]] = []
+    # ── Download + Split + Train flow ──
+    completed: List[Tuple[str, str]] = []  # (label, "done"|"fail")
+    out_data = str(Path(state["out_dir"]) / "data")
+
+    def _progress() -> None:
+        for label, st in completed:
+            icon = s('G', '[ok]') if st == "done" else s('R', '[!!]')
+            clr = 'W' if st == "done" else 'R'
+            print(f"  {icon}  {s(clr, label)}")
+
+    # ── Phase 1: Download ──
     if source == "download":
         ds_names = {"heart": t("ds_heart"), "breast": t("ds_breast"), "ckd": t("ds_kidney")}
         ds_label = ds_names.get(state.get("dataset_key", ""), state.get("dataset_key", ""))
-        steps_list.append((t("x_download", ds=ds_label), "pending"))
-    steps_list.append((t("x_split"), "pending"))
-
-    print()
-    render_steps(steps_list)
-    step_idx = 0
-
-    # Download if needed
-    if source == "download":
-        erase_n(len(steps_list))
-        steps_list[0] = (steps_list[0][0], "running")
-        render_steps(steps_list)
+        dl_label = t("x_download", ds=ds_label)
 
         rc, _, err = run_spinner(
             [sys.executable, str(EXAMPLES_DIR / "download_real_data.py"),
              state["dataset_key"]],
-            steps_list[0][0],
+            dl_label,
         )
-        erase_n(len(steps_list))
         if rc != 0:
-            steps_list[0] = (steps_list[0][0], "fail")
-            render_steps(steps_list)
+            completed.append((dl_label, "fail"))
+            _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
             print(f"\n  {s('R', t('x_fail'))}")
+            if err:
+                for l in err.strip().split("\n")[-3:]:
+                    print(f"  {DIM}{l}{RST}")
             return True
-        steps_list[0] = (steps_list[0][0], "done")
-        step_idx = 1
+        completed.append((dl_label, "done"))
 
-    # Split
-    erase_n(len(steps_list))
-    steps_list[step_idx] = (steps_list[step_idx][0], "running")
-    render_steps(steps_list)
-
-    out_data = str(Path(state["out_dir"]) / "data")
+    # ── Phase 2: Split ──
+    _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+    split_label = t("x_split")
     csv_path = state["csv_path"]
 
     cmd = [
@@ -745,26 +980,26 @@ def step_run(state: Dict) -> Any:
         "--input", csv_path, "--output-dir", out_data,
         "--patient-id-col", state["pid"], "--target-col", state["target"],
         "--strategy", state["strategy"],
+        "--train-ratio", str(state["train_ratio"]),
+        "--valid-ratio", str(state["valid_ratio"]),
+        "--test-ratio", str(state["test_ratio"]),
     ]
     if state.get("time"):
         cmd.extend(["--time-col", state["time"]])
 
-    rc, _, err = run_spinner(cmd, steps_list[step_idx][0])
-    erase_n(len(steps_list))
-
+    rc, _, err = run_spinner(cmd, split_label)
     if rc != 0:
-        steps_list[step_idx] = (steps_list[step_idx][0], "fail")
-        render_steps(steps_list)
+        completed.append((split_label, "fail"))
+        _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
         print(f"\n  {s('R', t('x_fail'))}")
         if err:
             for l in err.strip().split("\n")[-3:]:
                 print(f"  {DIM}{l}{RST}")
         return True
+    completed.append((split_label, "done"))
 
-    steps_list[step_idx] = (steps_list[step_idx][0], "done")
-    render_steps(steps_list)
-
-    # Show results
+    # Show split results
+    _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
     try:
         import pandas as pd
         tr = pd.read_csv(Path(out_data) / "train.csv")
@@ -776,10 +1011,61 @@ def step_run(state: Dict) -> Any:
             f"train.csv  {len(tr):>5} {t('rows')}  {tr[pid_col].nunique():>4} {t('patients')}",
             f"valid.csv  {len(va):>5} {t('rows')}  {va[pid_col].nunique():>4} {t('patients')}",
             f"test.csv   {len(te):>5} {t('rows')}  {te[pid_col].nunique():>4} {t('patients')}",
-            "", f"{t('r_saved')} {out_data}/",
         ], color="G")
     except Exception:
         print(f"\n  {s('G', '[ok]', True)} {out_data}/")
+    print()
+
+    # ── Phase 3: Train ──
+    model_count = len(state.get("model_pool", "").split(","))
+    train_label = t("x_train", n=model_count)
+
+    evidence_dir = str(Path(state["out_dir"]) / "evidence")
+    models_dir = str(Path(state["out_dir"]) / "models")
+    Path(evidence_dir).mkdir(parents=True, exist_ok=True)
+    Path(models_dir).mkdir(parents=True, exist_ok=True)
+
+    ignore_cols = state["pid"]
+    if state.get("time"):
+        ignore_cols += "," + state["time"]
+
+    train_cmd = [
+        sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
+        "--train", str(Path(out_data) / "train.csv"),
+        "--valid", str(Path(out_data) / "valid.csv"),
+        "--test", str(Path(out_data) / "test.csv"),
+        "--target-col", state["target"],
+        "--patient-id-col", state["pid"],
+        "--ignore-cols", ignore_cols,
+        "--model-pool", state["model_pool"],
+        "--hyperparam-search", state["hyperparam_search"],
+        "--calibration-method", state["calibration"],
+        "--device", state["device"],
+        "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
+        "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
+        "--model-out", str(Path(models_dir) / "model.pkl"),
+    ]
+
+    rc, _, err = run_spinner(train_cmd, train_label)
+    if rc != 0:
+        completed.append((train_label, "fail"))
+        _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+        print(f"\n  {s('R', t('x_fail'))}")
+        if err:
+            for l in err.strip().split("\n")[-5:]:
+                print(f"  {DIM}{l}{RST}")
+        return True
+    completed.append((train_label, "done"))
+
+    # Show final results
+    _clear(); step_header(9, TOTAL_STEPS, t("s_run")); _progress()
+    print()
+    box(t("r_train_ok"), [
+        f"{t('c_output')} {state['out_dir']}/",
+        "  evidence/  -- model_selection_report, evaluation_report",
+        "  models/    -- trained model artifact",
+        "  data/      -- train / valid / test splits",
+    ], color="G")
 
     print(f"\n  {DIM}{t('r_next')}{RST}")
     return True
@@ -795,8 +1081,9 @@ def wizard() -> int:
 
     state: Dict[str, Any] = {}
     steps = [step_lang, step_source, step_dataset, step_config,
+             step_split, step_models, step_tuning,
              step_confirm, step_run]
-    skipped: set = set()  # steps that auto-skipped (no user interaction)
+    skipped: set = set()
     i = 0
 
     while i < len(steps):
@@ -811,7 +1098,6 @@ def wizard() -> int:
                 print(f"\n  {s('C', t('bye'))}\n")
                 return 0
             i -= 1
-            # Skip over auto-skipped steps when going backward
             while i > 0 and i in skipped:
                 i -= 1
         elif result is SKIP:
@@ -823,7 +1109,6 @@ def wizard() -> int:
 
     print()
     sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-    # Flush any keys buffered during spinner execution
     try:
         import termios
         termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
