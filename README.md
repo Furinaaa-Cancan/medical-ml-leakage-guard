@@ -9,15 +9,27 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 ## English Guide
 
 ### 1. What This Repository Does
+
+**Data leakage** in medical ML means information from outside the intended training scope (e.g., test labels, future timestamps, disease-defining variables) accidentally influences model training. This inflates reported performance and can lead to unsafe clinical decisions.
+
+This repository:
 - Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
-- Enforces publication-grade checks for:
-  - definition-variable leakage
-  - feature lineage leakage
-  - split/time contamination
-  - model-selection/tuning leakage
-  - threshold/calibration misuse
-  - external cohort transport robustness
+- Enforces **28 sequential fail-closed gates** covering:
+  - definition-variable leakage (disease-defining features used as predictors)
+  - feature lineage leakage (features derived from post-index-time data)
+  - split/time contamination (patient overlap or temporal ordering violations)
+  - model-selection/tuning leakage (validation/test data used in hyperparameter search)
+  - threshold/calibration misuse (threshold optimized on test set)
+  - external cohort transport robustness (performance degradation on unseen cohorts)
 - Outputs machine-checkable evidence and gate reports for release decisions.
+- Every gate is **binary pass/fail**: all 28 must pass for a publication-grade claim.
+
+**Architecture overview**: the pipeline runs as `request contract validation → data fingerprinting → execution attestation → leakage/protocol gates → model audit gates → external validation gates → aggregated publication gate → self-critique scoring`. Each gate is an independent CLI script producing a JSON report.
+
+**Expected runtime**:
+- Onboarding demo (guided mode): ~3-8 minutes depending on hardware
+- Full release benchmark suite (`--profile release`): ~30-90 minutes
+- Extended benchmark (`--profile extended`): ~2-6 hours
 
 ---
 
@@ -71,11 +83,6 @@ This runs a fixed 8-step strict flow:
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
 ```
 
-说明：
-- preview 模式会写入 `display_status=preview` 和 `preview_only=true`。
-- preview 只生成命令计划，不执行训练与 gate。
-
-Note:
 - Preview mode writes `display_status=preview` and `preview_only=true`.
 - Preview mode only emits a command plan and does not execute training/gates.
 
@@ -375,23 +382,38 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 ---
 
 ### 10. Scope Notes
-- This repository is for predictive modeling rigor, not causal inference claims.
-- Publication-grade claim is valid only when strict gates all pass.
+- This repository is for **predictive modeling rigor**, not causal inference claims.
+- Publication-grade claim is valid only when all 28 strict gates pass (`status: pass` in `publication_gate_report.json`).
+- The system does **not** train models for you automatically in production — it validates that your training process is leakage-safe and reproducible.
+- Supported task type: **binary classification** only. Multi-class, regression, and survival analysis are out of scope.
+- The 28-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
 
 ---
 
 ## 中文指南
 
 ### 1. 这个仓库是做什么的
+
+**数据泄漏**在医学机器学习中指：训练范围之外的信息（如测试标签、未来时间戳、疾病定义变量）意外地影响了模型训练，导致报告性能虚高，可能引发不安全的临床决策。
+
+本仓库：
 - 用于**医学二分类预测**的严格工程化流程。
-- 专门阻断高风险泄漏路径：
-  - 疾病定义变量泄漏
-  - 特征血缘泄漏
-  - 划分/时间污染
-  - 调参与模型选择泄漏
-  - 阈值与校准误用
-  - 外部队列迁移鲁棒性不足
+- 执行 **28 步顺序 fail-closed 门控**，覆盖：
+  - 疾病定义变量泄漏（定义疾病的特征被用作预测因子）
+  - 特征血缘泄漏（特征来自索引时间之后的数据）
+  - 划分/时间污染（患者重叠或时间序不一致）
+  - 调参与模型选择泄漏（验证集/测试集参与超参搜索）
+  - 阈值与校准误用（阈值在测试集上优化）
+  - 外部队列迁移鲁棒性不足（在未见队列上的性能退化）
 - 输出可机器校验的证据工件和发布门结果。
+- 每个门控都是**二元 pass/fail**：28 个全部通过才能声称 publication-grade。
+
+**架构概览**：管线按 `请求契约验证 → 数据指纹锁定 → 执行证明 → 泄漏/协议门 → 模型审计门 → 外部验证门 → 聚合发布门 → 自评分` 顺序执行。每个 gate 是独立 CLI 脚本，输出 JSON 报告。
+
+**预期运行时间**：
+- 新手引导 demo（guided 模式）：约 3-8 分钟（取决于硬件）
+- 完整发布级基准套件（`--profile release`）：约 30-90 分钟
+- 扩展基准（`--profile extended`）：约 2-6 小时
 
 ---
 
@@ -444,6 +466,9 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided -
 ```bash
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
 ```
+
+- preview 模式会写入 `display_status=preview` 和 `preview_only=true`。
+- preview 只生成命令计划，不执行训练与 gate。
 
 #### 3.3 失败后继续收集完整诊断
 
@@ -742,5 +767,8 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 ---
 
 ### 10. 范围说明
-- 本项目是预测建模严谨性系统，不直接支持因果推断声明。
-- 要宣称 publication-grade，必须严格门全部通过。
+- 本项目是**预测建模严谨性**系统，不直接支持因果推断声明。
+- 要宣称 publication-grade，必须 28 个严格门全部通过（`publication_gate_report.json` 中 `status: pass`）。
+- 系统**不会**自动为你在生产环境训练模型——它验证你的训练流程是否防泄漏且可复现。
+- 支持任务类型：仅限**二分类**。多分类、回归和生存分析不在范围内。
+- 28 步管线是**确定性且 fail-closed** 的：任何一个 gate 失败都会阻断整个发布级声明，没有手动覆盖机制。
