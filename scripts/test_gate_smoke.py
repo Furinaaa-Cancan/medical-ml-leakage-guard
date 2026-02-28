@@ -687,6 +687,8 @@ def test_release_benchmark_contract_v2_fields_present() -> None:
         assert_true("dataset_registry_sha256" in report, "benchmark report includes dataset_registry_sha256")
         assert_true("blocking_suite_ids" in report, "benchmark report includes blocking_suite_ids")
         assert_true("nonblocking_suite_ids" in report, "benchmark report includes nonblocking_suite_ids")
+        assert_true("blocking_failure_codes" in report, "benchmark report includes blocking_failure_codes")
+        assert_true("observational_failure_codes" in report, "benchmark report includes observational_failure_codes")
 
 
 def test_release_benchmark_blocking_failure_sets_standard_code() -> None:
@@ -938,6 +940,15 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
         assert_true(proc.returncode == 0, "benchmark with non-blocking authority failure still exits 0")
         report = load_report(out)
         assert_true(report.get("overall_status") == "pass", "overall status remains pass with non-blocking failure")
+        assert_true(
+            isinstance(report.get("blocking_failure_codes"), list) and len(report.get("blocking_failure_codes")) == 0,
+            "blocking_failure_codes remains empty",
+        )
+        assert_true(
+            isinstance(report.get("observational_failure_codes"), list)
+            and "clinical_floor_npv_not_met" in report.get("observational_failure_codes", []),
+            "observational_failure_codes includes non-blocking clinical code",
+        )
         obs_items = report.get("observational_diagnostics", [])
         assert_true(isinstance(obs_items, list) and len(obs_items) == 1, "observational_diagnostics contains one failed non-blocking suite")
         first = obs_items[0] if obs_items else {}
@@ -957,6 +968,77 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
             diag_payload.get("contract_version") == "release_benchmark_observational_diagnostics.v1",
             "observational diagnostics sidecar contract version matches",
         )
+
+
+def test_release_benchmark_repeat_outputs_are_not_overwritten() -> None:
+    print("\n=== benchmark-suite: repeat outputs keep per-repeat summary files ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        fake_python = td / "fake_python_repeat_outputs.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "printf '{\"overall_status\":\"pass\",\"passed_count\":1,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":true,\"observed_codes\":[]}]}' > \"$out\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "2",
+                "--python",
+                str(fake_python),
+            ]
+        )
+        assert_true(proc.returncode == 0, "benchmark repeat outputs run exits 0")
+        report = load_report(out)
+        suite_runs = report.get("suite_runs", [])
+        summary_files = [
+            str(row.get("summary_file", ""))
+            for row in suite_runs
+            if isinstance(row, dict) and str(row.get("suite_id")) == "adversarial_fail_closed"
+        ]
+        assert_true(len(summary_files) == 2, "two repeat rows present for adversarial suite")
+        assert_true(
+            len(set(summary_files)) == 2,
+            "repeat summary files are unique per repeat index",
+        )
+        assert_true(any(".r1.json" in path for path in summary_files), "repeat summary includes r1 suffix")
+        assert_true(any(".r2.json" in path for path in summary_files), "repeat summary includes r2 suffix")
 
 
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
@@ -1589,6 +1671,7 @@ def main() -> int:
     test_release_benchmark_registry_mismatch_detected()
     test_release_benchmark_repeat_inconsistency_detected()
     test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failures()
+    test_release_benchmark_repeat_outputs_are_not_overwritten()
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()

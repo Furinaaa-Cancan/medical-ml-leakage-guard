@@ -323,36 +323,75 @@ def parse_bool_env(name: str, default: bool = False) -> bool:
 def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
     """
     Serialize per-case filesystem mutations to avoid concurrent rmtree/write races.
-    On non-posix platforms (no fcntl), fallback to no-op lock.
+    - POSIX: advisory lock via fcntl.flock
+    - Non-POSIX fallback: lockfile O_CREAT|O_EXCL spin lock
     """
-    if fcntl is None:
-        yield
-        return
-
     lock_dir = DATA_ROOT / "_locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / f"{str(case_id).strip().lower() or 'unknown'}.lock"
     started = time.time()
-    with lock_path.open("a+", encoding="utf-8") as fh:
-        while True:
+    owner_token = (
+        f"pid={os.getpid()} acquired_at={datetime.now(tz=timezone.utc).isoformat()} case_id={case_id}\n"
+    )
+
+    if fcntl is not None:
+        with lock_path.open("a+", encoding="utf-8") as fh:
+            while True:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if (time.time() - started) > float(timeout_seconds):
+                        raise TimeoutError(f"case_run_lock_timeout: case_id={case_id} lock={lock_path}")
+                    time.sleep(0.2)
             try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if (time.time() - started) > float(timeout_seconds):
-                    raise TimeoutError(f"case_run_lock_timeout: case_id={case_id} lock={lock_path}")
-                time.sleep(0.2)
+                fh.seek(0)
+                fh.truncate(0)
+                fh.write(owner_token)
+                fh.flush()
+                os.fsync(fh.fileno())
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return
+
+    # Cross-platform fallback (no fcntl): create-once lock file.
+    acquired = False
+    while not acquired:
         try:
-            fh.seek(0)
-            fh.truncate(0)
-            fh.write(
-                f"pid={os.getpid()} acquired_at={datetime.now(tz=timezone.utc).isoformat()} case_id={case_id}\n"
-            )
-            fh.flush()
-            os.fsync(fh.fileno())
-            yield
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(owner_token)
+                fh.flush()
+                os.fsync(fh.fileno())
+            acquired = True
+        except FileExistsError:
+            # Try stale lock eviction when lock age exceeds timeout.
+            try:
+                age = time.time() - float(lock_path.stat().st_mtime)
+            except OSError:
+                age = 0.0
+            if age > float(timeout_seconds):
+                try:
+                    lock_path.unlink()
+                except OSError:
+                    pass
+                continue
+            if (time.time() - started) > float(timeout_seconds):
+                raise TimeoutError(f"case_run_lock_timeout: case_id={case_id} lock={lock_path}")
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        try:
+            content = lock_path.read_text(encoding="utf-8")
+        except Exception:
+            content = ""
+        if content == owner_token:
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
 
 
 FAIL_LINE_RE = re.compile(r"^\[FAIL\]\s+([a-zA-Z0-9_]+)\s*:", re.MULTILINE)
