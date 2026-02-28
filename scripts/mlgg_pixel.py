@@ -60,7 +60,11 @@ def _wlen(text: str) -> int:
 def _cols() -> int:
     return shutil.get_terminal_size((80, 24)).columns
 
+_TEST_MODE = bool(os.environ.get("MLGG_TEST"))
+
 def _clear() -> None:
+    if _TEST_MODE:
+        return
     os.system("cls" if platform.system() == "Windows" else "clear")
 
 def _trunc(text: str, maxw: int) -> str:
@@ -257,7 +261,7 @@ def _getch() -> str:
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
-            tty.setraw(fd)
+            tty.setraw(fd, termios.TCSADRAIN)
             ch = os.read(fd, 1)
             if ch == b"\x1b":
                 if not sel_mod.select([fd], [], [], 0.05)[0]:
@@ -626,7 +630,8 @@ DEFAULT_MODELS = [0, 1, 3, 5]  # L1, L2, RF, HGB
 
 def step_lang(state: Dict) -> Any:
     _clear()
-    print(LOGO)
+    if not _TEST_MODE:
+        print(LOGO)
     step_header(1, TOTAL_STEPS, "")
     ci = select([t("lang_en"), t("lang_zh")], title=t("lang_title"), is_first=True)
     if ci < 0:
