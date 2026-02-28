@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from _gate_utils import load_json_from_path as load_json, write_json
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REFERENCES_ROOT = REPO_ROOT / "references"
@@ -43,23 +45,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true", help="Overwrite existing config files.")
     parser.add_argument("--report", help="Optional output JSON report path.")
     return parser.parse_args()
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError(f"JSON root must be object: {path}")
-    return payload
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-    tmp_path.replace(path)
 
 
 def copy_template_json(src_name: str, dst_path: Path, force: bool) -> str:

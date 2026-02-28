@@ -1058,9 +1058,8 @@ def finalize(
     }
 
     out_path = Path(args.report).expanduser().resolve() if args.report else reports["self_critique_report"].parent / "strict_pipeline_report.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as fh:
-        json.dump(summary, fh, ensure_ascii=True, indent=2)
+    from _gate_utils import write_json as _write_pipeline
+    _write_pipeline(out_path, summary)
 
     print(f"\nPipeline status: {summary['status']}")
     print(f"Pipeline report: {out_path}")

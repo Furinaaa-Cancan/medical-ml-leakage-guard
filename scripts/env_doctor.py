@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, write_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,15 +28,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strict", action="store_true", help="Treat optional warnings as failures.")
     parser.add_argument("--report", help="Optional output JSON report path.")
     return parser.parse_args()
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-    tmp_path.replace(path)
 
 
 def parse_required_optional(raw: str) -> List[str]:

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, write_json
 
 
 TARGET_ALIASES = ["y", "label", "target", "outcome", "class", "readmitted", "event"]
@@ -34,15 +34,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail when required columns need auto-mapping.")
     return parser.parse_args()
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-    tmp_path.replace(path)
 
 
 def normalize_col(name: str) -> str:

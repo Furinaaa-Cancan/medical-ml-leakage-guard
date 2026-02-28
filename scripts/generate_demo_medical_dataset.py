@@ -203,10 +203,8 @@ def main() -> int:
         if args.report
         else (project_root / "evidence" / "demo_dataset_report.json").resolve()
     )
-    ensure_parent(report_path)
-    with report_path.open("w", encoding="utf-8") as fh:
-        json.dump(report, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
+    from _gate_utils import write_json as _write_report
+    _write_report(report_path, report)
 
     print("Status: pass")
     print(f"ProjectRoot: {project_root}")

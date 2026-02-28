@@ -212,9 +212,8 @@ def main() -> int:
                 manifest["errors"].append(f"Failed to read baseline manifest: {exc}")
 
     output_path = Path(args.output).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, ensure_ascii=True, indent=2)
+    from _gate_utils import write_json as _write_manifest
+    _write_manifest(output_path, manifest)
 
     if manifest["status"] != "pass":
         print("Status: fail")
@@ -230,9 +229,8 @@ def main() -> int:
 
 def write_and_exit(manifest: Dict[str, Any], output: str, code: int) -> int:
     output_path = Path(output).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, ensure_ascii=True, indent=2)
+    from _gate_utils import write_json as _write_manifest
+    _write_manifest(output_path, manifest)
     print(f"Status: {manifest.get('status', 'fail')}")
     for err in manifest.get("errors", []):
         print(f"[FAIL] {err}")

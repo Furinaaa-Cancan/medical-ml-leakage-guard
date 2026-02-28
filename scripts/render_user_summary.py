@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_utils import load_json_optional as load_json, write_json
+
 
 DEFAULT_GATE_FILES = {
     "strict_pipeline": "strict_pipeline_report.json",
@@ -29,25 +31,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-markdown", help="Output markdown path (default: evidence/user_summary.md).")
     parser.add_argument("--out-json", help="Output JSON path (default: evidence/user_summary.json).")
     return parser.parse_args()
-
-
-def load_json(path: Path) -> Optional[Dict[str, Any]]:
-    if not path.exists():
-        return None
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if isinstance(payload, dict):
-        return payload
-    return None
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-    tmp_path.replace(path)
 
 
 def write_text(path: Path, content: str) -> None:
