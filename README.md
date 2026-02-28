@@ -35,6 +35,12 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided -
 
 That's it! After step 5, check `/tmp/mlgg_demo/evidence/onboarding_report.json` for the result.
 
+**Prefer an interactive experience?** Launch the pixel-art guided menu:
+
+```bash
+python3 scripts/mlgg.py play
+```
+
 **Want to use real medical data instead of demo?** Download a real UCI dataset:
 
 ```bash
@@ -528,6 +534,12 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided -
 ```
 
 就这么简单！第 5 步完成后查看 `/tmp/mlgg_demo/evidence/onboarding_report.json` 即可看到结果。
+
+**喜欢交互式体验？** 启动像素风引导菜单：
+
+```bash
+python3 scripts/mlgg.py play
+```
 
 **想用真实医学数据代替 demo？** 一键下载 UCI 公开数据集：
 

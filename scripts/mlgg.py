@@ -60,6 +60,10 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         EXPERIMENTS_ROOT / "run_adversarial_gate_checks.py",
         "Run adversarial fail-closed gate scenarios.",
     ),
+    "play": (
+        SCRIPTS_ROOT / "mlgg_pixel.py",
+        "Launch pixel-art interactive CLI launcher (guided menu experience).",
+    ),
 }
 INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
 COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {
