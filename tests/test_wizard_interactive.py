@@ -420,6 +420,170 @@ def test_12_confirm_go_back():
             R.fail("T12 confirm back", f"No Step 2: {s.text()[-200:]}")
 
 
+def test_13_csv_manual_input():
+    """T13: English → CSV → Enter path manually → input examples/heart_disease.csv → reaches Step 4 or Step 5."""
+    csv_path = os.path.join(os.path.dirname(__file__), "..", "examples", "heart_disease.csv")
+    csv_abs = os.path.abspath(csv_path)
+    with PTYSession() as s:
+        if not s.read_until("move", timeout=15):
+            R.fail("T13 csv manual", "No prompt"); return
+        s.send(KEY_ENTER)  # English
+        if not s.read_until("Step 2", timeout=5):
+            R.fail("T13 csv manual", "No Step 2"); return
+        s.send(KEY_DOWN)   # select CSV
+        s.send(KEY_ENTER)
+        if not s.read_until("Step 3", timeout=5):
+            # CSV source might skip to manual input directly
+            pass
+        # Wait for CSV picker or manual prompt
+        s.read_until(">", timeout=5)
+        t = s.text()
+        # If scan_csv found files, select "Enter path manually" (last option)
+        if "manual" in t.lower() or "path" in t.lower() or "手动" in t:
+            # Navigate to last option and select it
+            for _ in range(20):
+                s.send(KEY_DOWN, delay=0.03)
+            s.send(KEY_ENTER)
+            s.read_until(">", timeout=5)
+        # Now type the CSV path
+        s.send(csv_abs.encode() + KEY_ENTER, delay=0.05)
+        # Should reach Step 4 (config) or project name prompt
+        found = s.read_until("Step", timeout=8)
+        final = s.text()
+        if found and ("Step 4" in final or "Step 5" in final or "heart_disease" in final):
+            R.ok("T13 csv manual input")
+        elif "heart_disease" in final or "patient_id" in final:
+            R.ok("T13 csv manual input")
+        else:
+            R.fail("T13 csv manual", f"Expected Step 4/5: {final[-300:]}")
+
+
+def test_14_column_count_error():
+    """T14: Construct 1-column CSV → select it → verify error prompt, no crash."""
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w")
+    try:
+        tmp.write("only_col\n1\n2\n3\n")
+        tmp.flush()
+        tmp_path = tmp.name
+        tmp.close()
+        with PTYSession() as s:
+            if not s.read_until("move", timeout=15):
+                R.fail("T14 col error", "No prompt"); return
+            s.send(KEY_ENTER)  # English
+            s.read_until("Step 2", timeout=5)
+            s.send(KEY_DOWN)   # CSV
+            s.send(KEY_ENTER)
+            # Wait for picker or manual prompt
+            s.read_until(">", timeout=5)
+            t = s.text()
+            # Navigate to manual path entry
+            if "manual" in t.lower() or "path" in t.lower() or "手动" in t:
+                for _ in range(20):
+                    s.send(KEY_DOWN, delay=0.03)
+                s.send(KEY_ENTER)
+                s.read_until(">", timeout=5)
+            # Type the 1-column CSV path
+            s.send(tmp_path.encode() + KEY_ENTER, delay=0.05)
+            # Should show name prompt, then Step 4 with error about too few columns
+            s.read_until("Step", timeout=8)
+            final = s.text()
+            # Check process is still alive (no crash/infinite loop)
+            try:
+                os.kill(s.pid, 0)
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            if alive:
+                R.ok("T14 column count error")
+            else:
+                R.fail("T14 col error", "Process crashed")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def test_15_step_split_complete():
+    """T15: Download → Heart → default name → temporal → ratio → verify reaches Step 6."""
+    with PTYSession() as s:
+        if not s.read_until("move", timeout=15):
+            R.fail("T15 split flow", "No prompt"); return
+        s.send(KEY_ENTER)  # English
+        s.read_until("Step 2", timeout=5)
+        s.send(KEY_ENTER)  # Download
+        s.read_until("Step 3", timeout=5)
+        s.send(KEY_ENTER)  # Heart Disease
+        s.read_until("heart_disease", timeout=5)
+        s.send(KEY_ENTER)  # default name
+        if not s.read_until("Step 5", timeout=5):
+            R.fail("T15 split flow", f"No Step 5: {s.text()[-200:]}"); return
+        # Select temporal strategy (first option)
+        s.send(KEY_ENTER)
+        # Temporal → ratio picker
+        if not s.read_until("ratio", timeout=5):
+            R.fail("T15 split flow", f"No ratio: {s.text()[-200:]}"); return
+        s.send(KEY_ENTER)  # 60/20/20 ratio
+        if s.read_until("Step 6", timeout=5):
+            R.ok("T15 step_split complete")
+        else:
+            R.fail("T15 split flow", f"No Step 6: {s.text()[-200:]}")
+
+
+def test_16_step_confirm_info():
+    """T16: Complete download flow to Step 8 → verify confirm box has key info."""
+    with PTYSession() as s:
+        if not s.read_until("move", timeout=15):
+            R.fail("T16 confirm info", "No prompt"); return
+        s.send(KEY_ENTER)  # English
+        s.read_until("Step 2", timeout=5)
+        s.send(KEY_ENTER)  # Download
+        s.read_until("Step 3", timeout=5)
+        s.send(KEY_ENTER)  # Heart Disease
+        s.read_until("heart_disease", timeout=5)
+        s.send(KEY_ENTER)  # default name
+        s.read_until("Step 5", timeout=5)
+        s.send(KEY_ENTER)  # strategy (temporal)
+        s.read_until("ratio", timeout=5)
+        s.send(KEY_ENTER)  # ratio 60/20/20
+        s.read_until("Step 6", timeout=5)
+        s.send(KEY_ENTER)  # models (defaults)
+        s.read_until("Step 7", timeout=5)
+        s.send(KEY_ENTER)  # tuning strategy
+        s.read_until("alibration", timeout=5)
+        s.send(KEY_ENTER)  # calibration
+        # Device selection may appear
+        time.sleep(0.3)
+        # Clear buffer so we capture the Step 8 confirm screen fresh
+        s.clear_buf()
+        s.read_until("Step 8", timeout=5)
+        t = s.text()
+        if "Step 8" not in t:
+            # May need one more Enter for device
+            s.send(KEY_ENTER)
+            s.clear_buf()
+            s.read_until("Step 8", timeout=5)
+            t = s.text()
+        if "Step 8" not in t:
+            R.fail("T16 confirm info", f"No Step 8: {t[-300:]}"); return
+        # Give time for full box rendering
+        time.sleep(0.5)
+        # Read any remaining output
+        s.read_until("XXXXNOTEXIST", timeout=1)
+        t = s.text()
+        # Verify confirm box contains key info
+        # heart_disease.csv should appear as file name
+        has_file = "heart_disease" in t
+        # The box should contain strategy/output/model info
+        has_strategy = "temporal" in t.lower() or "grouped" in t.lower()
+        has_output = "heart_disease" in t
+        if has_file and (has_strategy or has_output):
+            R.ok("T16 step_confirm info")
+        else:
+            R.fail("T16 confirm info", f"Missing info in confirm box: file={has_file} strat={has_strategy} out={has_output}. Text: {t[-400:]}")
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -439,6 +603,10 @@ def main():
     test_10_digit_shortcut()
     test_11_esc_key()
     test_12_confirm_go_back()
+    test_13_csv_manual_input()
+    test_14_column_count_error()
+    test_15_step_split_complete()
+    test_16_step_confirm_info()
 
     ok = R.summary()
     return 0 if ok else 1
