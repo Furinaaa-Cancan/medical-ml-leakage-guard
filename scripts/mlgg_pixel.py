@@ -338,13 +338,16 @@ def _cursor_row() -> int:
             sys.stdout.write(GET_CURSOR)
             sys.stdout.flush()
             buf = ""
-            while True:
-                if not sel_mod.select([fd], [], [], 0.1)[0]:
+            for _ in range(25):
+                if not sel_mod.select([fd], [], [], 0.15)[0]:
                     break
                 c = sys.stdin.read(1)
                 buf += c
                 if c == "R":
                     break
+            # Drain any leftover bytes to prevent leaking into _getch()
+            while sel_mod.select([fd], [], [], 0.01)[0]:
+                sys.stdin.read(1)
             # Response: \033[row;colR
             if "[" in buf and ";" in buf:
                 row_str = buf.split("[")[1].split(";")[0]
@@ -415,7 +418,8 @@ def select(title: str, options: List[str], descs: Optional[List[str]] = None) ->
         if title:
             print(f"  {s('C', title, bold=True)}")
         print()
-        menu_start_row = _cursor_row()  # query before mouse is on
+        if menu_start_row == 0:  # only query cursor position on FIRST draw
+            menu_start_row = _cursor_row()
         sys.stdout.write(MOUSE_ON)
         sys.stdout.flush()
         for i in range(n):
