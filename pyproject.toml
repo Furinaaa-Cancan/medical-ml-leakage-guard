@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ml-leakage-guard"
+version = "0.1.0"
+description = "Publication-grade medical prediction workflow with strict anti-data-leakage gates."
+readme = "README.md"
+license = {text = "PolyForm Noncommercial License 1.0.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ml-leakage-guard contributors"},
+]
+keywords = ["medical", "machine-learning", "leakage", "prediction", "publication-grade"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "scikit-learn>=1.2",
+    "joblib>=1.2",
+]
+
+[project.optional-dependencies]
+xgboost = ["xgboost>=1.7"]
+catboost = ["catboost>=1.2"]
+all = ["xgboost>=1.7", "catboost>=1.2"]
+
+[project.scripts]
+mlgg = "scripts.mlgg:cli_main"
+
+[project.urls]
+Repository = "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard"
+
+[tool.setuptools.packages.find]
+include = ["scripts*", "experiments*", "references*"]
+
+[tool.setuptools.package-data]
+references = ["*.json", "*.md", "*.csv"]
