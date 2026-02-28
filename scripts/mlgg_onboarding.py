@@ -471,7 +471,11 @@ def align_demo_configs(
     request["prediction_unit"] = "patient-episode"
     if time_col:
         request["index_time_col"] = time_col
-    # If time_col is empty, keep whatever init_project set (avoids empty string in required field)
+    elif is_user_data:
+        # User data with no time column: set a sentinel that won't collide with real columns
+        # and signals downstream gates that temporal checks should be skipped.
+        request["index_time_col"] = "_no_time_column"
+    # For demo data (not is_user_data), keep whatever init_project set (always "event_time")
     request["label_col"] = target_col
     request["patient_id_col"] = patient_id_col
     request["primary_metric"] = "pr_auc"
