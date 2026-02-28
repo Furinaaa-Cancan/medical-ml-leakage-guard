@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_utils import load_json_from_path as load_json, write_json as atomic_write_json
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
@@ -112,23 +114,6 @@ def parse_args() -> Tuple[argparse.Namespace, List[str]]:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
     return args, passthrough
-
-
-def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-    tmp_path.replace(path)
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be object.")
-    return payload
 
 
 def fail(message: str) -> int:

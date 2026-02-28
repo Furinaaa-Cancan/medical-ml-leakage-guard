@@ -653,9 +653,8 @@ def main() -> int:
     ci_out = Path(args.ci_matrix_report).expanduser().resolve()
     should_rewrite = bool(args.update_ci_matrix_report) or (not ci_out.exists())
     if should_rewrite:
-        ci_out.parent.mkdir(parents=True, exist_ok=True)
-        with ci_out.open("w", encoding="utf-8") as fh:
-            json.dump(ci_matrix_payload, fh, ensure_ascii=True, indent=2)
+        from _gate_utils import write_json as _write_ci
+        _write_ci(ci_out, ci_matrix_payload)
 
     summary = {
         "ci_matrix_report": str(ci_out),
