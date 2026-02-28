@@ -41,6 +41,7 @@ from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_s
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
 try:
@@ -53,6 +54,16 @@ try:
 except Exception:
     CatBoostClassifier = None  # type: ignore
 
+try:
+    from lightgbm import LGBMClassifier  # type: ignore
+except Exception:
+    LGBMClassifier = None  # type: ignore
+
+try:
+    from tabpfn import TabPFNClassifier  # type: ignore
+except Exception:
+    TabPFNClassifier = None  # type: ignore
+
 
 SUPPORTED_MODEL_FAMILIES = {
     "logistic_l1",
@@ -64,6 +75,10 @@ SUPPORTED_MODEL_FAMILIES = {
     "adaboost",
     "xgboost",
     "catboost",
+    "lightgbm",
+    "svm_linear",
+    "svm_rbf",
+    "tabpfn",
 }
 
 MODEL_ALIASES = {
@@ -74,6 +89,9 @@ MODEL_ALIASES = {
     "extra_trees": "extra_trees_balanced",
     "hgb": "hist_gradient_boosting_l2",
     "xgb": "xgboost",
+    "lgbm": "lightgbm",
+    "svm": "svm_rbf",
+    "svm_lin": "svm_linear",
 }
 
 
@@ -784,6 +802,39 @@ def _family_grid(family: str) -> List[Dict[str, Any]]:
                 [64, 128],
             )
         ]
+    if family == "lightgbm":
+        return [
+            {
+                "n_estimators": n_estimators,
+                "max_depth": max_depth,
+                "learning_rate": learning_rate,
+                "num_leaves": num_leaves,
+                "reg_alpha": reg_alpha,
+                "reg_lambda": reg_lambda,
+                "subsample": subsample,
+            }
+            for n_estimators, max_depth, learning_rate, num_leaves, reg_alpha, reg_lambda, subsample in product(
+                [200, 400, 700],
+                [3, 5, 7],
+                [0.03, 0.05, 0.1],
+                [15, 31, 63],
+                [0.0, 0.5],
+                [1.0, 5.0],
+                [0.8, 1.0],
+            )
+        ]
+    if family == "svm_linear":
+        return [{"C": c} for c in [0.01, 0.03, 0.1, 0.3, 1.0, 3.0]]
+    if family == "svm_rbf":
+        return [
+            {"C": c, "gamma": gamma}
+            for c, gamma in product(
+                [0.1, 1.0, 10.0, 100.0],
+                ["scale", "auto", 0.01, 0.001],
+            )
+        ]
+    if family == "tabpfn":
+        return [{"N_ensemble_configurations": 16}]
     raise ValueError(f"Unsupported family: {family}")
 
 
@@ -792,18 +843,22 @@ def _family_base_complexity(family: str) -> int:
         "logistic_l1": 1,
         "logistic_l2": 2,
         "logistic_elasticnet": 3,
-        "adaboost": 4,
-        "random_forest_balanced": 5,
-        "extra_trees_balanced": 6,
-        "hist_gradient_boosting_l2": 7,
-        "xgboost": 8,
-        "catboost": 9,
+        "svm_linear": 4,
+        "svm_rbf": 5,
+        "adaboost": 6,
+        "random_forest_balanced": 7,
+        "extra_trees_balanced": 8,
+        "hist_gradient_boosting_l2": 9,
+        "xgboost": 10,
+        "catboost": 11,
+        "lightgbm": 12,
+        "tabpfn": 13,
     }
     return int(order.get(family, 99))
 
 
 def _family_friendly_name(family: str) -> str:
-    return {
+    names = {
         "logistic_l1": "logistic_regression",
         "logistic_l2": "logistic_regression",
         "logistic_elasticnet": "logistic_regression",
@@ -813,7 +868,12 @@ def _family_friendly_name(family: str) -> str:
         "adaboost": "adaboost",
         "xgboost": "xgboost",
         "catboost": "catboost",
-    }[family]
+        "lightgbm": "lightgbm",
+        "svm_linear": "svm",
+        "svm_rbf": "svm",
+        "tabpfn": "tabpfn",
+    }
+    return names.get(family, family)
 
 
 def _candidate_complexity_rank(family: str, params: Dict[str, Any]) -> int:
@@ -861,6 +921,23 @@ def _candidate_complexity_rank(family: str, params: Dict[str, Any]) -> int:
             + int(150 * float(params.get("learning_rate", 0.05)))
             - int(6 * float(params.get("l2_leaf_reg", 3.0)))
         )
+    if family == "lightgbm":
+        return int(
+            base
+            + int(params.get("max_depth", 5)) * 30
+            + int(params.get("n_estimators", 200)) // 8
+            + int(params.get("num_leaves", 31))
+            + int(100 * float(params.get("learning_rate", 0.05)))
+            - int(5 * float(params.get("reg_lambda", 1.0)))
+        )
+    if family == "svm_linear":
+        return int(base + round(float(params.get("C", 1.0)) * 100))
+    if family == "svm_rbf":
+        gamma = params.get("gamma", "scale")
+        gamma_penalty = 50 if isinstance(gamma, (int, float)) else 20
+        return int(base + round(float(params.get("C", 1.0)) * 30) + gamma_penalty)
+    if family == "tabpfn":
+        return int(base + int(params.get("N_ensemble_configurations", 16)))
     return int(base + 999)
 
 
@@ -909,6 +986,20 @@ def _regularization_profile(family: str, params: Dict[str, Any]) -> Dict[str, An
             "l2_leaf_reg": float(params["l2_leaf_reg"]),
             "depth": int(params["depth"]),
         }
+    if family == "lightgbm":
+        return {
+            "type": "lightgbm_regularization",
+            "reg_alpha": float(params.get("reg_alpha", 0.0)),
+            "reg_lambda": float(params.get("reg_lambda", 1.0)),
+            "max_depth": int(params.get("max_depth", 5)),
+            "num_leaves": int(params.get("num_leaves", 31)),
+        }
+    if family == "svm_linear":
+        return {"type": "svm_margin", "C": float(params["C"]), "kernel": "linear"}
+    if family == "svm_rbf":
+        return {"type": "svm_margin", "C": float(params["C"]), "kernel": "rbf", "gamma": params.get("gamma", "scale")}
+    if family == "tabpfn":
+        return {"type": "pretrained_foundation", "N_ensemble_configurations": int(params.get("N_ensemble_configurations", 16))}
     return {"type": "unknown"}
 
 
@@ -1115,6 +1206,70 @@ def _build_estimator_for_family(
             kwargs["auto_class_weights"] = "Balanced"
         clf = CatBoostClassifier(**kwargs)
         return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
+    if family == "lightgbm":
+        if LGBMClassifier is None:
+            raise RuntimeError("lightgbm backend is not installed.")
+        lgbm_kwargs: Dict[str, Any] = {
+            "objective": "binary",
+            "n_estimators": int(params["n_estimators"]),
+            "max_depth": int(params["max_depth"]),
+            "learning_rate": float(params["learning_rate"]),
+            "num_leaves": int(params["num_leaves"]),
+            "reg_alpha": float(params["reg_alpha"]),
+            "reg_lambda": float(params["reg_lambda"]),
+            "subsample": float(params["subsample"]),
+            "random_state": seed,
+            "n_jobs": n_jobs,
+            "verbose": -1,
+        }
+        if class_weight == "balanced":
+            lgbm_kwargs["is_unbalance"] = True
+        clf = LGBMClassifier(**lgbm_kwargs)
+        return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
+    if family == "svm_linear":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    SVC(
+                        kernel="linear",
+                        C=float(params["C"]),
+                        probability=True,
+                        class_weight=class_weight,
+                        random_state=seed,
+                        max_iter=10000,
+                    ),
+                ),
+            ]
+        )
+    if family == "svm_rbf":
+        gamma = params.get("gamma", "scale")
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    SVC(
+                        kernel="rbf",
+                        C=float(params["C"]),
+                        gamma=gamma,
+                        probability=True,
+                        class_weight=class_weight,
+                        random_state=seed,
+                        max_iter=10000,
+                    ),
+                ),
+            ]
+        )
+    if family == "tabpfn":
+        if TabPFNClassifier is None:
+            raise RuntimeError("tabpfn backend is not installed.")
+        n_ensemble = int(params.get("N_ensemble_configurations", 16))
+        clf = TabPFNClassifier(N_ensemble_configurations=n_ensemble, device="cpu")
+        return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
     raise ValueError(f"Unsupported family: {family}")
 
 
@@ -1150,6 +1305,22 @@ def build_candidates(
                 raise SystemExit(
                     "model_backend_unavailable: catboost requested but package is not installed. "
                     "Install with `pip install catboost` or run `python3 scripts/env_doctor.py` for diagnostics."
+                )
+            continue
+        if family == "lightgbm" and LGBMClassifier is None:
+            unavailable.append(family)
+            if family in explicit_cli_models:
+                raise SystemExit(
+                    "model_backend_unavailable: lightgbm requested but package is not installed. "
+                    "Install with `pip install lightgbm` or run `python3 scripts/env_doctor.py` for diagnostics."
+                )
+            continue
+        if family == "tabpfn" and TabPFNClassifier is None:
+            unavailable.append(family)
+            if family in explicit_cli_models:
+                raise SystemExit(
+                    "model_backend_unavailable: tabpfn requested but package is not installed. "
+                    "Install with `pip install tabpfn` or run `python3 scripts/env_doctor.py` for diagnostics."
                 )
             continue
 
