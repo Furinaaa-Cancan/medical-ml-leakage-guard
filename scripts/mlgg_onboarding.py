@@ -171,6 +171,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python", default=sys.executable, help="Python executable.")
     parser.add_argument("--seed", type=int, default=20260227, help="Demo dataset random seed.")
     parser.add_argument("--run-id", default="", help="Optional fixed run_id; defaults to UTC token.")
+    parser.add_argument(
+        "--input-csv",
+        default="",
+        help="User's own CSV file. When provided, auto-splits into train/valid/test instead of generating demo data.",
+    )
+    parser.add_argument("--split-strategy", default="grouped_temporal", choices=["grouped_temporal", "grouped_random", "stratified_grouped"], help="Split strategy for --input-csv (default: grouped_temporal).")
+    parser.add_argument("--patient-id-col", default="patient_id", help="Patient ID column in --input-csv (default: patient_id).")
+    parser.add_argument("--time-col", default="event_time", help="Time column in --input-csv for temporal splitting (default: event_time).")
+    parser.add_argument("--target-col", default="y", help="Target column in --input-csv (default: y).")
     parser.add_argument("--report", help="Optional onboarding report path.")
     return parser.parse_args()
 
@@ -1074,35 +1083,71 @@ def main() -> int:
     if not should_continue(ok):
         return finish("fail")
 
-    # Step 3 demo data
-    demo_report = evidence_dir / "demo_dataset_report.json"
-    ok = run_command_step(
-        name="step3_generate_demo_data",
-        description="Generate offline synthetic medical splits (train/valid/test + dual external cohorts).",
-        command=[
+    # Step 3 demo data or user data split
+    user_input_csv = str(getattr(args, "input_csv", "") or "").strip()
+    if user_input_csv:
+        # User-data mode: split their CSV instead of generating demo data
+        split_report = evidence_dir / "split_report.json"
+        split_cmd = [
             python_bin,
-            str(SCRIPTS_ROOT / "generate_demo_medical_dataset.py"),
-            "--project-root",
-            str(project_root),
-            "--seed",
-            str(int(args.seed)),
-            "--report",
-            str(demo_report),
-        ],
-        cwd=project_root,
-        mode=mode,
-        auto_yes=auto_yes,
-        steps=step_rows,
-        expected_artifacts=[
-            project_root / "data" / "train.csv",
-            project_root / "data" / "valid.csv",
-            project_root / "data" / "test.csv",
-            project_root / "data" / "external_2025_q4.csv",
-            project_root / "data" / "external_site_b.csv",
-            demo_report,
-        ],
-    )
-    artifacts["demo_dataset_report"] = str(demo_report)
+            str(SCRIPTS_ROOT / "split_data.py"),
+            "--input", user_input_csv,
+            "--output-dir", str(project_root / "data"),
+            "--patient-id-col", str(getattr(args, "patient_id_col", "patient_id")),
+            "--target-col", str(getattr(args, "target_col", "y")),
+            "--strategy", str(getattr(args, "split_strategy", "grouped_temporal")),
+            "--seed", str(int(args.seed)),
+            "--report", str(split_report),
+        ]
+        user_time_col = str(getattr(args, "time_col", "event_time") or "").strip()
+        if user_time_col:
+            split_cmd.extend(["--time-col", user_time_col])
+        ok = run_command_step(
+            name="step3_split_user_data",
+            description=f"Auto-split user CSV ({user_input_csv}) into train/valid/test with medical safety guarantees.",
+            command=split_cmd,
+            cwd=project_root,
+            mode=mode,
+            auto_yes=auto_yes,
+            steps=step_rows,
+            expected_artifacts=[
+                project_root / "data" / "train.csv",
+                project_root / "data" / "valid.csv",
+                project_root / "data" / "test.csv",
+                split_report,
+            ],
+        )
+        artifacts["split_report"] = str(split_report)
+    else:
+        # Demo mode: generate synthetic data
+        demo_report = evidence_dir / "demo_dataset_report.json"
+        ok = run_command_step(
+            name="step3_generate_demo_data",
+            description="Generate offline synthetic medical splits (train/valid/test + dual external cohorts).",
+            command=[
+                python_bin,
+                str(SCRIPTS_ROOT / "generate_demo_medical_dataset.py"),
+                "--project-root",
+                str(project_root),
+                "--seed",
+                str(int(args.seed)),
+                "--report",
+                str(demo_report),
+            ],
+            cwd=project_root,
+            mode=mode,
+            auto_yes=auto_yes,
+            steps=step_rows,
+            expected_artifacts=[
+                project_root / "data" / "train.csv",
+                project_root / "data" / "valid.csv",
+                project_root / "data" / "test.csv",
+                project_root / "data" / "external_2025_q4.csv",
+                project_root / "data" / "external_site_b.csv",
+                demo_report,
+            ],
+        )
+        artifacts["demo_dataset_report"] = str(demo_report)
     if not should_continue(ok):
         return finish("fail")
 

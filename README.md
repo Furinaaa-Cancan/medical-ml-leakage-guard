@@ -164,6 +164,40 @@ python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
 
 #### Step B: Prepare dataset files
 
+**Option 1 — Single CSV (recommended for first-time users):**
+
+If you have one complete CSV file, use `split_data.py` to auto-split with medical safety guarantees (patient-level disjoint, temporal ordering, prevalence checks):
+
+```bash
+python3 scripts/mlgg.py split -- \
+  --input /path/to/your_data.csv \
+  --output-dir /tmp/mlgg_project/data \
+  --patient-id-col patient_id \
+  --target-col y \
+  --time-col event_time \
+  --strategy grouped_temporal
+```
+
+Or use the interactive wizard which guides you through the process:
+
+```bash
+python3 scripts/mlgg.py interactive --command train
+# Choose "single_csv" when prompted for data input mode
+```
+
+Or use onboarding with your own data:
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_project --input-csv /path/to/your_data.csv --mode guided --yes
+```
+
+Available split strategies:
+- `grouped_temporal`: time-ordered split (recommended for longitudinal data)
+- `grouped_random`: random patient-level split
+- `stratified_grouped`: random split preserving class prevalence
+
+**Option 2 — Pre-split files:**
+
 Put your files here:
 - `/tmp/mlgg_project/data/train.csv`
 - `/tmp/mlgg_project/data/valid.csv`
@@ -180,6 +214,19 @@ Minimum column contract (recommended):
 - plus leakage-safe predictors
 
 #### Step C: Run schema preflight
+
+Single-file pre-check (before splitting):
+
+```bash
+python3 scripts/schema_preflight.py \
+  --input-csv /path/to/your_data.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --time-col event_time \
+  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
+```
+
+Split-file pre-check (after splitting):
 
 ```bash
 python3 scripts/mlgg.py preflight \
@@ -566,6 +613,40 @@ python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
 
 #### 步骤 B：准备数据文件
 
+**方式 1 — 单个 CSV（推荐新手使用）：**
+
+如果你只有一个完整的 CSV 文件，可以用 `split_data.py` 自动安全分割（患者级不交叉、时间顺序保证、阳性率检查）：
+
+```bash
+python3 scripts/mlgg.py split -- \
+  --input /path/to/your_data.csv \
+  --output-dir /tmp/mlgg_project/data \
+  --patient-id-col patient_id \
+  --target-col y \
+  --time-col event_time \
+  --strategy grouped_temporal
+```
+
+或用交互式向导（会引导你完成全过程）：
+
+```bash
+python3 scripts/mlgg.py interactive --command train
+# 当提示数据输入方式时选择 "single_csv"
+```
+
+或用 onboarding 直接传入你自己的数据：
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_project --input-csv /path/to/your_data.csv --mode guided --yes
+```
+
+可用分割策略：
+- `grouped_temporal`：按时间排序分割（推荐纵向数据）
+- `grouped_random`：随机患者级分割
+- `stratified_grouped`：保持类别比例的随机分割
+
+**方式 2 — 已分割文件：**
+
 至少放置：
 - `/tmp/mlgg_project/data/train.csv`
 - `/tmp/mlgg_project/data/valid.csv`
@@ -582,6 +663,19 @@ python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
 - 其余为泄漏安全特征
 
 #### 步骤 C：先做 schema 预检
+
+单文件预检（分割之前）：
+
+```bash
+python3 scripts/schema_preflight.py \
+  --input-csv /path/to/your_data.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --time-col event_time \
+  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
+```
+
+已分割文件预检：
 
 ```bash
 python3 scripts/mlgg.py preflight \

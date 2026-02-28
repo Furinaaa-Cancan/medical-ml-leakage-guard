@@ -17,6 +17,10 @@ Never produce publication-grade claims without machine-checkable evidence artifa
 ## Input Contract (Structured Input)
 Accept a structured request JSON, not free-form text.
 
+Data input modes:
+- **Pre-split mode**: user provides separate train/valid/test CSV files.
+- **Single-file mode**: user provides one complete CSV; use `scripts/split_data.py` to auto-split with patient-level disjoint, temporal ordering, and prevalence checks. The interactive wizard (`mlgg interactive --command train`) and onboarding (`mlgg onboarding --input-csv`) support this mode natively.
+
 Required fields:
 - `study_id`
 - `run_id`
@@ -378,6 +382,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/request_contract_gate.py`: request schema/path validation and publication-policy anti-downgrade checks.
 - `scripts/mlgg.py`: unified command entrypoint (`onboarding`, `interactive`, `init`, `train`, `workflow`, ...).
 - `scripts/mlgg_onboarding.py`: novice-guided strict onboarding flow and report emitter.
+- `scripts/split_data.py`: split a single CSV into train/valid/test with patient-level disjoint, temporal ordering, and prevalence safety checks.
 - `scripts/generate_demo_medical_dataset.py`: offline reproducible demo dataset generator.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.

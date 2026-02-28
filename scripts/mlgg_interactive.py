@@ -58,6 +58,8 @@ TRAIN_OPTIONAL_BACKEND_HINTS = {
     "lightgbm": "pip install lightgbm",
     "tabpfn": "pip install tabpfn",
 }
+SPLIT_STRATEGY_CHOICES = ("grouped_temporal", "grouped_random", "stratified_grouped")
+DATA_INPUT_MODES = ("pre_split", "single_csv")
 
 
 def parse_args() -> Tuple[argparse.Namespace, List[str]]:
@@ -451,6 +453,13 @@ def parse_command_overrides(command: str, passthrough: List[str]) -> Dict[str, A
         parser.add_argument("--allow-missing-compare", action="store_true", default=None)
         parser.add_argument("--continue-on-fail", action="store_true", default=None)
     elif command == "train":
+        parser.add_argument("--input-csv")
+        parser.add_argument("--split-strategy", choices=list(SPLIT_STRATEGY_CHOICES))
+        parser.add_argument("--split-output-dir")
+        parser.add_argument("--time-col")
+        parser.add_argument("--train-ratio", type=float)
+        parser.add_argument("--valid-ratio", type=float)
+        parser.add_argument("--test-ratio", type=float)
         parser.add_argument("--train")
         parser.add_argument("--valid")
         parser.add_argument("--test")
@@ -508,6 +517,13 @@ def profile_allowed_keys(command: str) -> Tuple[str, ...]:
             "continue_on_fail",
         ),
         "train": (
+            "input_csv",
+            "split_strategy",
+            "split_output_dir",
+            "time_col",
+            "train_ratio",
+            "valid_ratio",
+            "test_ratio",
             "train",
             "valid",
             "test",
@@ -569,6 +585,10 @@ def validate_profile_values(command: str, values: Dict[str, Any]) -> None:
 
     if command == "train":
         for key in (
+            "input_csv",
+            "split_strategy",
+            "split_output_dir",
+            "time_col",
             "train",
             "valid",
             "test",
@@ -822,96 +842,334 @@ def collect_workflow_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -
     return values
 
 
+def run_auto_split(
+    input_csv: str,
+    output_dir: str,
+    patient_id_col: str,
+    target_col: str,
+    time_col: str,
+    strategy: str,
+    train_ratio: float,
+    valid_ratio: float,
+    test_ratio: float,
+    seed: int = 20260228,
+    print_only: bool = False,
+) -> Tuple[str, str, str, List[str]]:
+    """Run split_data.py and return (train_path, valid_path, test_path, cmd)."""
+    split_script = str(SCRIPTS_ROOT / "split_data.py")
+    cmd = [
+        sys.executable, split_script,
+        "--input", input_csv,
+        "--output-dir", output_dir,
+        "--patient-id-col", patient_id_col,
+        "--target-col", target_col,
+        "--strategy", strategy,
+        "--train-ratio", str(train_ratio),
+        "--valid-ratio", str(valid_ratio),
+        "--test-ratio", str(test_ratio),
+        "--seed", str(seed),
+    ]
+    if time_col:
+        cmd.extend(["--time-col", time_col])
+
+    out_dir = Path(output_dir).expanduser().resolve()
+    train_path = str(out_dir / "train.csv")
+    valid_path = str(out_dir / "valid.csv")
+    test_path = str(out_dir / "test.csv")
+
+    if print_only:
+        return train_path, valid_path, test_path, cmd
+
+    print(f"\n[INFO] Running auto-split: {shlex.join(cmd)}")
+    proc = subprocess.run(cmd, text=True)
+    if proc.returncode != 0:
+        raise ValueError("Auto-split failed. Check error messages above.")
+    if not Path(train_path).exists() or not Path(valid_path).exists() or not Path(test_path).exists():
+        raise ValueError("Auto-split did not produce expected output files.")
+
+    return train_path, valid_path, test_path, cmd
+
+
 def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> Dict[str, Any]:
     values: Dict[str, Any] = {}
-    for key, label in (
-        ("train", "Train split CSV path"),
-        ("valid", "Valid split CSV path"),
-        ("test", "Test split CSV path"),
-    ):
-        seed, source = merged_seed(key, "", profile, explicit)
-        if source == "cli":
-            value = normalize_path(require_string(seed, key))
-            if not Path(value).exists():
-                raise ValueError(f"{key} path not found: {value}")
-            values[key] = value
+
+    # Determine data input mode: single CSV or pre-split files
+    input_csv_seed, input_csv_source = merged_seed("input_csv", "", profile, explicit)
+    train_seed, train_source = merged_seed("train", "", profile, explicit)
+
+    # Auto-detect mode: if --input-csv is provided via CLI, use single_csv mode
+    if input_csv_source == "cli" and str(input_csv_seed).strip():
+        data_mode = "single_csv"
+    elif train_source == "cli" and str(train_seed).strip():
+        data_mode = "pre_split"
+    elif PROMPT_AUTO_ACCEPT_DEFAULTS:
+        data_mode = "pre_split" if str(train_seed).strip() else "single_csv" if str(input_csv_seed).strip() else "pre_split"
+    else:
+        data_mode = prompt_choice(
+            label="\nData input mode:",
+            choices=("pre_split", "single_csv"),
+            default="pre_split",
+        )
+        if data_mode == "pre_split":
+            print("  → Using pre-split train/valid/test files.")
         else:
-            values[key] = prompt_path(
-                label=label,
-                default=str(seed),
+            print("  → Will auto-split a single CSV into train/valid/test with medical safety guarantees.")
+
+    values["__data_mode__"] = data_mode
+
+    if data_mode == "single_csv":
+        # Collect single-file split parameters
+        if input_csv_source == "cli":
+            input_csv = normalize_path(require_string(input_csv_seed, "input_csv"))
+            if not Path(input_csv).exists():
+                raise ValueError(f"input_csv path not found: {input_csv}")
+        else:
+            input_csv = prompt_path(
+                label="Complete CSV file path",
+                default=str(input_csv_seed),
                 required=True,
                 must_exist=True,
             )
-    project_base = infer_project_base_from_split_path(values["train"])
-    default_evidence_dir = (project_base / "evidence").resolve()
+        values["input_csv"] = input_csv
 
-    # Read CSV columns for data-aware prompts
-    train_columns: List[str] = []
-    try:
-        train_columns = read_csv_columns(values["train"])
-        if train_columns:
-            print(f"\n  [INFO] Train CSV has {len(train_columns)} columns: {', '.join(train_columns[:25])}")
-            if len(train_columns) > 25:
-                print(f"         ... and {len(train_columns) - 25} more")
-    except Exception as exc:
-        print(f"  [WARN] Could not read train CSV headers: {exc}", file=sys.stderr)
+        # Read columns for data-aware prompts
+        input_columns: List[str] = []
+        try:
+            input_columns = read_csv_columns(input_csv)
+            if input_columns:
+                print(f"\n  [INFO] CSV has {len(input_columns)} columns: {', '.join(input_columns[:25])}")
+                if len(input_columns) > 25:
+                    print(f"         ... and {len(input_columns) - 25} more")
+        except Exception as exc:
+            print(f"  [WARN] Could not read CSV headers: {exc}", file=sys.stderr)
 
-    # Target column: show available columns + validate binary
-    seed_target, source_target = merged_seed("target_col", "y", profile, explicit)
-    if source_target == "cli":
-        values["target_col"] = require_string(seed_target, "target_col")
-    elif train_columns:
-        values["target_col"] = prompt_column_choice(
-            label="  Select TARGET column (must be binary 0/1):",
-            columns=train_columns,
-            default=str(seed_target),
-            required=True,
-            validate_fn=lambda col: validate_binary_target(values["train"], col),
-        )
+        # Target column
+        seed_target, source_target = merged_seed("target_col", "y", profile, explicit)
+        if source_target == "cli":
+            values["target_col"] = require_string(seed_target, "target_col")
+        elif input_columns:
+            values["target_col"] = prompt_column_choice(
+                label="  Select TARGET column (must be binary 0/1):",
+                columns=input_columns,
+                default=str(seed_target),
+                required=True,
+                validate_fn=lambda col: validate_binary_target(input_csv, col),
+            )
+        else:
+            values["target_col"] = prompt_text(label="Target column", default=str(seed_target), required=True)
+
+        # Patient ID column
+        seed_pid, source_pid = merged_seed("patient_id_col", "patient_id", profile, explicit)
+        if source_pid == "cli":
+            values["patient_id_col"] = require_string(seed_pid, "patient_id_col")
+        elif input_columns:
+            values["patient_id_col"] = prompt_column_choice(
+                label="  Select PATIENT ID column:",
+                columns=input_columns,
+                default=str(seed_pid),
+                required=True,
+            )
+        else:
+            values["patient_id_col"] = prompt_text(label="Patient ID column", default=str(seed_pid), required=True)
+
+        if values["target_col"] == values["patient_id_col"]:
+            msg = f"target_col and patient_id_col are both '{values['target_col']}'. These must be different columns."
+            if PROMPT_AUTO_ACCEPT_DEFAULTS:
+                raise ValueError(msg)
+            print(f"  [WARN] {msg}")
+
+        # Time column
+        seed_time, source_time = merged_seed("time_col", "event_time", profile, explicit)
+        if source_time == "cli":
+            values["time_col"] = str(seed_time).strip()
+        elif input_columns:
+            default_time = str(seed_time) if str(seed_time) in input_columns else ""
+            if not default_time:
+                for alias in ["event_time", "index_time", "timestamp", "admit_time", "date"]:
+                    if alias in input_columns:
+                        default_time = alias
+                        break
+            values["time_col"] = prompt_column_choice(
+                label="  Select TIME column (for temporal splitting; leave empty for random split):",
+                columns=input_columns,
+                default=default_time,
+                required=False,
+            )
+        else:
+            values["time_col"] = prompt_text(label="Time column (optional)", default=str(seed_time), required=False)
+
+        # Strategy
+        seed_strat, source_strat = merged_seed("split_strategy", "", profile, explicit)
+        if source_strat == "cli":
+            values["split_strategy"] = str(seed_strat).strip()
+        elif PROMPT_AUTO_ACCEPT_DEFAULTS:
+            values["split_strategy"] = "grouped_temporal" if values.get("time_col") else "grouped_random"
+        else:
+            default_strat = "grouped_temporal" if values.get("time_col") else "grouped_random"
+            values["split_strategy"] = prompt_choice(
+                label="Split strategy:",
+                choices=SPLIT_STRATEGY_CHOICES,
+                default=str(seed_strat) if str(seed_strat) in SPLIT_STRATEGY_CHOICES else default_strat,
+            )
+
+        if values["split_strategy"] == "grouped_temporal" and not values.get("time_col"):
+            if PROMPT_AUTO_ACCEPT_DEFAULTS:
+                values["split_strategy"] = "grouped_random"
+                print("  [INFO] No time column; auto-switched to grouped_random strategy.", file=sys.stderr)
+            else:
+                print("  [WARN] grouped_temporal requires a time column. Switching to grouped_random.")
+                values["split_strategy"] = "grouped_random"
+
+        # Ratios
+        for ratio_key, ratio_label, ratio_default in [
+            ("train_ratio", "Train ratio", 0.6),
+            ("valid_ratio", "Valid ratio", 0.2),
+            ("test_ratio", "Test ratio", 0.2),
+        ]:
+            seed_r, source_r = merged_seed(ratio_key, ratio_default, profile, explicit)
+            if source_r == "cli":
+                values[ratio_key] = float(seed_r)
+            elif PROMPT_AUTO_ACCEPT_DEFAULTS:
+                values[ratio_key] = float(seed_r)
+            else:
+                raw = prompt_text(label=ratio_label, default=str(seed_r), required=True)
+                values[ratio_key] = float(raw)
+
+        # Output dir
+        seed_out, source_out = merged_seed("split_output_dir", "", profile, explicit)
+        if source_out == "cli":
+            values["split_output_dir"] = normalize_path(require_string(seed_out, "split_output_dir"))
+        else:
+            input_parent = Path(input_csv).expanduser().resolve().parent
+            default_out = str(input_parent)
+            if PROMPT_AUTO_ACCEPT_DEFAULTS:
+                values["split_output_dir"] = default_out
+            else:
+                values["split_output_dir"] = prompt_path(
+                    label="Split output directory",
+                    default=str(seed_out) if str(seed_out).strip() else default_out,
+                    required=True,
+                    must_exist=False,
+                )
+
+        # Ignore columns
+        seed_ignore, source_ignore = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
+        if source_ignore == "cli":
+            values["ignore_cols"] = str(seed_ignore).strip()
+        elif input_columns:
+            values["ignore_cols"] = prompt_ignore_cols(
+                columns=input_columns,
+                target_col=values["target_col"],
+                patient_id_col=values["patient_id_col"],
+                default=str(seed_ignore),
+            )
+        else:
+            values["ignore_cols"] = prompt_text(
+                label="Ignore columns CSV",
+                default=str(seed_ignore),
+                required=False,
+            )
+
+        # Set train/valid/test paths from split output (will be populated after split runs)
+        out_dir = Path(values["split_output_dir"]).expanduser().resolve()
+        values["train"] = str(out_dir / "train.csv")
+        values["valid"] = str(out_dir / "valid.csv")
+        values["test"] = str(out_dir / "test.csv")
+
+        project_base = out_dir.parent if out_dir.name.lower() == "data" else out_dir
+        default_evidence_dir = (project_base / "evidence").resolve()
+
     else:
-        values["target_col"] = prompt_text(label="Target column", default=str(seed_target), required=True)
+        # Pre-split mode (original flow)
+        for key, label in (
+            ("train", "Train split CSV path"),
+            ("valid", "Valid split CSV path"),
+            ("test", "Test split CSV path"),
+        ):
+            seed, source = merged_seed(key, "", profile, explicit)
+            if source == "cli":
+                value = normalize_path(require_string(seed, key))
+                if not Path(value).exists():
+                    raise ValueError(f"{key} path not found: {value}")
+                values[key] = value
+            else:
+                values[key] = prompt_path(
+                    label=label,
+                    default=str(seed),
+                    required=True,
+                    must_exist=True,
+                )
+        project_base = infer_project_base_from_split_path(values["train"])
+        default_evidence_dir = (project_base / "evidence").resolve()
 
-    # Patient ID column: show available columns
-    seed_pid, source_pid = merged_seed("patient_id_col", "patient_id", profile, explicit)
-    if source_pid == "cli":
-        values["patient_id_col"] = require_string(seed_pid, "patient_id_col")
-    elif train_columns:
-        values["patient_id_col"] = prompt_column_choice(
-            label="  Select PATIENT ID column:",
-            columns=train_columns,
-            default=str(seed_pid),
-            required=True,
-        )
-    else:
-        values["patient_id_col"] = prompt_text(label="Patient ID column", default=str(seed_pid), required=True)
+    if data_mode == "pre_split":
+        # Read CSV columns for data-aware prompts
+        train_columns: List[str] = []
+        try:
+            train_columns = read_csv_columns(values["train"])
+            if train_columns:
+                print(f"\n  [INFO] Train CSV has {len(train_columns)} columns: {', '.join(train_columns[:25])}")
+                if len(train_columns) > 25:
+                    print(f"         ... and {len(train_columns) - 25} more")
+        except Exception as exc:
+            print(f"  [WARN] Could not read train CSV headers: {exc}", file=sys.stderr)
 
-    # Cross-validate: target and patient_id must differ
-    if values["target_col"] == values["patient_id_col"]:
-        msg = (
-            f"target_col and patient_id_col are both '{values['target_col']}'. "
-            "These must be different columns."
-        )
-        if PROMPT_AUTO_ACCEPT_DEFAULTS:
-            raise ValueError(msg)
-        print(f"  [WARN] {msg}")
+        # Target column: show available columns + validate binary
+        seed_target, source_target = merged_seed("target_col", "y", profile, explicit)
+        if source_target == "cli":
+            values["target_col"] = require_string(seed_target, "target_col")
+        elif train_columns:
+            values["target_col"] = prompt_column_choice(
+                label="  Select TARGET column (must be binary 0/1):",
+                columns=train_columns,
+                default=str(seed_target),
+                required=True,
+                validate_fn=lambda col: validate_binary_target(values["train"], col),
+            )
+        else:
+            values["target_col"] = prompt_text(label="Target column", default=str(seed_target), required=True)
 
-    # Ignore columns: show feature preview
-    seed_ignore, source_ignore = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
-    if source_ignore == "cli":
-        values["ignore_cols"] = str(seed_ignore).strip()
-    elif train_columns:
-        values["ignore_cols"] = prompt_ignore_cols(
-            columns=train_columns,
-            target_col=values["target_col"],
-            patient_id_col=values["patient_id_col"],
-            default=str(seed_ignore),
-        )
-    else:
-        values["ignore_cols"] = prompt_text(
-            label="Ignore columns CSV (non-feature columns to exclude)",
-            default=str(seed_ignore),
-            required=False,
-        )
+        # Patient ID column: show available columns
+        seed_pid, source_pid = merged_seed("patient_id_col", "patient_id", profile, explicit)
+        if source_pid == "cli":
+            values["patient_id_col"] = require_string(seed_pid, "patient_id_col")
+        elif train_columns:
+            values["patient_id_col"] = prompt_column_choice(
+                label="  Select PATIENT ID column:",
+                columns=train_columns,
+                default=str(seed_pid),
+                required=True,
+            )
+        else:
+            values["patient_id_col"] = prompt_text(label="Patient ID column", default=str(seed_pid), required=True)
+
+        # Cross-validate: target and patient_id must differ
+        if values["target_col"] == values["patient_id_col"]:
+            msg = (
+                f"target_col and patient_id_col are both '{values['target_col']}'. "
+                "These must be different columns."
+            )
+            if PROMPT_AUTO_ACCEPT_DEFAULTS:
+                raise ValueError(msg)
+            print(f"  [WARN] {msg}")
+
+        # Ignore columns: show feature preview
+        seed_ignore, source_ignore = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
+        if source_ignore == "cli":
+            values["ignore_cols"] = str(seed_ignore).strip()
+        elif train_columns:
+            values["ignore_cols"] = prompt_ignore_cols(
+                columns=train_columns,
+                target_col=values["target_col"],
+                patient_id_col=values["patient_id_col"],
+                default=str(seed_ignore),
+            )
+        else:
+            values["ignore_cols"] = prompt_text(
+                label="Ignore columns CSV (non-feature columns to exclude)",
+                default=str(seed_ignore),
+                required=False,
+            )
 
     seed, source = merged_seed("model_pool", TRAIN_MODEL_POOL_DEFAULT, profile, explicit)
     if source == "cli":
@@ -1346,12 +1604,39 @@ def main() -> int:
             return fail(f"unable to save profile: {exc}")
         print(f"[INFO] Saved profile: {profile_path}")
 
+    # Handle auto-split for single_csv mode before building train command
+    split_cmd: Optional[List[str]] = None
+    if command == "train" and values.get("__data_mode__") == "single_csv":
+        try:
+            train_path, valid_path, test_path, split_cmd = run_auto_split(
+                input_csv=values["input_csv"],
+                output_dir=values["split_output_dir"],
+                patient_id_col=values["patient_id_col"],
+                target_col=values["target_col"],
+                time_col=values.get("time_col", ""),
+                strategy=values.get("split_strategy", "grouped_random"),
+                train_ratio=float(values.get("train_ratio", 0.6)),
+                valid_ratio=float(values.get("valid_ratio", 0.2)),
+                test_ratio=float(values.get("test_ratio", 0.2)),
+                print_only=bool(args.print_only),
+            )
+            values["train"] = train_path
+            values["valid"] = valid_path
+            values["test"] = test_path
+        except Exception as exc:
+            return fail(f"auto-split failed: {exc}")
+
     try:
         cmd = build_command(command=command, python_bin=python_bin, values=values)
     except Exception as exc:
         return fail(str(exc))
 
-    print("\nGenerated command:")
+    if split_cmd:
+        print("\nStep 1 — Auto-split command:")
+        print(f"$ {shlex.join(split_cmd)}")
+        print("\nStep 2 — Train command:")
+    else:
+        print("\nGenerated command:")
     print(f"$ {shlex.join(cmd)}")
 
     if args.print_only:

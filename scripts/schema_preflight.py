@@ -23,17 +23,21 @@ TIME_ALIASES = ["event_time", "index_time", "timestamp", "admit_time", "encounte
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Preflight schema checks for medical train/valid/test splits.")
-    parser.add_argument("--train", required=True, help="Path to train CSV.")
-    parser.add_argument("--valid", required=True, help="Path to valid CSV.")
-    parser.add_argument("--test", required=True, help="Path to test CSV.")
+    parser = argparse.ArgumentParser(description="Preflight schema checks for medical train/valid/test splits or a single CSV file.")
+    parser.add_argument("--train", default="", help="Path to train CSV.")
+    parser.add_argument("--valid", default="", help="Path to valid CSV.")
+    parser.add_argument("--test", default="", help="Path to test CSV.")
+    parser.add_argument("--input-csv", default="", help="Path to a single complete CSV for pre-split quality checks.")
     parser.add_argument("--target-col", default="y", help="Preferred target column name.")
     parser.add_argument("--patient-id-col", default="patient_id", help="Preferred patient ID column name.")
     parser.add_argument("--time-col", default="event_time", help="Preferred index time column name.")
     parser.add_argument("--mapping-out", help="Optional output JSON path for resolved field mapping.")
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail when required columns need auto-mapping.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.input_csv and not args.train:
+        parser.error("Provide either --input-csv (single file mode) or --train/--valid/--test (split mode).")
+    return args
 
 
 def normalize_col(name: str) -> str:
@@ -128,14 +132,123 @@ def split_summary(df: pd.DataFrame, target_col: str, id_col: str, time_col: str)
     return stats
 
 
+def run_single_file_preflight(
+    args: argparse.Namespace,
+    failures: List[Dict[str, Any]],
+    warnings: List[Dict[str, Any]],
+) -> int:
+    """Pre-split quality checks on a single CSV file."""
+    csv_path = str(args.input_csv)
+    try:
+        df = load_split(csv_path)
+    except Exception as exc:
+        add_issue(failures, "input_csv_read_failed", f"Unable to read input CSV.", {"error": str(exc), "path": csv_path})
+        return finish(args, failures, warnings, {}, None)
+
+    columns = list(df.columns)
+    print(f"[INFO] Input CSV: {csv_path} ({len(df)} rows, {len(columns)} columns)")
+
+    resolved: Dict[str, Any] = {}
+    for semantic_name, preferred, aliases in (
+        ("target_col", args.target_col, TARGET_ALIASES),
+        ("patient_id_col", args.patient_id_col, PATIENT_ID_ALIASES),
+        ("index_time_col", args.time_col, TIME_ALIASES),
+    ):
+        selected, mode, alternates = resolve_column(preferred=preferred, aliases=aliases, common_columns=columns)
+        resolved[semantic_name] = selected
+        resolved[f"{semantic_name}_resolution"] = mode
+        resolved[f"{semantic_name}_alternates"] = alternates
+        if selected is None:
+            add_issue(
+                failures, "required_column_missing",
+                "Unable to resolve required semantic column.",
+                {"semantic": semantic_name, "preferred": preferred, "aliases": list(aliases)},
+            )
+        elif mode in {"normalized", "alias"}:
+            add_issue(
+                warnings, "column_auto_mapped",
+                "Semantic column was auto-mapped; review before production use.",
+                {"semantic": semantic_name, "preferred": preferred, "resolved": selected, "mode": mode},
+            )
+
+    target_col = resolved.get("target_col")
+    patient_id_col = resolved.get("patient_id_col")
+    time_col = resolved.get("index_time_col")
+
+    file_stats: Dict[str, Any] = {}
+    if all(isinstance(x, str) and x for x in (target_col, patient_id_col, time_col)):
+        file_stats = split_summary(df, str(target_col), str(patient_id_col), str(time_col))
+        file_stats["patient_id_unique_count"] = int(df[str(patient_id_col)].nunique(dropna=True))
+
+        if isinstance(file_stats.get("target_parse_error"), str):
+            add_issue(failures, "target_not_binary", "Target column is not parseable to binary 0/1.",
+                      {"column": target_col, "error": file_stats["target_parse_error"]})
+        if int(file_stats.get("patient_id_null_count", 0)) > 0:
+            add_issue(failures, "patient_id_nulls_detected", "Patient ID column contains null values.",
+                      {"column": patient_id_col, "null_count": file_stats["patient_id_null_count"]})
+        time_err = int(file_stats.get("time_parse_error_count", 0))
+        if time_err > 0:
+            add_issue(warnings, "index_time_parse_issues", "Some index time values could not be parsed.",
+                      {"column": time_col, "invalid_count": time_err})
+        pos_rate = file_stats.get("positive_rate")
+        if isinstance(pos_rate, (int, float)) and math.isfinite(float(pos_rate)):
+            if float(pos_rate) <= 0.0 or float(pos_rate) >= 1.0:
+                add_issue(warnings, "target_single_class", "Dataset contains only one class.",
+                          {"positive_rate": float(pos_rate)})
+
+        n_patients = file_stats.get("patient_id_unique_count", 0)
+        if isinstance(n_patients, int) and n_patients < 6:
+            add_issue(failures, "insufficient_patients",
+                      f"Need at least 6 unique patients for 3-way split, found {n_patients}.",
+                      {"patient_count": n_patients})
+
+    if args.strict:
+        for issue in warnings:
+            if issue["code"] == "column_auto_mapped":
+                add_issue(failures, "strict_auto_mapping_not_allowed",
+                          "Strict mode requires explicit column names.", issue["details"])
+
+    mapping_payload = None
+    if not failures:
+        mapping_payload = {
+            "target_col": target_col,
+            "patient_id_col": patient_id_col,
+            "index_time_col": time_col,
+            "label_col": target_col,
+            "notes": "Generated by schema_preflight.py (single-file mode).",
+        }
+
+    summary = {
+        "input_csv": str(Path(csv_path).expanduser().resolve()),
+        "mode": "single_file",
+        "column_count": len(columns),
+        "resolved_mapping": resolved,
+        "file_stats": file_stats,
+        "suggested_request_patch": (
+            {"label_col": target_col, "patient_id_col": patient_id_col, "index_time_col": time_col}
+            if mapping_payload else None
+        ),
+    }
+    return finish(args, failures, warnings, summary, mapping_payload)
+
+
 def main() -> int:
     args = parse_args()
     failures: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
 
+    # Single-file mode: pre-split quality checks
+    if args.input_csv:
+        return run_single_file_preflight(args, failures, warnings)
+
     split_dfs: Dict[str, Any] = {}
+    split_items = [("train", args.train), ("valid", args.valid), ("test", args.test)]
+    split_items = [(n, p) for n, p in split_items if p]
+    if not split_items:
+        add_issue(failures, "no_splits", "No split paths provided.", {})
+        return finish(args, failures, warnings, {}, None)
     try:
-        for _split_name, _split_path in (("train", args.train), ("valid", args.valid), ("test", args.test)):
+        for _split_name, _split_path in split_items:
             split_dfs[_split_name] = load_split(_split_path)
     except Exception as exc:
         add_issue(
@@ -146,10 +259,14 @@ def main() -> int:
         )
         return finish(args, failures, warnings, {}, None)
 
-    train_df = split_dfs["train"]
-    valid_df = split_dfs["valid"]
-    test_df = split_dfs["test"]
-    common_columns = sorted(set(train_df.columns) & set(valid_df.columns) & set(test_df.columns))
+    train_df = split_dfs.get("train")
+    valid_df = split_dfs.get("valid")
+    test_df = split_dfs.get("test")
+    all_dfs = [df for df in [train_df, valid_df, test_df] if df is not None]
+    if not all_dfs:
+        add_issue(failures, "no_splits_loaded", "No split DataFrames loaded.", {})
+        return finish(args, failures, warnings, {}, None)
+    common_columns = sorted(set.intersection(*[set(df.columns) for df in all_dfs]))
     if not common_columns:
         add_issue(
             failures,

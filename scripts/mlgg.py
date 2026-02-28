@@ -32,6 +32,7 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         "Launch interactive wizard for core commands (init/workflow/train/authority).",
     ),
     "init": (SCRIPTS_ROOT / "init_project.py", "Initialize project folders and config templates."),
+    "split": (SCRIPTS_ROOT / "split_data.py", "Split a single CSV into train/valid/test with medical safety guarantees."),
     "doctor": (SCRIPTS_ROOT / "env_doctor.py", "Check runtime dependencies and optional backends."),
     "preflight": (SCRIPTS_ROOT / "schema_preflight.py", "Validate train/valid/test schema and semantic mapping."),
     "workflow": (SCRIPTS_ROOT / "run_productized_workflow.py", "Run doctor -> preflight -> strict -> summary."),
