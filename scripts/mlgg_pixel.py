@@ -210,6 +210,7 @@ _T: Dict[str, Dict[str, str]] = {
     "c_none":        {"en": "(none)", "zh": "\uff08\u65e0\uff09"},
     "c_start":       {"en": "Start Pipeline", "zh": "\u5f00\u59cb\u8fd0\u884c"},
     "c_back":        {"en": "Go Back", "zh": "\u8fd4\u56de\u4fee\u6539"},
+    "c_export":      {"en": "Export CLI Command", "zh": "\u5bfc\u51fa CLI \u547d\u4ee4"},
 
     "x_download":    {"en": "Downloading {ds}...", "zh": "\u6b63\u5728\u4e0b\u8f7d {ds}..."},
     "x_split":       {"en": "Splitting with safety checks...",
@@ -988,6 +989,47 @@ def step_tuning(state: Dict) -> Any:
     return True
 
 
+def _export_cli(state: Dict) -> str:
+    """Build a copy-ready CLI command string from wizard state."""
+    import shlex as _shlex
+    parts: List[str] = [sys.executable, str(SCRIPTS_DIR / "mlgg.py")]
+    source = state.get("source", "")
+    if source == "demo":
+        parts.extend(["onboarding", "--project-root", state["out_dir"],
+                       "--mode", "guided", "--yes"])
+        return _shlex.join(parts)
+    out_data = str(Path(state["out_dir"]) / "data")
+    evidence_dir = str(Path(state["out_dir"]) / "evidence")
+    models_dir = str(Path(state["out_dir"]) / "models")
+    split_parts = [
+        sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "split", "--",
+        "--input", state.get("csv_path", ""),
+        "--output-dir", out_data,
+        "--patient-id-col", state.get("pid", "patient_id"),
+        "--target-col", state.get("target", "y"),
+        "--strategy", state.get("strategy", "grouped_temporal"),
+    ]
+    if state.get("time"):
+        split_parts.extend(["--time-col", state["time"]])
+    ignore_parts = [state.get("pid", "patient_id")]
+    if state.get("time"):
+        ignore_parts.append(state["time"])
+    train_parts = [
+        sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
+        "--train", str(Path(out_data) / "train.csv"),
+        "--valid", str(Path(out_data) / "valid.csv"),
+        "--test", str(Path(out_data) / "test.csv"),
+        "--target-col", state.get("target", "y"),
+        "--patient-id-col", state.get("pid", "patient_id"),
+        "--ignore-cols", ",".join(ignore_parts),
+        "--model-pool", state.get("model_pool", ""),
+        "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
+        "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
+        "--model-out", str(Path(models_dir) / "model.pkl"),
+    ]
+    return _shlex.join(split_parts) + "\n" + _shlex.join(train_parts)
+
+
 def step_confirm(state: Dict) -> Any:
     _clear()
     step_header(8, TOTAL_STEPS, t("s_confirm"))
@@ -1028,9 +1070,21 @@ def step_confirm(state: Dict) -> Any:
         box(t("s_confirm"), lines, color="C")
 
     print()
-    ci = select([t("c_start"), t("c_back")])
-    if ci != 0:
-        return BACK
+    while True:
+        ci = select([t("c_start"), t("c_export"), t("c_back")])
+        if ci == 2 or ci < 0:
+            return BACK
+        if ci == 1:
+            print(f"\n  {s('W', _export_cli(state))}")
+            sys.stdout.write(SHOW_CUR)
+            try:
+                input(f"  {DIM}{t('enter_continue')}{RST}")
+            except (EOFError, KeyboardInterrupt):
+                pass
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_confirm"))
+            continue
+        break
     return True
 
 
