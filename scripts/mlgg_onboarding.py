@@ -451,20 +451,27 @@ def run_internal_step(
     return code == 0
 
 
-def align_demo_configs(project_root: Path, run_id: str) -> None:
+def align_demo_configs(
+    project_root: Path,
+    run_id: str,
+    patient_id_col: str = "patient_id",
+    target_col: str = "y",
+    time_col: str = "event_time",
+    is_user_data: bool = False,
+) -> None:
     configs = project_root / "configs"
     request_path = configs / "request.json"
     if not request_path.exists():
         raise FileNotFoundError(f"Missing request config: {request_path}")
 
     request = load_json(request_path)
-    request["study_id"] = "demo-medical-leakage-guard"
+    request["study_id"] = "user-data-study" if is_user_data else "demo-medical-leakage-guard"
     request["run_id"] = run_id
     request["target_name"] = "disease_risk"
     request["prediction_unit"] = "patient-episode"
-    request["index_time_col"] = "event_time"
-    request["label_col"] = "y"
-    request["patient_id_col"] = "patient_id"
+    request["index_time_col"] = time_col
+    request["label_col"] = target_col
+    request["patient_id_col"] = patient_id_col
     request["primary_metric"] = "pr_auc"
     request["claim_tier_target"] = "publication-grade"
     request["split_paths"] = {
@@ -500,56 +507,81 @@ def align_demo_configs(project_root: Path, run_id: str) -> None:
     }
     write_json(request_path, request)
 
-    feature_group = {
-        "groups": {
-            "demographics": ["age", "sex_male", "bmi"],
-            "vitals": ["systolic_bp", "heart_rate"],
-            "labs": ["wbc", "creatinine", "lactate", "crp"],
-            "history": ["comorbidity_index", "smoke_status"],
-        },
-        "forbidden_features": ["confirmed_diagnosis_code", "reference_standard_positive"],
-        "notes": "Demo feature groups for onboarding; each feature appears in exactly one group.",
-    }
-    write_json(configs / "feature_group_spec.json", feature_group)
+    if is_user_data:
+        # User data mode: generate minimal feature_group_spec from actual CSV columns
+        train_csv = project_root / "data" / "train.csv"
+        if train_csv.exists():
+            with train_csv.open("r", encoding="utf-8", newline="") as fh:
+                reader = csv.reader(fh)
+                header = next(reader, [])
+            non_feature_cols = {patient_id_col, time_col, target_col}
+            feature_cols = [c for c in header if c.strip() and c.strip() not in non_feature_cols]
+            feature_group = {
+                "groups": {"all_features": feature_cols},
+                "forbidden_features": [],
+                "notes": "Auto-generated from user CSV columns by onboarding --input-csv mode.",
+            }
+            write_json(configs / "feature_group_spec.json", feature_group)
 
-    feature_lineage = {
-        "features": {
-            "age": {"ancestors": ["raw_age"]},
-            "sex_male": {"ancestors": ["raw_sex"]},
-            "bmi": {"ancestors": ["raw_bmi"]},
-            "systolic_bp": {"ancestors": ["raw_systolic_bp"]},
-            "heart_rate": {"ancestors": ["raw_heart_rate"]},
-            "wbc": {"ancestors": ["raw_wbc"]},
-            "creatinine": {"ancestors": ["raw_creatinine"]},
-            "lactate": {"ancestors": ["raw_lactate"]},
-            "crp": {"ancestors": ["raw_crp"]},
-            "comorbidity_index": {"ancestors": ["raw_comorbidity_index"]},
-            "smoke_status": {"ancestors": ["raw_smoke_status"]},
+            feature_lineage = {
+                "features": {col: {"ancestors": [col]} for col in feature_cols}
+            }
+            write_json(configs / "feature_lineage.json", feature_lineage)
+
+        # User data: empty external cohort spec (no external cohorts available)
+        external_spec = {"cohorts": []}
+        write_json(configs / "external_cohort_spec.json", external_spec)
+    else:
+        feature_group = {
+            "groups": {
+                "demographics": ["age", "sex_male", "bmi"],
+                "vitals": ["systolic_bp", "heart_rate"],
+                "labs": ["wbc", "creatinine", "lactate", "crp"],
+                "history": ["comorbidity_index", "smoke_status"],
+            },
+            "forbidden_features": ["confirmed_diagnosis_code", "reference_standard_positive"],
+            "notes": "Demo feature groups for onboarding; each feature appears in exactly one group.",
         }
-    }
-    write_json(configs / "feature_lineage.json", feature_lineage)
+        write_json(configs / "feature_group_spec.json", feature_group)
 
-    external_spec = {
-        "cohorts": [
-            {
-                "cohort_id": "hospital_a_2025_q4",
-                "cohort_type": "cross_period",
-                "path": "../data/external_2025_q4.csv",
-                "label_col": "y",
-                "patient_id_col": "patient_id",
-                "index_time_col": "event_time",
-            },
-            {
-                "cohort_id": "hospital_b_site",
-                "cohort_type": "cross_institution",
-                "path": "../data/external_site_b.csv",
-                "label_col": "y",
-                "patient_id_col": "patient_id",
-                "index_time_col": "event_time",
-            },
-        ]
-    }
-    write_json(configs / "external_cohort_spec.json", external_spec)
+        feature_lineage = {
+            "features": {
+                "age": {"ancestors": ["raw_age"]},
+                "sex_male": {"ancestors": ["raw_sex"]},
+                "bmi": {"ancestors": ["raw_bmi"]},
+                "systolic_bp": {"ancestors": ["raw_systolic_bp"]},
+                "heart_rate": {"ancestors": ["raw_heart_rate"]},
+                "wbc": {"ancestors": ["raw_wbc"]},
+                "creatinine": {"ancestors": ["raw_creatinine"]},
+                "lactate": {"ancestors": ["raw_lactate"]},
+                "crp": {"ancestors": ["raw_crp"]},
+                "comorbidity_index": {"ancestors": ["raw_comorbidity_index"]},
+                "smoke_status": {"ancestors": ["raw_smoke_status"]},
+            }
+        }
+        write_json(configs / "feature_lineage.json", feature_lineage)
+
+        external_spec = {
+            "cohorts": [
+                {
+                    "cohort_id": "hospital_a_2025_q4",
+                    "cohort_type": "cross_period",
+                    "path": "../data/external_2025_q4.csv",
+                    "label_col": "y",
+                    "patient_id_col": "patient_id",
+                    "index_time_col": "event_time",
+                },
+                {
+                    "cohort_id": "hospital_b_site",
+                    "cohort_type": "cross_institution",
+                    "path": "../data/external_site_b.csv",
+                    "label_col": "y",
+                    "patient_id_col": "patient_id",
+                    "index_time_col": "event_time",
+                },
+            ]
+        }
+        write_json(configs / "external_cohort_spec.json", external_spec)
 
     tuning_path = configs / "tuning_protocol.json"
     tuning = load_json(tuning_path)
@@ -571,7 +603,7 @@ def align_demo_configs(project_root: Path, run_id: str) -> None:
             reader = csv.reader(fh)
             header = next(reader, [])
             row_count = sum(1 for _ in reader)
-        ignored_cols = {"patient_id", "event_time", "y"}
+        ignored_cols = {patient_id_col, time_col, target_col}
         feature_count = sum(1 for col in header if str(col).strip() and str(col).strip() not in ignored_cols)
         scale_guard = missingness.get("scale_guard_evidence")
         if not isinstance(scale_guard, dict):
@@ -587,18 +619,31 @@ def align_demo_configs(project_root: Path, run_id: str) -> None:
     targets = phenotype.get("targets")
     if not isinstance(targets, dict):
         targets = {}
-    targets["disease_risk"] = {
-        "defining_variables": ["confirmed_diagnosis_code", "reference_standard_positive"],
-        "forbidden_patterns": ["(?i)diagnosis_code", "(?i)reference_standard"],
-        "notes": "Demo target definition; these variables are never present in predictors.",
-    }
+    if is_user_data:
+        targets["disease_risk"] = {
+            "defining_variables": [],
+            "forbidden_patterns": ["(?i)target", "(?i)label", "(?i)outcome"],
+            "notes": "Auto-generated by onboarding --input-csv mode. Review and add disease-defining variables.",
+        }
+    else:
+        targets["disease_risk"] = {
+            "defining_variables": ["confirmed_diagnosis_code", "reference_standard_positive"],
+            "forbidden_patterns": ["(?i)diagnosis_code", "(?i)reference_standard"],
+            "notes": "Demo target definition; these variables are never present in predictors.",
+        }
     phenotype["targets"] = targets
     if "global_forbidden_patterns" not in phenotype:
         phenotype["global_forbidden_patterns"] = ["(?i)target", "(?i)label", "(?i)outcome"]
     write_json(configs / "phenotype_definitions.json", phenotype)
 
 
-def build_train_command(project_root: Path, python_bin: str) -> Tuple[List[str], Dict[str, Path]]:
+def build_train_command(
+    project_root: Path,
+    python_bin: str,
+    patient_id_col: str = "patient_id",
+    target_col: str = "y",
+    time_col: str = "event_time",
+) -> Tuple[List[str], Dict[str, Path]]:
     data = project_root / "data"
     cfg = project_root / "configs"
     evidence = project_root / "evidence"
@@ -619,6 +664,7 @@ def build_train_command(project_root: Path, python_bin: str) -> Tuple[List[str],
         "permutation_null_metrics": evidence / "permutation_null_pr_auc.txt",
         "model_artifact": models / "demo_model.joblib",
     }
+    ignore_parts = sorted({patient_id_col, time_col} - {""})
     cmd = [
         python_bin,
         str(SCRIPTS_ROOT / "train_select_evaluate.py"),
@@ -629,11 +675,11 @@ def build_train_command(project_root: Path, python_bin: str) -> Tuple[List[str],
         "--test",
         str(data / "test.csv"),
         "--target-col",
-        "y",
+        target_col,
         "--patient-id-col",
-        "patient_id",
+        patient_id_col,
         "--ignore-cols",
-        "patient_id,event_time",
+        ",".join(ignore_parts),
         "--performance-policy",
         str(cfg / "performance_policy.json"),
         "--missingness-policy",
@@ -1152,14 +1198,22 @@ def main() -> int:
         return finish("fail")
 
     # Step 4 align configs
+    _user_pid_col = str(getattr(args, "patient_id_col", "patient_id"))
+    _user_target_col = str(getattr(args, "target_col", "y"))
+    _user_time_col = str(getattr(args, "time_col", "event_time") or "event_time")
+    _is_user_data = bool(user_input_csv)
     ok = run_internal_step(
         name="step4_align_configs",
-        description="Align request/spec files with demo schema and publication-grade artifact paths.",
+        description="Align request/spec files with schema and publication-grade artifact paths.",
         internal_command="internal: align_demo_configs(project_root, run_id)",
         mode=mode,
         auto_yes=auto_yes,
         steps=step_rows,
-        fn=lambda: align_demo_configs(project_root=project_root, run_id=run_id),
+        fn=lambda: align_demo_configs(
+            project_root=project_root, run_id=run_id,
+            patient_id_col=_user_pid_col, target_col=_user_target_col,
+            time_col=_user_time_col, is_user_data=_is_user_data,
+        ),
         expected_artifacts=[
             project_root / "configs" / "request.json",
             project_root / "configs" / "feature_group_spec.json",
@@ -1171,7 +1225,11 @@ def main() -> int:
         return finish("fail")
 
     # Step 5 train
-    train_cmd, train_outputs = build_train_command(project_root=project_root, python_bin=python_bin)
+    train_cmd, train_outputs = build_train_command(
+        project_root=project_root, python_bin=python_bin,
+        patient_id_col=_user_pid_col, target_col=_user_target_col,
+        time_col=_user_time_col,
+    )
     train_log = evidence_dir / "train_command.log"
     train_cfg = project_root / "configs" / "train_runtime_config.json"
     ensure_parent(train_cfg)
