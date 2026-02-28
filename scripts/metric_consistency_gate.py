@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, to_float
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,24 +65,6 @@ def get_by_dot_path(payload: Dict[str, Any], path: str) -> Tuple[Optional[Any], 
         cur = cur[key]
     return cur, ".".join(traversed)
 
-
-def to_float(value: Any) -> Optional[float]:
-    if is_finite_number(value):
-        return float(value)
-    if isinstance(value, (int, float)):  # catches +/-inf and nan
-        return None
-    if isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return None
-        try:
-            parsed = float(s)
-            if math.isfinite(parsed):
-                return parsed
-            return None
-        except ValueError:
-            return None
-    return None
 
 
 def collect_candidate_metrics(payload: Dict[str, Any], metric_name: str) -> List[Tuple[str, float, Any]]:

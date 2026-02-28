@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, to_float
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,21 +66,6 @@ def is_auxiliary_metric_path(path: str) -> bool:
 def is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
 
-
-def to_float(value: Any) -> Optional[float]:
-    if is_finite_number(value):
-        return float(value)
-    if isinstance(value, str):
-        s = value.strip().lower()
-        if not s:
-            return None
-        try:
-            parsed = float(s)
-        except ValueError:
-            return None
-        if math.isfinite(parsed):
-            return parsed
-    return None
 
 
 def normalize_split_token(value: str) -> str:

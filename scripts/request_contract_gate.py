@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, to_float
 
 
 REQUIRED_STRING_FIELDS = [
@@ -303,23 +303,6 @@ def is_valid_dot_path(path: str) -> bool:
 def canonical_metric_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
-
-def to_float(value: Any) -> Optional[float]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)) and math.isfinite(float(value)):
-        return float(value)
-    if isinstance(value, str):
-        token = value.strip()
-        if not token:
-            return None
-        try:
-            parsed = float(token)
-        except ValueError:
-            return None
-        if math.isfinite(parsed):
-            return float(parsed)
-    return None
 
 
 def to_int(value: Any) -> Optional[int]:

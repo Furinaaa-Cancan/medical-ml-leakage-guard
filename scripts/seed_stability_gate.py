@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, load_json_from_str as load_json_object
 
 
 DEFAULT_THRESHOLDS: Dict[str, float] = {
@@ -33,15 +33,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
-
-
-def load_json_object(path: str) -> Dict[str, Any]:
-    p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be an object.")
-    return payload
 
 
 def is_finite_number(value: Any) -> bool:
