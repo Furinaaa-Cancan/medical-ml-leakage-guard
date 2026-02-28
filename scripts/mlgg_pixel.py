@@ -1309,7 +1309,7 @@ def step_run(state: Dict) -> Any:
 #  MAIN WIZARD
 # ══════════════════════════════════════════════════════════════════════════════
 
-def wizard() -> int:
+def wizard(force_lang: str = "") -> int:
     global LANG
     LANG = detect_lang()
 
@@ -1319,6 +1319,12 @@ def wizard() -> int:
              step_confirm, step_run]
     skipped: set = set()
     i = 0
+
+    if force_lang in ("en", "zh"):
+        LANG = force_lang
+        state["lang"] = LANG
+        skipped.add(0)
+        i = 1
 
     while i < len(steps):
         try:
@@ -1356,10 +1362,12 @@ def wizard() -> int:
 
 
 def main() -> int:
-    if len(sys.argv) > 1 and sys.argv[1] in ("--help", "-h"):
-        print(__doc__)
-        return 0
-    return wizard()
+    import argparse as _ap
+    parser = _ap.ArgumentParser(description=__doc__, add_help=True)
+    parser.add_argument("--lang", choices=["en", "zh"], default="",
+                        help="Set language directly, skipping the language selection step.")
+    args, _ = parser.parse_known_args()
+    return wizard(force_lang=args.lang)
 
 
 if __name__ == "__main__":
