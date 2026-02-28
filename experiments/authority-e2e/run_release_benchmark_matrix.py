@@ -745,6 +745,8 @@ def main() -> int:
             "overall_status": "fail",
             "status_reason": registry_fail_code,
             "failure_codes": [registry_fail_code],
+            "blocking_failure_codes": [],
+            "observational_failure_codes": [],
             "repeat_count": int(args.repeat),
             "repeat_consistent": False,
             "blocking_suite_ids": [],
@@ -871,6 +873,7 @@ def main() -> int:
                 "passed_count",
                 "scenario_count",
                 "failed_scenarios",
+                "case_metrics_fingerprint",
                 "error",
             ):
                 if key in outcome:

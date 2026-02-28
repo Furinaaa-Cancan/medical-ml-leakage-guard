@@ -1,5 +1,10 @@
 raw/
+_benchmark_matrix_runs/
+_locks/
+_stress_seed_workspace/
 uci-heart-disease/
 uci-breast-cancer-wdbc/
+uci-chronic-kidney-disease/
+uci-diabetes-130-readmission/
 authority_e2e_summary.json
 adversarial/
