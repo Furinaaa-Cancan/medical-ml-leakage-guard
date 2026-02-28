@@ -65,6 +65,14 @@ This runs a fixed 8-step strict flow:
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
 ```
 
+说明：
+- preview 模式会写入 `display_status=preview` 和 `preview_only=true`。
+- preview 只生成命令计划，不执行训练与 gate。
+
+Note:
+- Preview mode writes `display_status=preview` and `preview_only=true`.
+- Preview mode only emits a command plan and does not execute training/gates.
+
 #### 3.3 Continue after failures for full diagnosis
 
 ```bash
@@ -83,6 +91,8 @@ After onboarding (or manual workflow), check:
 
 `onboarding_report.json` contract is `onboarding_report.v2`:
 - `status`: `pass` or `fail`
+- `display_status`: user-facing status (`preview` for `--mode preview`)
+- `preview_only`: whether this run was preview-only (no execution)
 - `stop_on_fail`: run-time behavior (`true` or `false`)
 - `termination_reason`:
   - `completed_successfully`
@@ -91,7 +101,7 @@ After onboarding (or manual workflow), check:
   - `cancelled_by_user`
 - `failure_codes`: merged codes from gate reports + onboarding step-level codes
 - `next_actions`: remediation commands (includes recommended release benchmark and advanced heart research route when onboarding passes)
-- `copy_ready_commands`: copy/paste-ready command block (`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`)
+- `copy_ready_commands`: copy/paste-ready command block with absolute `mlgg.py` path (`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`)
 
 `productized_workflow_report.json` contract is `productized_workflow_report.v2`:
 - `status`: `pass` or `fail`
@@ -264,6 +274,8 @@ python3 scripts/mlgg.py interactive --command workflow --print-only --accept-def
 ```bash
 # unified help
 python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py onboarding --help
+python3 scripts/mlgg.py train --interactive --help
 
 # gate smoke tests
 python3 scripts/test_gate_smoke.py
@@ -322,6 +334,7 @@ Notes:
 
 If guided mode is cancelled, onboarding now fails closed with:
 - failure code: `onboarding_step_cancelled`
+- non-interactive guided mode code: `onboarding_interactive_input_unavailable`
 - actionable `next_actions` in onboarding report
 - wrapper conflict failure code: `authority_preset_route_override_forbidden`
 
@@ -434,6 +447,8 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
 
 `onboarding_report.json` 目前契约是 `onboarding_report.v2`：
 - `status`: `pass` 或 `fail`
+- `display_status`: 面向用户展示状态（`--mode preview` 时为 `preview`）
+- `preview_only`: 是否仅预览（未执行）
 - `stop_on_fail`: 是否遇到失败立即停止
 - `termination_reason`:
   - `completed_successfully`
@@ -442,7 +457,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
   - `cancelled_by_user`
 - `failure_codes`: 汇总 gate 报告和 onboarding 步骤级失败码
 - `next_actions`: 直接可执行的修复动作（通过时会给出发布级推荐基准和高级 heart 研究路径）
-- `copy_ready_commands`: 可直接复制执行的命令块（`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`）
+- `copy_ready_commands`: 可直接复制执行的命令块（使用绝对 `mlgg.py` 路径，可在任意目录执行）
 
 `productized_workflow_report.json` 目前契约是 `productized_workflow_report.v2`：
 - `status`: `pass` 或 `fail`
@@ -615,6 +630,8 @@ python3 scripts/mlgg.py interactive --command workflow --print-only --accept-def
 ```bash
 # 统一帮助
 python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py onboarding --help
+python3 scripts/mlgg.py train --interactive --help
 
 # gate 冒烟测试
 python3 scripts/test_gate_smoke.py
@@ -673,6 +690,7 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 guided 模式取消后现在会 fail-closed，失败码为：
 - `onboarding_step_cancelled`
+- `onboarding_interactive_input_unavailable`（guided 在无 stdin/TTY 环境运行）
 - `authority_preset_route_override_forbidden`（固定封装命令上传入冲突路线参数）
 
 并在 onboarding 报告中给出 `next_actions`。

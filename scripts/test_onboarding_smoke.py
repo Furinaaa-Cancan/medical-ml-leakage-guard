@@ -72,14 +72,20 @@ def test_onboarding_preview_report_contract() -> None:
         assert_true(payload.get("contract_version") == "onboarding_report.v2", "report contract_version is v2")
         assert_true(payload.get("stop_on_fail") is True, "default stop_on_fail is true")
         assert_true(payload.get("termination_reason") == "completed_successfully", "preview termination reason is completed_successfully")
+        assert_true(payload.get("preview_only") is True, "preview report marks preview_only=true")
+        assert_true(payload.get("display_status") == "preview", "preview report display_status is preview")
         next_actions = payload.get("next_actions", [])
         assert_true(
-            any("authority-release" in str(item) for item in next_actions),
-            "preview next_actions includes release benchmark command",
+            any("preview-only" in str(item).lower() for item in next_actions),
+            "preview next_actions explain non-executed preview mode",
         )
         assert_true(
-            any("authority-research-heart" in str(item) for item in next_actions),
-            "preview next_actions includes advanced heart benchmark command",
+            any("onboarding --project-root" in str(item) and "--mode guided --yes" in str(item) for item in next_actions),
+            "preview next_actions includes direct full-run onboarding command",
+        )
+        assert_true(
+            any("--mode preview" in str(item) for item in next_actions),
+            "preview next_actions includes preview rerun command",
         )
         copy_ready = payload.get("copy_ready_commands", {})
         assert_true(isinstance(copy_ready, dict), "copy_ready_commands is a dict")
@@ -87,6 +93,11 @@ def test_onboarding_preview_report_contract() -> None:
         assert_true("workflow_compare" in copy_ready, "copy_ready_commands includes workflow_compare")
         assert_true("authority_release" in copy_ready, "copy_ready_commands includes authority_release")
         assert_true("authority_research_heart" in copy_ready, "copy_ready_commands includes authority_research_heart")
+        workflow_compare = str(copy_ready.get("workflow_compare", ""))
+        assert_true(
+            str((SCRIPTS_DIR / "mlgg.py").resolve()) in workflow_compare,
+            "copy_ready workflow command uses absolute mlgg.py path",
+        )
         steps = payload.get("steps")
         assert_true(isinstance(steps, list) and len(steps) == 8, "report contains 8 onboarding steps")
 

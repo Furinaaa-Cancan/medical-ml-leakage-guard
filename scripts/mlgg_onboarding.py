@@ -19,6 +19,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -152,7 +153,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["guided", "preview", "auto"], default="guided", help="Onboarding execution mode.")
     parser.add_argument("--lang", choices=["bilingual", "zh", "en"], default="bilingual", help="Prompt language mode.")
     parser.add_argument("--yes", action="store_true", help="Auto-confirm all steps in guided mode.")
-    parser.add_argument("--strict", action="store_true", default=True, help="Strict mode (always enabled for onboarding).")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=True,
+        help="Deprecated flag; onboarding is strict-only and this setting is always enforced.",
+    )
     parser.set_defaults(stop_on_fail=True)
     stop_group = parser.add_mutually_exclusive_group()
     stop_group.add_argument("--stop-on-fail", dest="stop_on_fail", action="store_true", help="Stop at first failing step (default).")
@@ -198,17 +204,38 @@ def load_json(path: Path) -> Dict[str, Any]:
     return payload
 
 
-def maybe_prompt_confirm(mode: str, auto_yes: bool, title: str, cmd: str, expected: Sequence[str]) -> bool:
+def maybe_prompt_confirm(
+    mode: str,
+    auto_yes: bool,
+    title: str,
+    cmd: str,
+    expected: Sequence[str],
+) -> Tuple[bool, str]:
     if mode != "guided" or auto_yes:
-        return True
+        return True, ""
+    if not sys.stdin:
+        print(
+            "[WARN] guided mode requires interactive stdin; rerun with --yes or --mode auto.",
+            file=sys.stderr,
+        )
+        return False, "guided_mode_requires_interactive_stdin"
     print(f"\n[STEP] {title}")
     print(f"$ {cmd}")
     if expected:
         print("Expected artifacts:")
         for item in expected:
             print(f"- {item}")
-    raw = input("Execute this step now? [Y/n]: ").strip().lower()
-    return raw in {"", "y", "yes"}
+    try:
+        raw = input("Execute this step now? [Y/n]: ").strip().lower()
+    except EOFError:
+        print(
+            "[WARN] guided mode input stream closed; rerun with --yes or --mode auto.",
+            file=sys.stderr,
+        )
+        return False, "guided_mode_stdin_eof"
+    if raw in {"", "y", "yes"}:
+        return True, ""
+    return False, "step_cancelled_by_user"
 
 
 def run_command_step(
@@ -250,7 +277,19 @@ def run_command_step(
         )
         return True
 
-    if not maybe_prompt_confirm(mode=mode, auto_yes=auto_yes, title=f"{name}: {description}", cmd=cmd_str, expected=expected_text):
+    proceed, cancel_reason = maybe_prompt_confirm(
+        mode=mode,
+        auto_yes=auto_yes,
+        title=f"{name}: {description}",
+        cmd=cmd_str,
+        expected=expected_text,
+    )
+    if not proceed:
+        failure_code = (
+            "onboarding_interactive_input_unavailable"
+            if cancel_reason in {"guided_mode_requires_interactive_stdin", "guided_mode_stdin_eof"}
+            else "onboarding_step_cancelled"
+        )
         steps.append(
             {
                 "name": name,
@@ -260,8 +299,8 @@ def run_command_step(
                 "end_utc": utc_now(),
                 "exit_code": 2,
                 "stdout_tail": "",
-                "stderr_tail": "step_cancelled_by_user",
-                "failure_code": "onboarding_step_cancelled",
+                "stderr_tail": cancel_reason or "step_cancelled_by_user",
+                "failure_code": failure_code,
                 "expected_artifacts": expected_text,
                 "status": "fail",
             }
@@ -340,7 +379,19 @@ def run_internal_step(
         )
         return True
 
-    if not maybe_prompt_confirm(mode=mode, auto_yes=auto_yes, title=f"{name}: {description}", cmd=internal_command, expected=expected_text):
+    proceed, cancel_reason = maybe_prompt_confirm(
+        mode=mode,
+        auto_yes=auto_yes,
+        title=f"{name}: {description}",
+        cmd=internal_command,
+        expected=expected_text,
+    )
+    if not proceed:
+        failure_code = (
+            "onboarding_interactive_input_unavailable"
+            if cancel_reason in {"guided_mode_requires_interactive_stdin", "guided_mode_stdin_eof"}
+            else "onboarding_step_cancelled"
+        )
         steps.append(
             {
                 "name": name,
@@ -350,8 +401,8 @@ def run_internal_step(
                 "end_utc": utc_now(),
                 "exit_code": 2,
                 "stdout_tail": "",
-                "stderr_tail": "step_cancelled_by_user",
-                "failure_code": "onboarding_step_cancelled",
+                "stderr_tail": cancel_reason or "step_cancelled_by_user",
+                "failure_code": failure_code,
                 "expected_artifacts": expected_text,
                 "status": "fail",
             }
@@ -706,65 +757,111 @@ def collect_step_failure_codes(steps: Sequence[Dict[str, Any]]) -> List[str]:
     return out
 
 
-def build_next_actions(failure_codes: Sequence[str], status: str, lang: str) -> List[str]:
+def absolutize_repo_python_command(raw: str) -> str:
+    # Keep command semantics unchanged while making copy-ready commands runnable from any cwd.
+    return re.sub(
+        r"\bpython3\s+scripts/([A-Za-z0-9_.-]+)",
+        lambda m: "python3 " + str((SCRIPTS_ROOT / m.group(1)).resolve()),
+        str(raw),
+    )
+
+
+def build_next_actions(failure_codes: Sequence[str], status: str, lang: str, mode: str) -> List[str]:
     lang_mode = str(lang).strip().lower()
     actions: List[str] = []
+    mlgg_cli = f"python3 {(SCRIPTS_ROOT / 'mlgg.py').resolve()}"
+    if mode == "preview":
+        if lang_mode == "zh":
+            return [
+                "当前是 preview 模式：仅生成计划，未执行任何训练/门控步骤。",
+                f"执行完整 onboarding: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+                f"仅打印步骤计划: {mlgg_cli} onboarding --project-root <project> --mode preview",
+            ]
+        if lang_mode == "en":
+            return [
+                "Current run is preview-only: commands were generated but not executed.",
+                f"Run full onboarding: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+                f"Print step plan only: {mlgg_cli} onboarding --project-root <project> --mode preview",
+            ]
+        return [
+            "Current run is preview-only / 当前为 preview，仅生成命令计划未执行。",
+            f"Run full onboarding / 执行完整 onboarding: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+            f"Preview only / 仅预览: {mlgg_cli} onboarding --project-root <project> --mode preview",
+        ]
     if "onboarding_step_cancelled" in set(failure_codes):
         if lang_mode == "zh":
             return [
                 "onboarding 被用户取消，请从当前命令重新执行。",
-                "跳过逐步确认：python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
-                "收集完整诊断：python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+                f"跳过逐步确认：{mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+                f"收集完整诊断：{mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
             ]
         if lang_mode == "en":
             return [
                 "Onboarding was cancelled by user confirmation; rerun from the same command to continue.",
-                "Run non-interactive confirm mode: python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
-                "Collect full diagnostics without early stop: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+                f"Run non-interactive confirm mode: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+                f"Collect full diagnostics without early stop: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
             ]
         return [
             "Onboarding was cancelled by user confirmation / onboarding 被用户取消，请重新执行。",
-            "Run non-interactive confirm mode / 跳过确认: python3 scripts/mlgg.py onboarding --project-root <project> --mode guided --yes",
-            "Collect full diagnostics / 收集完整诊断: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            f"Run non-interactive confirm mode / 跳过确认: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+            f"Collect full diagnostics / 收集完整诊断: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
+        ]
+    if "onboarding_interactive_input_unavailable" in set(failure_codes):
+        if lang_mode == "zh":
+            return [
+                "guided 模式缺少交互输入（stdin/TTY 不可用）。",
+                f"无交互执行：{mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+                f"或自动执行并收集完整诊断：{mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            ]
+        if lang_mode == "en":
+            return [
+                "Guided mode has no interactive stdin (TTY unavailable).",
+                f"Run non-interactive confirm mode: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+                f"Or run auto diagnosis mode: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            ]
+        return [
+            "Guided mode has no stdin / guided 模式缺少交互输入。",
+            f"Run with --yes / 使用 --yes: {mlgg_cli} onboarding --project-root <project> --mode guided --yes",
+            f"Or run auto diagnosis / 或自动诊断: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
         ]
     if status == "pass" and not failure_codes:
         if lang_mode == "zh":
             return [
                 "当前无阻断失败，建议持续使用 compare-manifest 保持可复现复跑。",
-                "复跑命令: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
-                "发布级基准（推荐）: python3 scripts/mlgg.py authority-release --summary-file <project>/evidence/authority_release_summary.json",
-                "高级研究路径（heart，高压模式）: python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
+                f"复跑命令: {mlgg_cli} workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+                f"发布级基准（推荐）: {mlgg_cli} authority-release --summary-file <project>/evidence/authority_release_summary.json",
+                f"高级研究路径（heart，高压模式）: {mlgg_cli} authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
             ]
         if lang_mode == "en":
             return [
                 "No blocking failures. Keep using compare-manifest for reproducible reruns.",
-                "Re-run: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
-                "Recommended release-grade benchmark: python3 scripts/mlgg.py authority-release --summary-file <project>/evidence/authority_release_summary.json",
-                "Advanced research route (heart/high-pressure): python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
+                f"Re-run: {mlgg_cli} workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+                f"Recommended release-grade benchmark: {mlgg_cli} authority-release --summary-file <project>/evidence/authority_release_summary.json",
+                f"Advanced research route (heart/high-pressure): {mlgg_cli} authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
             ]
         return [
             "No blocking failures / 当前无阻断失败，建议持续使用 compare-manifest。",
-            "Re-run / 复跑: python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
-            "Recommended release benchmark / 发布级基准（推荐）: python3 scripts/mlgg.py authority-release --summary-file <project>/evidence/authority_release_summary.json",
-            "Advanced heart research route / 高级 heart 研究路径: python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
+            f"Re-run / 复跑: {mlgg_cli} workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json",
+            f"Recommended release benchmark / 发布级基准（推荐）: {mlgg_cli} authority-release --summary-file <project>/evidence/authority_release_summary.json",
+            f"Advanced heart research route / 高级 heart 研究路径: {mlgg_cli} authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060 --summary-file <project>/evidence/authority_research_heart_summary.json",
         ]
     if status != "pass" and not failure_codes:
         if lang_mode == "zh":
             return [
                 "检测到阻断失败，但 gate 未返回 failure code。",
                 "请在 onboarding_report.json 中定位首个 status=fail 且 exit_code!=0 的步骤。",
-                "完整诊断重跑: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+                f"完整诊断重跑: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
             ]
         if lang_mode == "en":
             return [
                 "Blocking failure detected but no gate failure code was emitted.",
                 "Inspect onboarding_report.json and find the first step with status=fail and non-zero exit_code.",
-                "Re-run full diagnosis: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+                f"Re-run full diagnosis: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
             ]
         return [
             "Blocking failure detected but no gate code / 检测到阻断失败但无 gate 失败码。",
             "Inspect first failed step in onboarding_report.json / 在报告中定位首个失败步骤。",
-            "Re-run full diagnosis / 完整诊断重跑: python3 scripts/mlgg.py onboarding --project-root <project> --mode auto --no-stop-on-fail",
+            f"Re-run full diagnosis / 完整诊断重跑: {mlgg_cli} onboarding --project-root <project> --mode auto --no-stop-on-fail",
         ]
     for code in failure_codes[:5]:
         spec = TROUBLESHOOTING_TOP20.get(code)
@@ -776,8 +873,8 @@ def build_next_actions(failure_codes: Sequence[str], status: str, lang: str) -> 
             else:
                 actions.append(f"{code}: inspect gate report / 查看 <project>/evidence 下对应 gate 报告并修复。")
             continue
-        diagnose = spec["diagnose"]
-        verify = spec["verify"]
+        diagnose = absolutize_repo_python_command(spec["diagnose"])
+        verify = absolutize_repo_python_command(spec["verify"])
         if lang_mode == "zh":
             actions.append(
                 f"{code}: 诊断 `{diagnose}`; 修复请参考 `references/Troubleshooting-Top20.md`; 复验 `{verify}`"
@@ -801,6 +898,7 @@ def build_next_actions(failure_codes: Sequence[str], status: str, lang: str) -> 
 
 
 def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
+    mlgg_entry = str((SCRIPTS_ROOT / "mlgg.py").resolve())
     request_path = project_root / "configs" / "request.json"
     evidence_dir = project_root / "evidence"
     compare_manifest = evidence_dir / "manifest_baseline.bootstrap.json"
@@ -808,7 +906,7 @@ def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
         "workflow_bootstrap": shlex.join(
             [
                 "python3",
-                "scripts/mlgg.py",
+                mlgg_entry,
                 "workflow",
                 "--request",
                 str(request_path),
@@ -819,7 +917,7 @@ def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
         "workflow_compare": shlex.join(
             [
                 "python3",
-                "scripts/mlgg.py",
+                mlgg_entry,
                 "workflow",
                 "--request",
                 str(request_path),
@@ -831,7 +929,7 @@ def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
         "authority_release": shlex.join(
             [
                 "python3",
-                "scripts/mlgg.py",
+                mlgg_entry,
                 "authority-release",
                 "--summary-file",
                 str(evidence_dir / "authority_release_summary.json"),
@@ -840,7 +938,7 @@ def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
         "authority_research_heart": shlex.join(
             [
                 "python3",
-                "scripts/mlgg.py",
+                mlgg_entry,
                 "authority-research-heart",
                 "--stress-seed-min",
                 "20250003",
@@ -850,7 +948,7 @@ def build_copy_ready_commands(project_root: Path) -> Dict[str, str]:
                 str(evidence_dir / "authority_research_heart_summary.json"),
             ]
         ),
-        "adversarial": shlex.join(["python3", "scripts/mlgg.py", "adversarial"]),
+        "adversarial": shlex.join(["python3", mlgg_entry, "adversarial"]),
     }
 
 
@@ -1326,12 +1424,17 @@ def finalize(
         "steps": steps,
         "artifacts": artifacts,
         "failure_codes": failure_codes,
-        "next_actions": build_next_actions(failure_codes, status=status, lang=lang),
+        "preview_only": mode == "preview",
+        "display_status": "preview" if mode == "preview" else status,
+        "next_actions": build_next_actions(failure_codes, status=status, lang=lang, mode=mode),
         "copy_ready_commands": build_copy_ready_commands(project_root),
     }
     write_json(report_path, report)
 
-    print(f"\nOnboardingStatus: {status}")
+    display_status = "preview" if mode == "preview" else status
+    print(f"\nOnboardingStatus: {display_status}")
+    if mode == "preview":
+        print("OnboardingNote: preview mode generated command plan only (no execution).")
     print(f"OnboardingReport: {report_path}")
     if failure_codes:
         print("TopFailureCodes: " + ", ".join(failure_codes[:8]))

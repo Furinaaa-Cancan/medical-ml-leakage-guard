@@ -94,6 +94,68 @@ AUTHORITY_PRESET_ROUTE_OVERRIDE_FORBIDDEN = "authority_preset_route_override_for
 MLGG_ERROR_CONTRACT_VERSION = "mlgg_error.v1"
 
 
+def _extract_option_value(argv: list[str], option: str, default: str) -> str:
+    for idx, token in enumerate(argv):
+        if token == option and idx + 1 < len(argv):
+            value = str(argv[idx + 1]).strip()
+            if value:
+                return value
+        if token.startswith(option + "="):
+            value = token.split("=", 1)[1].strip()
+            if value:
+                return value
+    return default
+
+
+def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
+    """
+    Forward intuitive help forms like:
+    - mlgg.py onboarding --help
+    - mlgg.py train --interactive --help
+    - mlgg.py interactive --help
+    """
+    if not raw_argv:
+        return None
+    subcommand = str(raw_argv[0]).strip()
+    if subcommand not in COMMANDS:
+        return None
+    if not any(token in {"-h", "--help"} for token in raw_argv[1:]):
+        return None
+    # Keep explicit passthrough handling in normal parse flow.
+    if "--" in raw_argv[1:]:
+        return None
+
+    python_bin = _extract_option_value(raw_argv[1:], "--python", sys.executable)
+    cwd_raw = _extract_option_value(raw_argv[1:], "--cwd", str(REPO_ROOT))
+    cwd = Path(cwd_raw).expanduser().resolve()
+
+    interactive_requested = subcommand == "interactive" or "--interactive" in raw_argv[1:]
+    if interactive_requested:
+        wizard_script = COMMANDS["interactive"][0]
+        if not wizard_script.exists():
+            print(f"[FAIL] Interactive script not found: {wizard_script}", file=sys.stderr)
+            return 2
+        target_command = subcommand if subcommand in INTERACTIVE_CORE_COMMANDS else ""
+        if subcommand == "interactive":
+            target_command = _extract_option_value(raw_argv[1:], "--command", "")
+        cmd = [python_bin, str(wizard_script)]
+        if target_command in INTERACTIVE_CORE_COMMANDS:
+            cmd.extend(["--command", target_command])
+        cmd.append("--help")
+        print(f"$ {shlex.join(cmd)}")
+        proc = subprocess.run(cmd, cwd=str(cwd), text=True)
+        return int(proc.returncode)
+
+    script_path = COMMANDS[subcommand][0]
+    if not script_path.exists():
+        print(f"[FAIL] Script not found for command '{subcommand}': {script_path}", file=sys.stderr)
+        return 2
+    cmd = [python_bin, str(script_path), "--help"]
+    print(f"$ {shlex.join(cmd)}")
+    proc = subprocess.run(cmd, cwd=str(cwd), text=True)
+    return int(proc.returncode)
+
+
 def passthrough_contains_flag(passthrough: list[str], flag: str) -> bool:
     for token in passthrough:
         if token == flag:
@@ -146,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060\n"
             "\n"
             "Tip:\n"
+            "  Use `<subcommand> --help` for direct script help (e.g., `mlgg.py onboarding --help`).\n"
             "  Use `-- --help` to view subcommand-native help.\n"
             "  For interactive mode, include `--command` before `-- --help`.\n"
             "  Example: `python3 scripts/mlgg.py workflow -- --help`\n"
@@ -219,6 +282,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    forwarded_help = maybe_forward_subcommand_help(sys.argv[1:])
+    if forwarded_help is not None:
+        return int(forwarded_help)
+
     parser = build_parser()
     args, passthrough = parser.parse_known_args()
     if passthrough and passthrough[0] == "--":

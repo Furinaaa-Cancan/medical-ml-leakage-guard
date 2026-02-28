@@ -473,6 +473,11 @@ def test_mlgg_interactive_train_defaults_are_dependency_safe() -> None:
         assert_true("--include-optional-models" not in cmd_line, "train default omits --include-optional-models")
         assert_true("--external-validation-report-out" not in cmd_line, "train default omits external report flag without cohort spec")
         assert_true("--feature-engineering-report-out" not in cmd_line, "train default omits feature engineering report flag without group spec")
+        expected_evidence_dir = str((td / "evidence").resolve())
+        assert_true(
+            f"--model-selection-report-out {expected_evidence_dir}/model_selection_report.json" in cmd_line,
+            "train default output path is scoped to split project base (not repository root)",
+        )
 
 
 def test_mlgg_interactive_workflow_always_injects_strict() -> None:
@@ -496,6 +501,10 @@ def test_mlgg_interactive_workflow_always_injects_strict() -> None:
         )
         assert_true(proc.returncode == 0, "interactive workflow print-only exits 0")
         assert_true("--strict" in proc.stdout, "workflow interactive command includes --strict")
+        assert_true(
+            "--allow-missing-compare" in proc.stdout,
+            "workflow interactive first-run default enables bootstrap compare bypass",
+        )
 
 
 def test_mlgg_interactive_authority_defaults_to_release_stress_path() -> None:
@@ -1479,6 +1488,10 @@ def test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_bas
             f"--evidence-dir {expected_evidence}" in proc.stdout,
             "workflow generated command uses request project-base evidence directory",
         )
+        assert_true(
+            "--allow-missing-compare" in proc.stdout,
+            "workflow defaults include --allow-missing-compare when baseline manifest is missing",
+        )
 
 
 def test_render_user_summary_propagates_fail_status() -> None:
@@ -1811,8 +1824,15 @@ def test_mlgg_onboarding_preview_emits_full_step_plan() -> None:
         assert_true(report.get("contract_version") == "onboarding_report.v2", "onboarding preview contract_version is v2")
         assert_true(report.get("stop_on_fail") is True, "onboarding preview default stop_on_fail=true")
         assert_true(report.get("termination_reason") == "completed_successfully", "onboarding preview termination_reason is completed_successfully")
+        assert_true(report.get("preview_only") is True, "onboarding preview report marks preview_only=true")
+        assert_true(report.get("display_status") == "preview", "onboarding preview display_status is preview")
         assert_true(isinstance(copy_ready, dict), "onboarding preview copy_ready_commands is object")
         assert_true("authority_release" in copy_ready, "onboarding preview copy_ready_commands includes authority_release")
+        workflow_compare = str(copy_ready.get("workflow_compare", ""))
+        assert_true(
+            str((SCRIPTS_DIR / "mlgg.py").resolve()) in workflow_compare,
+            "onboarding copy-ready commands use absolute mlgg.py path",
+        )
         assert_true(isinstance(steps, list) and len(steps) == 8, "onboarding preview contains 8 fixed steps")
         step_names = [str(row.get("name", "")) for row in steps if isinstance(row, dict)]
         assert_true("step1_doctor" in step_names, "onboarding preview includes step1_doctor")
@@ -1849,6 +1869,37 @@ def test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions() -> None:
         assert_true(
             all("No blocking failures" not in str(item) for item in next_actions),
             "guided cancel next_actions does not claim no blocking failures",
+        )
+
+
+def test_mlgg_onboarding_guided_without_stdin_fails_closed_with_clear_code() -> None:
+    print("\n=== mlgg onboarding: guided mode without stdin fails closed clearly ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        project_root = td / "demo_no_stdin"
+        report_path = td / "onboarding_no_stdin_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "onboarding",
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "guided",
+                "--report",
+                str(report_path),
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 2, "guided onboarding without stdin exits 2")
+        combined = proc.stdout + "\n" + proc.stderr
+        assert_true("Traceback" not in combined, "guided onboarding without stdin does not raise traceback")
+        assert_true(report_path.exists(), "guided onboarding without stdin report exists")
+        report = load_report(report_path)
+        failure_codes = report.get("failure_codes", [])
+        assert_true(
+            "onboarding_interactive_input_unavailable" in failure_codes,
+            "missing stdin path emits onboarding_interactive_input_unavailable",
         )
 
 
@@ -1934,6 +1985,23 @@ def test_mlgg_interactive_help_passthrough_requires_command_and_returns_script_h
     assert_true(proc.returncode == 0, "interactive passthrough help exits 0")
     body = proc.stdout + "\n" + proc.stderr
     assert_true("Interactive wizard for ml-leakage-guard core commands." in body, "interactive help content is returned")
+
+
+def test_mlgg_subcommand_direct_help_for_onboarding_and_interactive_train() -> None:
+    print("\n=== mlgg help: direct subcommand --help routes to target script ===")
+    onboarding_help = run_gate([str(SCRIPTS_DIR / "mlgg.py"), "onboarding", "--help"])
+    assert_true(onboarding_help.returncode == 0, "onboarding --help exits 0")
+    onboarding_body = onboarding_help.stdout + "\n" + onboarding_help.stderr
+    assert_true("Guided novice onboarding for ml-leakage-guard." in onboarding_body, "onboarding direct help is routed")
+    interactive_train_help = run_gate(
+        [str(SCRIPTS_DIR / "mlgg.py"), "train", "--interactive", "--help"]
+    )
+    assert_true(interactive_train_help.returncode == 0, "train --interactive --help exits 0")
+    interactive_body = interactive_train_help.stdout + "\n" + interactive_train_help.stderr
+    assert_true(
+        "Interactive wizard for ml-leakage-guard core commands." in interactive_body,
+        "train --interactive --help routes to interactive wizard help",
+    )
 
 
 def test_mlgg_onboarding_unknown_failure_only_when_no_specific_codes() -> None:
@@ -2050,9 +2118,11 @@ def main() -> int:
     test_wrapper_report_contract_v2_fields_present()
     test_mlgg_onboarding_preview_emits_full_step_plan()
     test_mlgg_onboarding_guided_cancel_has_failure_code_and_actions()
+    test_mlgg_onboarding_guided_without_stdin_fails_closed_with_clear_code()
     test_mlgg_onboarding_guided_cancel_ignores_stale_report_codes()
     test_mlgg_onboarding_no_stop_on_fail_completes_with_failures()
     test_mlgg_interactive_help_passthrough_requires_command_and_returns_script_help()
+    test_mlgg_subcommand_direct_help_for_onboarding_and_interactive_train()
     test_mlgg_onboarding_unknown_failure_only_when_no_specific_codes()
     test_mlgg_onboarding_missing_openssl_fails_closed()
     test_mlgg_help_includes_onboarding_and_bootstrap_example()

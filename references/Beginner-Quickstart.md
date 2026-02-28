@@ -63,6 +63,14 @@ English:
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
 ```
 
+Preview semantics:
+- `onboarding_report.json` records `preview_only=true` and `display_status=preview`.
+- No training/gate execution happens in preview mode.
+
+预览语义：
+- `onboarding_report.json` 会记录 `preview_only=true` 与 `display_status=preview`。
+- preview 模式不会执行训练和 gate。
+
 ---
 
 ## 4. Manual Advanced Path / 手动进阶路径
@@ -97,9 +105,11 @@ English:
 - `onboarding_report.json`:
   - Contract `onboarding_report.v2`.
   - Step-level command, exit code, and error tails.
+  - `display_status=preview` for preview mode.
+  - `preview_only=true` indicates no execution.
   - `stop_on_fail` and `termination_reason` show run-stop semantics.
   - `failure_codes` and `next_actions` provide fail-closed diagnosis guidance.
-  - `copy_ready_commands` gives direct copy/paste commands for rerun/benchmark paths.
+  - `copy_ready_commands` gives direct rerun/benchmark commands with absolute `mlgg.py` path.
 - `user_summary.md`:
   - Human-readable pass/fail summary and key evidence links.
 
@@ -110,9 +120,11 @@ English:
 - `onboarding_report.json`：
   - 契约版本为 `onboarding_report.v2`。
   - 包含逐步命令、退出码和错误尾部信息。
+  - preview 模式下 `display_status=preview`。
+  - `preview_only=true` 表示仅预览未执行。
   - `stop_on_fail` 与 `termination_reason` 反映终止语义。
   - `failure_codes` 与 `next_actions` 提供 fail-closed 诊断动作。
-  - `copy_ready_commands` 提供可直接复制执行的复跑/基准命令。
+  - `copy_ready_commands` 提供带绝对 `mlgg.py` 路径的复跑/基准命令。
 - `user_summary.md`：
   - 人类可读的通过/失败摘要与关键证据路径。
 
@@ -123,6 +135,8 @@ English:
 ```bash
 # Unified CLI help
 python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py onboarding --help
+python3 scripts/mlgg.py train --interactive --help
 
 # Recommended release-grade authority benchmark
 python3 scripts/mlgg.py authority-release
@@ -143,10 +157,12 @@ python3 scripts/test_onboarding_smoke.py
 Notes:
 - `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
 - `authority-research-heart` is advanced mode and may fail by design under strict fixed floors.
+- If guided onboarding runs in non-interactive shell, use `--yes` or `--mode auto`; otherwise it fails closed with `onboarding_interactive_input_unavailable`.
 
 说明：
 - `authority-release` 与 `authority-research-heart` 是固定路线封装；冲突路线参数会被 fail-closed 拒绝。
 - `authority-research-heart` 是高级研究模式，在固定严格阈值下可能按设计失败。
+- 若 guided onboarding 在无交互 shell 下运行，请加 `--yes` 或改用 `--mode auto`；否则会以 `onboarding_interactive_input_unavailable` fail-closed。
 
 ---
 

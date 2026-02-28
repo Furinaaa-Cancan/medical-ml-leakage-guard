@@ -144,6 +144,14 @@ def infer_project_base_from_request(request_path: str) -> Path:
     return parent
 
 
+def infer_project_base_from_split_path(split_path: str) -> Path:
+    split_file = Path(split_path).expanduser().resolve(strict=False)
+    parent = split_file.parent
+    if parent.name.lower() == "data" and parent.parent != parent:
+        return parent.parent
+    return parent
+
+
 def validate_profile_name(raw: str) -> str:
     name = str(raw).strip()
     if not name:
@@ -169,7 +177,12 @@ def prompt_text(label: str, default: str = "", required: bool = False) -> str:
         return value
     while True:
         suffix = f" [default: {default}]" if default else ""
-        raw = input(f"{label}{suffix}: ").strip()
+        try:
+            raw = input(f"{label}{suffix}: ").strip()
+        except EOFError as exc:
+            raise ValueError(
+                "interactive stdin is not available; use --accept-defaults or --print-only."
+            ) from exc
         value = raw if raw else default
         if required and not value:
             print("[WARN] This field is required.")
@@ -236,7 +249,12 @@ def prompt_choice(label: str, choices: Tuple[str, ...], default: str) -> str:
     for idx, value in enumerate(choices, start=1):
         print(f"  {idx}. {value}")
     while True:
-        raw = input(f"Select [1-{len(choices)}] (default {default_index}): ").strip()
+        try:
+            raw = input(f"Select [1-{len(choices)}] (default {default_index}): ").strip()
+        except EOFError as exc:
+            raise ValueError(
+                "interactive stdin is not available; use --accept-defaults or --print-only."
+            ) from exc
         if not raw:
             return default
         if raw.isdigit():
@@ -606,6 +624,7 @@ def collect_workflow_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -
             must_exist=True,
         )
     project_base = infer_project_base_from_request(values["request"])
+    baseline_manifest = project_base / "evidence" / "manifest_baseline.bootstrap.json"
 
     seed, source = merged_seed("evidence_dir", "evidence", profile, explicit)
     if source == "cli":
@@ -630,23 +649,39 @@ def collect_workflow_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -
                 raise ValueError(f"compare manifest path not found: {value}")
         values["compare_manifest"] = value
     else:
+        compare_default = str(seed).strip()
+        if not compare_default and baseline_manifest.exists():
+            compare_default = str(baseline_manifest.resolve())
         values["compare_manifest"] = prompt_path(
             label="Compare manifest path (optional)",
-            default=str(seed),
+            default=compare_default,
             required=False,
             must_exist=True,
             allow_empty=True,
         )
 
-    for key, label in (
-        ("allow_missing_compare", "Allow missing compare manifest for bootstrap run?"),
-        ("continue_on_fail", "Enable strict pipeline diagnostic mode (--continue-on-fail)?"),
-    ):
-        seed, source = merged_seed(key, False, profile, explicit)
-        if source == "cli":
-            values[key] = bool(seed)
-        else:
-            values[key] = prompt_bool(label, default=bool(seed))
+    seed, source = merged_seed("allow_missing_compare", False, profile, explicit)
+    if source == "cli":
+        values["allow_missing_compare"] = bool(seed)
+    else:
+        default_allow_missing = bool(seed)
+        if source == "default":
+            # First run bootstrap should be easy: if no baseline manifest is provided/found,
+            # default to allow missing compare.
+            default_allow_missing = not bool(values["compare_manifest"])
+        values["allow_missing_compare"] = prompt_bool(
+            "Allow missing compare manifest for bootstrap run?",
+            default=default_allow_missing,
+        )
+
+    seed, source = merged_seed("continue_on_fail", False, profile, explicit)
+    if source == "cli":
+        values["continue_on_fail"] = bool(seed)
+    else:
+        values["continue_on_fail"] = prompt_bool(
+            "Enable strict pipeline diagnostic mode (--continue-on-fail)?",
+            default=bool(seed),
+        )
     return values
 
 
@@ -670,6 +705,8 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
                 required=True,
                 must_exist=True,
             )
+    project_base = infer_project_base_from_split_path(values["train"])
+    default_evidence_dir = (project_base / "evidence").resolve()
 
     for key, label, default in (
         ("target_col", "Target column", "y"),
@@ -762,13 +799,41 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
         )
 
     required_artifact_defaults = (
-        ("model_selection_report_out", "Model selection report output", "evidence/model_selection_report.json"),
-        ("evaluation_report_out", "Evaluation report output", "evidence/evaluation_report.json"),
-        ("prediction_trace_out", "Prediction trace output", "evidence/prediction_trace.csv.gz"),
-        ("ci_matrix_report_out", "CI matrix report output", "evidence/ci_matrix_report.json"),
-        ("distribution_report_out", "Distribution report output", "evidence/distribution_report.json"),
-        ("robustness_report_out", "Robustness report output", "evidence/robustness_report.json"),
-        ("seed_sensitivity_out", "Seed sensitivity report output", "evidence/seed_sensitivity_report.json"),
+        (
+            "model_selection_report_out",
+            "Model selection report output",
+            str(default_evidence_dir / "model_selection_report.json"),
+        ),
+        (
+            "evaluation_report_out",
+            "Evaluation report output",
+            str(default_evidence_dir / "evaluation_report.json"),
+        ),
+        (
+            "prediction_trace_out",
+            "Prediction trace output",
+            str(default_evidence_dir / "prediction_trace.csv.gz"),
+        ),
+        (
+            "ci_matrix_report_out",
+            "CI matrix report output",
+            str(default_evidence_dir / "ci_matrix_report.json"),
+        ),
+        (
+            "distribution_report_out",
+            "Distribution report output",
+            str(default_evidence_dir / "distribution_report.json"),
+        ),
+        (
+            "robustness_report_out",
+            "Robustness report output",
+            str(default_evidence_dir / "robustness_report.json"),
+        ),
+        (
+            "seed_sensitivity_out",
+            "Seed sensitivity report output",
+            str(default_evidence_dir / "seed_sensitivity_report.json"),
+        ),
     )
     for key, label, default in required_artifact_defaults:
         seed, source = merged_seed(key, default, profile, explicit)
@@ -785,7 +850,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
     # external validation report must be paired with external cohort spec.
     seed, source = merged_seed(
         "external_validation_report_out",
-        "evidence/external_validation_report.json",
+        str(default_evidence_dir / "external_validation_report.json"),
         profile,
         explicit,
     )
@@ -811,7 +876,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
     # feature engineering report requires feature_group_spec.
     seed, source = merged_seed(
         "feature_engineering_report_out",
-        "evidence/feature_engineering_report.json",
+        str(default_evidence_dir / "feature_engineering_report.json"),
         profile,
         explicit,
     )
@@ -1082,7 +1147,11 @@ def main() -> int:
         print("[INFO] --print-only enabled, command not executed.")
         return 0
 
-    if not confirm_execute():
+    try:
+        proceed = confirm_execute()
+    except ValueError as exc:
+        return fail(str(exc))
+    if not proceed:
         print("[INFO] Cancelled by user.")
         return 0
 
