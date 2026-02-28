@@ -31,5 +31,8 @@ jobs:
       - name: Onboarding smoke
         run: python3 scripts/test_onboarding_smoke.py
 
+      - name: Split smoke
+        run: python3 scripts/test_split_smoke.py
+
       - name: Gate smoke
         run: python3 scripts/test_gate_smoke.py

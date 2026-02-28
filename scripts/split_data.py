@@ -312,11 +312,15 @@ def split_stratified_grouped(
         n = len(group)
         if n == 0:
             continue
+        if n < 3:
+            # Too few patients in this class to split 3 ways; put all in train
+            # (downstream validate_splits will catch insufficient patients/samples)
+            train_patients.extend(group)
+            continue
         te = int(round(n * train_ratio))
         ve = int(round(n * (train_ratio + valid_ratio)))
-        te = max(1, min(te, n - 2)) if n >= 3 else max(1, te)
-        ve = max(te + 1, min(ve, n - 1)) if n >= 3 else max(te + 1, ve)
-        ve = min(ve, n)
+        te = max(1, min(te, n - 2))
+        ve = max(te + 1, min(ve, n - 1))
 
         train_patients.extend(group[:te])
         valid_patients.extend(group[te:ve])
@@ -480,7 +484,7 @@ def generate_split_protocol(
         "split_strategy": strategy,
         "split_reference": f"auto-split-seed-{seed}",
         "id_col": patient_id_col,
-        "index_time_col": time_col if time_col else "event_time",
+        "index_time_col": time_col if time_col else "",
         "frozen_before_modeling": True,
         "requires_group_disjoint": True,
         "requires_temporal_order": requires_temporal,

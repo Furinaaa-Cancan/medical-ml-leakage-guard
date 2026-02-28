@@ -382,7 +382,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/request_contract_gate.py`: request schema/path validation and publication-policy anti-downgrade checks.
 - `scripts/mlgg.py`: unified command entrypoint (`onboarding`, `interactive`, `init`, `train`, `workflow`, ...).
 - `scripts/mlgg_onboarding.py`: novice-guided strict onboarding flow and report emitter.
-- `scripts/split_data.py`: split a single CSV into train/valid/test with patient-level disjoint, temporal ordering, and prevalence safety checks.
+- `scripts/split_data.py`: split a single CSV into train/valid/test with patient-level disjoint, temporal ordering, prevalence safety checks, NaN patient_id/target exclusion, row count preservation, SHA256 input fingerprint, min 10 pos/neg per split, min 5 patients per split, and prevalence shift warning.
 - `scripts/generate_demo_medical_dataset.py`: offline reproducible demo dataset generator.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
