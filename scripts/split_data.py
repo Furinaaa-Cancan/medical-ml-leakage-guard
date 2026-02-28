@@ -235,10 +235,11 @@ def split_grouped_temporal(
     tmp_col = _temp_col_name(df)
     df[tmp_col] = time_series
     patient_first_time = df.groupby(patient_id_col)[tmp_col].min().reset_index()
-    patient_first_time.columns = [patient_id_col, "__patient_min_time__"]
+    _pmt_col = _temp_col_name(patient_first_time, "__patient_min_time__")
+    patient_first_time.columns = [patient_id_col, _pmt_col]
 
     # Sort patients by their earliest time
-    patient_first_time = patient_first_time.sort_values("__patient_min_time__", na_position="first")
+    patient_first_time = patient_first_time.sort_values(_pmt_col, na_position="first")
     patients_ordered = patient_first_time[patient_id_col].tolist()
 
     n = len(patients_ordered)
