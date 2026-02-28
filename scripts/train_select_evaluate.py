@@ -79,7 +79,13 @@ SUPPORTED_MODEL_FAMILIES = {
     "svm_linear",
     "svm_rbf",
     "tabpfn",
+    "soft_voting",
+    "hard_voting",
+    "stacking",
 }
+
+ENSEMBLE_FAMILIES = {"soft_voting", "hard_voting", "stacking"}
+DEFAULT_ENSEMBLE_TOP_K = 3
 
 MODEL_ALIASES = {
     "lr_l1": "logistic_l1",
@@ -92,6 +98,8 @@ MODEL_ALIASES = {
     "lgbm": "lightgbm",
     "svm": "svm_rbf",
     "svm_lin": "svm_linear",
+    "voting": "soft_voting",
+    "stack": "stacking",
 }
 
 
@@ -155,7 +163,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-optional-models",
         action="store_true",
-        help="Append optional backends (xgboost/catboost) when installed.",
+        help="Append optional backends (xgboost/catboost/lightgbm/tabpfn) when installed.",
+    )
+    parser.add_argument(
+        "--ensemble-top-k",
+        type=int,
+        default=0,
+        help="Build voting/stacking ensembles from top-K base models after CV (0=disabled). "
+        "Requires soft_voting/hard_voting/stacking in --model-pool.",
     )
     parser.add_argument(
         "--max-trials-per-family",
@@ -329,7 +344,7 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
     selected_tokens = cli_models or policy_models or list(default_models)
     include_optional = bool(args.include_optional_models or policy_include_optional)
     if include_optional:
-        selected_tokens.extend(["xgboost", "catboost"])
+        selected_tokens.extend(["xgboost", "catboost", "lightgbm", "tabpfn"])
 
     normalized: List[str] = []
     for token in selected_tokens:
@@ -1291,6 +1306,8 @@ def build_candidates(
     explicit_cli_models = {str(x) for x in model_pool_config.get("cli_models", [])}
 
     for family in requested_pool:
+        if family in ENSEMBLE_FAMILIES:
+            continue
         if family == "xgboost" and XGBClassifier is None:
             unavailable.append(family)
             if family in explicit_cli_models:
@@ -1376,6 +1393,102 @@ def build_candidates(
         "search_strategy": search_strategy,
     }
     return candidates, metadata
+
+
+def build_ensemble_candidates(
+    candidate_rows: List[Dict[str, Any]],
+    estimator_map: Dict[str, BaseEstimator],
+    requested_ensembles: List[str],
+    top_k: int,
+    seed: int,
+) -> List[Dict[str, Any]]:
+    from sklearn.ensemble import StackingClassifier, VotingClassifier
+
+    sorted_rows = sorted(
+        candidate_rows,
+        key=lambda r: float(r.get("selection_metrics", {}).get("pr_auc", {}).get("mean", 0.0)),
+        reverse=True,
+    )
+    top_rows = sorted_rows[:top_k]
+    base_ids = [r["model_id"] for r in top_rows]
+    base_estimators = [(mid, clone(estimator_map[mid])) for mid in base_ids if mid in estimator_map]
+    if len(base_estimators) < 2:
+        return []
+
+    ensemble_candidates: List[Dict[str, Any]] = []
+    base_meta = {
+        "base_model_ids": [mid for mid, _ in base_estimators],
+        "top_k": top_k,
+    }
+
+    if "soft_voting" in requested_ensembles:
+        voter = VotingClassifier(
+            estimators=list(base_estimators),
+            voting="soft",
+            n_jobs=-1,
+        )
+        ensemble_candidates.append({
+            "model_id": f"soft_voting__top{top_k}",
+            "base_model_id": "soft_voting",
+            "family": "ensemble_voting",
+            "complexity_rank": 15000 + top_k,
+            "hyperparameters": {"voting": "soft", "top_k": top_k, **base_meta},
+            "regularization_profile": {"type": "ensemble_averaging", "strategy": "soft_voting", **base_meta},
+            "estimator": voter,
+            "search_meta": {"ensemble": True, "strategy": "soft_voting", **base_meta},
+        })
+
+    if "hard_voting" in requested_ensembles:
+        voter = VotingClassifier(
+            estimators=list(base_estimators),
+            voting="hard",
+            n_jobs=-1,
+        )
+        ensemble_candidates.append({
+            "model_id": f"hard_voting__top{top_k}",
+            "base_model_id": "hard_voting",
+            "family": "ensemble_voting",
+            "complexity_rank": 15000 + top_k + 1,
+            "hyperparameters": {"voting": "hard", "top_k": top_k, **base_meta},
+            "regularization_profile": {"type": "ensemble_majority", "strategy": "hard_voting", **base_meta},
+            "estimator": voter,
+            "search_meta": {"ensemble": True, "strategy": "hard_voting", **base_meta},
+        })
+
+    if "stacking" in requested_ensembles:
+        meta_learner = LogisticRegression(
+            penalty="l2",
+            C=1.0,
+            solver="lbfgs",
+            max_iter=3000,
+            random_state=seed,
+        )
+        stacker = StackingClassifier(
+            estimators=list(base_estimators),
+            final_estimator=meta_learner,
+            cv=5,
+            stack_method="predict_proba",
+            passthrough=False,
+            n_jobs=-1,
+        )
+        ensemble_candidates.append({
+            "model_id": f"stacking__top{top_k}",
+            "base_model_id": "stacking",
+            "family": "ensemble_stacking",
+            "complexity_rank": 16000 + top_k,
+            "hyperparameters": {"meta_learner": "logistic_l2", "cv_folds": 5, "top_k": top_k, **base_meta},
+            "regularization_profile": {
+                "type": "stacking_meta_learner",
+                "meta_learner": "logistic_l2_C1.0",
+                "internal_cv": 5,
+                "passthrough": False,
+                **base_meta,
+            },
+            "estimator": stacker,
+            "search_meta": {"ensemble": True, "strategy": "stacking", **base_meta},
+        })
+
+    return ensemble_candidates
 
 
 def predict_proba_1(estimator: BaseEstimator, X: pd.DataFrame) -> np.ndarray:
@@ -2527,6 +2640,53 @@ def main() -> int:
             }
         )
 
+    estimator_map = {cand["model_id"]: cand["estimator"] for cand in candidates}
+
+    requested_ensembles = [f for f in model_pool_config.get("model_pool", []) if f in ENSEMBLE_FAMILIES]
+    ensemble_top_k = int(getattr(args, "ensemble_top_k", 0) or 0)
+    if ensemble_top_k <= 0 and requested_ensembles:
+        ensemble_top_k = DEFAULT_ENSEMBLE_TOP_K
+    if requested_ensembles and ensemble_top_k >= 2 and len(candidate_rows) >= 2:
+        ensemble_cands = build_ensemble_candidates(
+            candidate_rows=candidate_rows,
+            estimator_map=estimator_map,
+            requested_ensembles=requested_ensembles,
+            top_k=ensemble_top_k,
+            seed=int(args.random_seed),
+        )
+        for ecand in ensemble_cands:
+            if selection_data == "cv_inner":
+                mean_score, std_score, n_folds, fold_scores = cv_score_pr_auc(
+                    ecand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
+                )
+            else:
+                emodel = clone(ecand["estimator"])
+                emodel.fit(X_train, y_train)
+                valid_proba = predict_proba_1(emodel, X_valid)
+                mean_score = float(average_precision_score(y_valid, valid_proba))
+                std_score = 0.0
+                n_folds = 1
+                fold_scores = [mean_score]
+            candidate_rows.append({
+                "model_id": ecand["model_id"],
+                "base_model_id": ecand["base_model_id"],
+                "family": ecand["family"],
+                "complexity_rank": ecand["complexity_rank"],
+                "hyperparameters": ecand["hyperparameters"],
+                "regularization_profile": ecand["regularization_profile"],
+                "search_meta": ecand["search_meta"],
+                "selection_metrics": {
+                    "pr_auc": {
+                        "mean": mean_score,
+                        "std": std_score,
+                        "n_folds": n_folds,
+                        "fold_scores": [float(x) for x in fold_scores],
+                    }
+                },
+                "selected": False,
+            })
+            estimator_map[ecand["model_id"]] = ecand["estimator"]
+
     trace = choose_model_one_se(
         [
             {
@@ -2543,8 +2703,6 @@ def main() -> int:
     for row in candidate_rows:
         row["selected"] = bool(row["model_id"] == selected_model_id)
     selected_candidate_row = next((row for row in candidate_rows if bool(row.get("selected"))), None)
-
-    estimator_map = {cand["model_id"]: cand["estimator"] for cand in candidates}
     selected_estimator = clone(estimator_map[selected_model_id])
     selected_estimator.fit(X_train, y_train)
     if threshold_selection_split == "valid":
