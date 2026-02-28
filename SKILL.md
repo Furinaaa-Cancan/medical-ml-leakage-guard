@@ -379,10 +379,6 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/mlgg.py`: unified command entrypoint (`onboarding`, `interactive`, `init`, `train`, `workflow`, ...).
 - `scripts/mlgg_onboarding.py`: novice-guided strict onboarding flow and report emitter.
 - `scripts/generate_demo_medical_dataset.py`: offline reproducible demo dataset generator.
-
-### references/
-- `references/Beginner-Quickstart.md`: bilingual novice quickstart (minimal loop + publication-grade loop).
-- `references/Troubleshooting-Top20.md`: high-frequency failure code to diagnosis/fix/verify mapping.
 - `scripts/manifest_lock.py`: dataset/protocol/evaluation/gate-script fingerprint and baseline comparison.
 - `scripts/execution_attestation_gate.py`: signed run-attestation and artifact-hash verification gate.
 - `scripts/generate_execution_attestation.py`: one-command payload/signature/spec/timestamp/transparency/execution-receipt/execution-log/witness-quorum generator for personal users.
@@ -414,11 +410,13 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/env_doctor.py`: dependency and environment diagnostics with optional-backend checks.
 - `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
 - `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
-- `scripts/mlgg.py`: unified terminal entrypoint for common commands (`interactive/init/doctor/preflight/workflow/strict/summary/train/authority/benchmark-suite/scan-diabetes/adversarial`).
 - `scripts/mlgg_interactive.py`: terminal interactive wizard for core commands (`init/workflow/train/authority`) with command preview, confirm-before-run, and profile save/load.
+- `scripts/_gate_utils.py`: shared utility functions (`add_issue`, `load_json`, `write_json`, `to_float`) for gate scripts.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### references/
+- `references/Beginner-Quickstart.md`: bilingual novice quickstart (minimal loop + publication-grade loop).
+- `references/Troubleshooting-Top20.md`: high-frequency failure code to diagnosis/fix/verify mapping.
 - `references/request-schema.example.json`: structured request template.
 - `references/feature-lineage.example.json`: lineage map template.
 - `references/split-protocol.example.json`: split protocol template.

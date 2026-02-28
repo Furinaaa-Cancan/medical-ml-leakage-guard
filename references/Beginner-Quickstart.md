@@ -10,15 +10,19 @@ This guide gives a reproducible first run for users who are not familiar with th
 
 English:
 - Python 3.10+
-- `numpy`, `pandas`, `scikit-learn`, `joblib`
 - `openssl` in PATH (required for attestation generation)
 
 中文：
 - Python 3.10+
-- `numpy`, `pandas`, `scikit-learn`, `joblib`
 - PATH 中可用 `openssl`（生成 attestation 必需）
 
-Check environment:
+Install dependencies / 安装依赖：
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Check environment / 检查环境:
 
 ```bash
 python3 scripts/mlgg.py doctor
