@@ -250,6 +250,7 @@ def test_non_binary_target():
             "--strategy", "grouped_random",
         ], expect_ok=False)
         assert rc != 0, "should fail with non-binary target"
+        assert "non-binary value" in stderr, f"error should mention 'non-binary value', got: {stderr}"
 
     print("  PASS: test_non_binary_target")
 
