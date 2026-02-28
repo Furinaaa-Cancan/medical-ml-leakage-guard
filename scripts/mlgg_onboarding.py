@@ -178,7 +178,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--split-strategy", default="grouped_temporal", choices=["grouped_temporal", "grouped_random", "stratified_grouped"], help="Split strategy for --input-csv (default: grouped_temporal).")
     parser.add_argument("--patient-id-col", default="patient_id", help="Patient ID column in --input-csv (default: patient_id).")
-    parser.add_argument("--time-col", default="event_time", help="Time column in --input-csv for temporal splitting (default: event_time).")
+    parser.add_argument("--time-col", default="", help="Time column in --input-csv for temporal splitting. Required for grouped_temporal strategy.")
     parser.add_argument("--target-col", default="y", help="Target column in --input-csv (default: y).")
     parser.add_argument("--report", help="Optional onboarding report path.")
     return parser.parse_args()
@@ -469,7 +469,9 @@ def align_demo_configs(
     request["run_id"] = run_id
     request["target_name"] = "disease_risk"
     request["prediction_unit"] = "patient-episode"
-    request["index_time_col"] = time_col
+    if time_col:
+        request["index_time_col"] = time_col
+    # If time_col is empty, keep whatever init_project set (avoids empty string in required field)
     request["label_col"] = target_col
     request["patient_id_col"] = patient_id_col
     request["primary_metric"] = "pr_auc"
@@ -1093,7 +1095,11 @@ def main() -> int:
     if not should_continue(ok):
         return finish("fail")
 
-    # Step 2 init
+    # Step 2 init — use user column names when --input-csv provided
+    _init_pid_col = str(getattr(args, "patient_id_col", "patient_id"))
+    _init_target_col = str(getattr(args, "target_col", "y"))
+    _init_time_col = str(getattr(args, "time_col", "") or "").strip() or "event_time"
+    _init_study_id = "user-data-study" if str(getattr(args, "input_csv", "") or "").strip() else "demo-medical-leakage-guard"
     init_report = evidence_dir / "init_report.json"
     ok = run_command_step(
         name="step2_init",
@@ -1104,17 +1110,17 @@ def main() -> int:
             "--project-root",
             str(project_root),
             "--study-id",
-            "demo-medical-leakage-guard",
+            _init_study_id,
             "--run-id",
             run_id,
             "--target-name",
             "disease_risk",
             "--label-col",
-            "y",
+            _init_target_col,
             "--patient-id-col",
-            "patient_id",
+            _init_pid_col,
             "--index-time-col",
-            "event_time",
+            _init_time_col,
             "--force",
             "--report",
             str(init_report),
@@ -1145,7 +1151,7 @@ def main() -> int:
             "--seed", str(int(args.seed)),
             "--report", str(split_report),
         ]
-        user_time_col = str(getattr(args, "time_col", "event_time") or "").strip()
+        user_time_col = str(getattr(args, "time_col", "") or "").strip()
         if user_time_col:
             split_cmd.extend(["--time-col", user_time_col])
         ok = run_command_step(
@@ -1200,7 +1206,9 @@ def main() -> int:
     # Step 4 align configs
     _user_pid_col = str(getattr(args, "patient_id_col", "patient_id"))
     _user_target_col = str(getattr(args, "target_col", "y"))
-    _user_time_col = str(getattr(args, "time_col", "event_time") or "event_time")
+    _user_time_col = str(getattr(args, "time_col", "") or "").strip()
+    if not _user_time_col:
+        _user_time_col = "event_time" if not user_input_csv else ""
     _is_user_data = bool(user_input_csv)
     ok = run_internal_step(
         name="step4_align_configs",
