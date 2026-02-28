@@ -251,6 +251,8 @@ _T: Dict[str, Dict[str, str]] = {
     "strategy":         {"en": "Strategy:", "zh": "\u7b56\u7565\uff1a"},
     "output":           {"en": "Output:", "zh": "\u8f93\u51fa\uff1a"},
     "none":             {"en": "(none)", "zh": "(\u65e0)"},
+    "no_time_col":      {"en": "No remaining columns for time.",
+                         "zh": "\u6ca1\u6709\u53ef\u7528\u7684\u65f6\u95f4\u5217\u3002"},
 }
 
 def t(key: str, **kwargs: Any) -> str:
@@ -585,7 +587,7 @@ def pick_columns(csv_path: str) -> Optional[Dict[str, str]]:
     if strat == "grouped_temporal":
         rem2 = [c for c in columns if c not in (pid, tgt)]
         if not rem2:
-            print(f"  {s('R', 'No remaining columns for time.')}")
+            print(f"  {s('R', t('no_time_col'))}")
             return None
         tci = select(t("sp_pick_time"), rem2)
         if tci < 0: return None
