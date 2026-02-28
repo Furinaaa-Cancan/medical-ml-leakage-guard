@@ -59,11 +59,12 @@ def download_file(url: str, dest: Path) -> None:
 def add_patient_id_and_time(df: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
     """Add patient_id and synthetic event_time for pipeline compatibility.
 
-    Generates unique timestamps so temporal splitting produces clean boundaries.
+    Shuffles rows first (so class ordering in original data doesn't create
+    prevalence drift in temporal splits), then assigns unique timestamps.
     """
     rng = np.random.default_rng(seed)
     n = len(df)
-    df = df.copy()
+    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
     df["patient_id"] = [f"P{i:04d}" for i in range(1, n + 1)]
     # Spread across ~2 years with unique timestamps to avoid temporal boundary ties
     start = datetime(2023, 1, 1)
@@ -198,11 +199,25 @@ def prepare_ckd(output: Path) -> None:
             elif line.lower() == "@data":
                 in_data = True
             elif in_data and line and not line.startswith("%"):
+                # Fix known CKD ARFF issues: embedded tabs (e.g. "\tno" → "no")
+                # and trailing commas producing phantom empty fields
+                line = line.replace("\t", "").rstrip(",")
                 data_lines.append(line)
 
+    n_cols = len(columns)
+    # Filter lines with wrong field count (known CKD data quality issue)
+    clean_lines = []
+    skipped = 0
+    for dl in data_lines:
+        if len(dl.split(",")) == n_cols:
+            clean_lines.append(dl)
+        else:
+            skipped += 1
+    if skipped:
+        print(f"  [INFO] Skipped {skipped} malformed row(s) with wrong field count.")
     import io
-    csv_text = "\n".join(data_lines)
-    df = pd.read_csv(io.StringIO(csv_text), header=None, names=columns, na_values=["?", "\\t?", "\t?"])
+    csv_text = "\n".join(clean_lines)
+    df = pd.read_csv(io.StringIO(csv_text), header=None, names=columns, na_values=["?"])
 
     # Target: class column — ckd=1, notckd=0
     target_col = columns[-1]  # 'class'
