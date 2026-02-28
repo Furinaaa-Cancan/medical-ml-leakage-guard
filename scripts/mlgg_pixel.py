@@ -140,6 +140,8 @@ _T: Dict[str, Dict[str, str]] = {
     "auto":          {"en": "auto-detected", "zh": "\u81ea\u52a8\u68c0\u6d4b"},
     "no_time_col":   {"en": "No remaining columns for time.",
                       "zh": "\u6ca1\u6709\u53ef\u7528\u7684\u65f6\u95f4\u5217\u3002"},
+    "pick_outname": {"en": "Project name (supports Chinese)",
+                     "zh": "\u9879\u76ee\u540d\u79f0\uff08\u652f\u6301\u4e2d\u6587\uff09"},
 
     "strat_temporal":   {"en": "Grouped Temporal", "zh": "\u65f6\u5e8f\u5206\u7ec4"},
     "strat_temporal_d": {"en": "Sort by time, patient-disjoint (recommended)",
@@ -265,6 +267,8 @@ def _getch() -> str:
                     ch3 = os.read(fd, 1)
                     if ch3 == b"A": return "UP"
                     if ch3 == b"B": return "DOWN"
+                    if ch3 == b"C": return "RIGHT"
+                    if ch3 == b"D": return "LEFT"
                     while sel_mod.select([fd], [], [], 0.02)[0]:
                         os.read(fd, 1)
                 return "ESC"
@@ -643,6 +647,13 @@ def step_dataset(state: Dict) -> Any:
         state["pid"] = "patient_id"
         state["target"] = "y"
         state["time"] = "event_time"
+
+        default_name = files[ci]
+        print(f"\n  {s('W', t('pick_outname'))}")
+        sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+        name = input(f"  {s('C','>')} [{default_name}]: ").strip()
+        if name:
+            state["out_dir"] = str(DEFAULT_OUT / name)
         return True
 
     # source == "csv"
@@ -676,6 +687,13 @@ def step_dataset(state: Dict) -> Any:
     state["csv_path"] = path
     state["dataset_key"] = "custom"
     state["out_dir"] = str(DEFAULT_OUT / Path(path).stem)
+
+    default_name = Path(path).stem
+    print(f"\n  {s('W', t('pick_outname'))}")
+    sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+    name = input(f"  {s('C','>')} [{default_name}]: ").strip()
+    if name:
+        state["out_dir"] = str(DEFAULT_OUT / name)
     return True
 
 
