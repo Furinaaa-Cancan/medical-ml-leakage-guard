@@ -310,13 +310,22 @@ def select(options: List[str], descs: Optional[List[str]] = None,
         return -1
     has_desc = descs and len(descs) == n
     maxw = _cols() - 10
+    term_h = shutil.get_terminal_size((80, 24)).lines
+    max_vis = max(min(n, term_h - 10), 5)
+    offset = 0
 
-    def _draw() -> None:
+    def _draw() -> int:
         sys.stdout.write(HIDE_CUR); sys.stdout.flush()
+        lc = 0
         if title:
             print(f"  {s('C', title, bold=True)}")
             print()
-        for i in range(n):
+            lc += 2
+        end = min(offset + max_vis, n)
+        if offset > 0:
+            print(f"  {DIM}  \u25b2 {offset} more{RST}")
+            lc += 1
+        for i in range(offset, end):
             lbl = _trunc(options[i], maxw - 4)
             if i == sel:
                 line = f"  {s('C','>', bold=True)} {BG['b']}{FG['W']}{BOLD} {lbl} {RST}"
@@ -332,20 +341,27 @@ def select(options: List[str], descs: Optional[List[str]] = None,
                     d = _trunc(descs[i], desc_room)
                     line += f"  {DIM}{d}{RST}"
                 print(line)
+            lc += 1
+        if end < n:
+            print(f"  {DIM}  \u25bc {n - end} more{RST}")
+            lc += 1
         print()
         hint = t("nav_first") if is_first else t("nav")
         print(f"  {DIM}{hint}{RST}")
+        lc += 2
+        return lc
 
-    title_lines = 2 if title else 0
-    line_count = n + title_lines + 2
-
-    _draw()
+    lc = _draw()
     while True:
         key = _getch()
         if key == "UP" and sel > 0:
             sel -= 1
+            if sel < offset:
+                offset = sel
         elif key == "DOWN" and sel < n - 1:
             sel += 1
+            if sel >= offset + max_vis:
+                offset = sel - max_vis + 1
         elif key == "ENTER":
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return sel
@@ -354,12 +370,16 @@ def select(options: List[str], descs: Optional[List[str]] = None,
             return -1
         elif len(key) == 1 and key.isdigit() and 1 <= int(key) <= min(n, 9):
             sel = int(key) - 1
+            if sel < offset:
+                offset = sel
+            elif sel >= offset + max_vis:
+                offset = sel - max_vis + 1
         else:
             continue
-        for _ in range(line_count):
+        for _ in range(lc):
             sys.stdout.write(f"{UP_LINE}{ERASE}")
         sys.stdout.write("\r"); sys.stdout.flush()
-        _draw()
+        lc = _draw()
 
 
 def multi_select(options: List[str], descs: Optional[List[str]] = None,
@@ -372,13 +392,22 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
     has_desc = descs and len(descs) == n
     checked: set = set(defaults or [])
     maxw = _cols() - 10
+    term_h = shutil.get_terminal_size((80, 24)).lines
+    max_vis = max(min(n, term_h - 10), 5)
+    offset = 0
 
-    def _draw() -> None:
+    def _draw() -> int:
         sys.stdout.write(HIDE_CUR); sys.stdout.flush()
+        lc = 0
         if title:
             print(f"  {s('C', title, bold=True)}")
             print()
-        for i in range(n):
+            lc += 2
+        end = min(offset + max_vis, n)
+        if offset > 0:
+            print(f"  {DIM}  \u25b2 {offset} more{RST}")
+            lc += 1
+        for i in range(offset, end):
             mark = s('G', '\u2713') if i in checked else ' '
             lbl = _trunc(options[i], maxw - 10)
             if i == sel:
@@ -395,19 +424,26 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
                     d = _trunc(descs[i], desc_room)
                     line += f"  {DIM}{d}{RST}"
                 print(line)
+            lc += 1
+        if end < n:
+            print(f"  {DIM}  \u25bc {n - end} more{RST}")
+            lc += 1
         print()
         print(f"  {DIM}{t('ms_hint')}{RST}")
+        lc += 2
+        return lc
 
-    title_lines = 2 if title else 0
-    line_count = n + title_lines + 2
-
-    _draw()
+    lc = _draw()
     while True:
         key = _getch()
         if key == "UP" and sel > 0:
             sel -= 1
+            if sel < offset:
+                offset = sel
         elif key == "DOWN" and sel < n - 1:
             sel += 1
+            if sel >= offset + max_vis:
+                offset = sel - max_vis + 1
         elif key == "SPACE":
             if sel in checked:
                 checked.discard(sel)
@@ -426,10 +462,10 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
             return None
         else:
             continue
-        for _ in range(line_count):
+        for _ in range(lc):
             sys.stdout.write(f"{UP_LINE}{ERASE}")
         sys.stdout.write("\r"); sys.stdout.flush()
-        _draw()
+        lc = _draw()
 
 
 def box(title: str, lines: List[str], color: str = "C") -> None:
@@ -736,26 +772,31 @@ def step_config(state: Dict) -> Any:
             print(f"  {s('G', '\u2713')} {label} {s('W', value)}")
         print()
 
-    # Patient ID
-    _config_header()
-    pid_opts = columns[:]
-    if detected["pid"] and detected["pid"] in pid_opts:
-        pid_opts.remove(detected["pid"])
-        pid_opts.insert(0, detected["pid"])
-    pi = select(pid_opts, title=t("pick_pid"))
-    if pi < 0: return BACK
-    pid = pid_opts[pi]
-
-    # Target
-    _config_header((t("c_pid"), pid))
-    rem1 = [c for c in columns if c != pid]
-    tgt_opts = rem1[:]
-    if detected["target"] and detected["target"] in tgt_opts:
-        tgt_opts.remove(detected["target"])
-        tgt_opts.insert(0, detected["target"])
-    ti = select(tgt_opts, title=t("pick_target"))
-    if ti < 0: return BACK
-    tgt = tgt_opts[ti]
+    sub = 0
+    pid = tgt = ""
+    while True:
+        if sub == 0:
+            _config_header()
+            pid_opts = columns[:]
+            if detected["pid"] and detected["pid"] in pid_opts:
+                pid_opts.remove(detected["pid"])
+                pid_opts.insert(0, detected["pid"])
+            pi = select(pid_opts, title=t("pick_pid"))
+            if pi < 0: return BACK
+            pid = pid_opts[pi]
+            sub = 1
+        elif sub == 1:
+            _config_header((t("c_pid"), pid))
+            rem1 = [c for c in columns if c != pid]
+            tgt_opts = rem1[:]
+            if detected["target"] and detected["target"] in tgt_opts:
+                tgt_opts.remove(detected["target"])
+                tgt_opts.insert(0, detected["target"])
+            ti = select(tgt_opts, title=t("pick_target"))
+            if ti < 0:
+                sub = 0; continue
+            tgt = tgt_opts[ti]
+            break
 
     state["pid"] = pid
     state["target"] = tgt
@@ -768,23 +809,31 @@ def step_split(state: Dict) -> Any:
         return SKIP
 
     source = state["source"]
-    _clear()
-    step_header(5, TOTAL_STEPS, t("s_split"))
+    sub = 0
+    strat = tcol = ""
 
-    # Strategy
-    si = select(
-        [t("strat_temporal"), t("strat_random"), t("strat_stratified")],
-        [t("strat_temporal_d"), t("strat_random_d"), t("strat_stratified_d")],
-        title=t("pick_strat"),
-    )
-    if si < 0: return BACK
-    strat = ["grouped_temporal", "grouped_random", "stratified_grouped"][si]
-    state["strategy"] = strat
+    while True:
+        if sub == 0:
+            _clear()
+            step_header(5, TOTAL_STEPS, t("s_split"))
+            si = select(
+                [t("strat_temporal"), t("strat_random"), t("strat_stratified")],
+                [t("strat_temporal_d"), t("strat_random_d"), t("strat_stratified_d")],
+                title=t("pick_strat"),
+            )
+            if si < 0: return BACK
+            strat = ["grouped_temporal", "grouped_random", "stratified_grouped"][si]
+            state["strategy"] = strat
+            tcol = ""
+            if strat == "grouped_temporal" and source == "csv":
+                sub = 1
+            elif strat == "grouped_temporal":
+                tcol = state.get("time", "event_time")
+                sub = 2
+            else:
+                sub = 2
 
-    # Time column (if temporal strategy)
-    tcol = ""
-    if strat == "grouped_temporal":
-        if source == "csv":
+        elif sub == 1:
             columns = state.get("_columns", [])
             pid = state.get("pid", "")
             tgt = state.get("target", "")
@@ -806,26 +855,30 @@ def step_split(state: Dict) -> Any:
                 time_opts.remove(detected["time"])
                 time_opts.insert(0, detected["time"])
             tci = select(time_opts, title=t("pick_time"))
-            if tci < 0: return BACK
+            if tci < 0:
+                sub = 0; continue
             tcol = time_opts[tci]
-        else:
-            tcol = state.get("time", "event_time")
-    state["time"] = tcol
+            sub = 2
 
-    # Ratio
-    _clear()
-    step_header(5, TOTAL_STEPS, t("s_split"))
-    print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
-    if tcol:
-        print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
-    print()
-    ri = select(
-        [t("ratio_60"), t("ratio_70"), t("ratio_80")],
-        title=t("pick_ratio"),
-    )
-    if ri < 0: return BACK
-    ratios = [(0.6, 0.2, 0.2), (0.7, 0.15, 0.15), (0.8, 0.1, 0.1)]
-    state["train_ratio"], state["valid_ratio"], state["test_ratio"] = ratios[ri]
+        elif sub == 2:
+            _clear()
+            step_header(5, TOTAL_STEPS, t("s_split"))
+            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            if tcol:
+                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+            print()
+            ri = select(
+                [t("ratio_60"), t("ratio_70"), t("ratio_80")],
+                title=t("pick_ratio"),
+            )
+            if ri < 0:
+                sub = 1 if (strat == "grouped_temporal" and source == "csv") else 0
+                continue
+            ratios = [(0.6, 0.2, 0.2), (0.7, 0.15, 0.15), (0.8, 0.1, 0.1)]
+            state["train_ratio"], state["valid_ratio"], state["test_ratio"] = ratios[ri]
+            break
+
+    state["time"] = tcol
     return True
 
 
@@ -853,41 +906,47 @@ def step_tuning(state: Dict) -> Any:
     if state.get("source") == "demo":
         return SKIP
 
-    _clear()
-    step_header(7, TOTAL_STEPS, t("s_tuning"))
+    sub = 0
+    while True:
+        if sub == 0:
+            _clear()
+            step_header(7, TOTAL_STEPS, t("s_tuning"))
+            ti = select(
+                [t("tune_fixed"), t("tune_random"), t("tune_optuna")],
+                [t("tune_fixed_d"), t("tune_random_d"), t("tune_optuna_d")],
+                title=t("pick_tuning"),
+            )
+            if ti < 0: return BACK
+            state["hyperparam_search"] = ["fixed_grid", "random_subsample", "optuna"][ti]
+            sub = 1
 
-    # Tuning strategy
-    ti = select(
-        [t("tune_fixed"), t("tune_random"), t("tune_optuna")],
-        [t("tune_fixed_d"), t("tune_random_d"), t("tune_optuna_d")],
-        title=t("pick_tuning"),
-    )
-    if ti < 0: return BACK
-    state["hyperparam_search"] = ["fixed_grid", "random_subsample", "optuna"][ti]
+        elif sub == 1:
+            _clear()
+            step_header(7, TOTAL_STEPS, t("s_tuning"))
+            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
+            ci = select(
+                [t("calib_none"), t("calib_sig"), t("calib_iso")],
+                title=t("pick_calib"),
+            )
+            if ci < 0:
+                sub = 0; continue
+            state["calibration"] = ["none", "sigmoid", "isotonic"][ci]
+            sub = 2
 
-    # Calibration
-    _clear()
-    step_header(7, TOTAL_STEPS, t("s_tuning"))
-    print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
-    ci = select(
-        [t("calib_none"), t("calib_sig"), t("calib_iso")],
-        title=t("pick_calib"),
-    )
-    if ci < 0: return BACK
-    state["calibration"] = ["none", "sigmoid", "isotonic"][ci]
-
-    # Device
-    _clear()
-    step_header(7, TOTAL_STEPS, t("s_tuning"))
-    print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
-    print(f"  {s('G', '\u2713')} {t('c_calib')} {s('W', state['calibration'])}\n")
-    di = select(
-        [t("dev_auto"), t("dev_cpu"), t("dev_gpu")],
-        [t("dev_auto_d"), "", ""],
-        title=t("pick_device"),
-    )
-    if di < 0: return BACK
-    state["device"] = ["auto", "cpu", "gpu"][di]
+        elif sub == 2:
+            _clear()
+            step_header(7, TOTAL_STEPS, t("s_tuning"))
+            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+            print(f"  {s('G', '\u2713')} {t('c_calib')} {s('W', state['calibration'])}\n")
+            di = select(
+                [t("dev_auto"), t("dev_cpu"), t("dev_gpu")],
+                [t("dev_auto_d"), "", ""],
+                title=t("pick_device"),
+            )
+            if di < 0:
+                sub = 1; continue
+            state["device"] = ["auto", "cpu", "gpu"][di]
+            break
     return True
 
 
