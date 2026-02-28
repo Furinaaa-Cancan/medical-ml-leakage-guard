@@ -34,7 +34,8 @@ xgboost = ["xgboost>=1.7"]
 catboost = ["catboost>=1.2"]
 lightgbm = ["lightgbm>=3.3"]
 tabpfn = ["tabpfn>=0.1"]
-all = ["xgboost>=1.7", "catboost>=1.2", "lightgbm>=3.3", "tabpfn>=0.1"]
+optuna = ["optuna>=3.0"]
+all = ["xgboost>=1.7", "catboost>=1.2", "lightgbm>=3.3", "tabpfn>=0.1", "optuna>=3.0"]
 
 [project.scripts]
 mlgg = "scripts.mlgg:cli_main"

@@ -64,6 +64,12 @@ try:
 except Exception:
     TabPFNClassifier = None  # type: ignore
 
+try:
+    import optuna  # type: ignore
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+except Exception:
+    optuna = None  # type: ignore
+
 
 SUPPORTED_MODEL_FAMILIES = {
     "logistic_l1",
@@ -80,11 +86,11 @@ SUPPORTED_MODEL_FAMILIES = {
     "svm_rbf",
     "tabpfn",
     "soft_voting",
-    "hard_voting",
+    "weighted_voting",
     "stacking",
 }
 
-ENSEMBLE_FAMILIES = {"soft_voting", "hard_voting", "stacking"}
+ENSEMBLE_FAMILIES = {"soft_voting", "weighted_voting", "stacking"}
 DEFAULT_ENSEMBLE_TOP_K = 3
 
 MODEL_ALIASES = {
@@ -101,6 +107,40 @@ MODEL_ALIASES = {
     "voting": "soft_voting",
     "stack": "stacking",
 }
+
+
+def resolve_device(requested: str) -> str:
+    requested = str(requested).strip().lower()
+    if requested == "auto":
+        try:
+            import torch
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+            if torch.cuda.is_available():
+                return "gpu"
+        except Exception:
+            pass
+        return "cpu"
+    if requested == "mps":
+        try:
+            import torch
+            if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+                print("[WARN] MPS requested but not available. Falling back to CPU.")
+                return "cpu"
+        except Exception:
+            print("[WARN] MPS requested but torch not installed. Falling back to CPU.")
+            return "cpu"
+        return "mps"
+    if requested == "gpu":
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                print("[WARN] GPU requested but CUDA not available. Falling back to CPU.")
+                return "cpu"
+        except Exception:
+            pass
+        return "gpu"
+    return "cpu"
 
 
 def configure_runtime_warning_filters() -> None:
@@ -170,7 +210,14 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Build voting/stacking ensembles from top-K base models after CV (0=disabled). "
-        "Requires soft_voting/hard_voting/stacking in --model-pool.",
+        "Requires soft_voting/weighted_voting/stacking in --model-pool.",
+    )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "gpu", "mps", "auto"],
+        help="Compute device. 'auto' selects MPS on Apple Silicon, CUDA GPU if available, else CPU. "
+        "Affects XGBoost/LightGBM/CatBoost/TabPFN device placement.",
     )
     parser.add_argument(
         "--max-trials-per-family",
@@ -181,8 +228,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hyperparam-search",
         default="fixed_grid",
-        choices=["random_subsample", "fixed_grid"],
-        help="Candidate search strategy within each family.",
+        choices=["random_subsample", "fixed_grid", "optuna"],
+        help="Candidate search strategy within each family. "
+        "'optuna' requires optuna package and uses Bayesian optimization.",
+    )
+    parser.add_argument(
+        "--optuna-trials",
+        type=int,
+        default=50,
+        help="Number of Optuna trials per family when --hyperparam-search=optuna (default: 50).",
     )
     parser.add_argument(
         "--n-jobs",
@@ -672,6 +726,113 @@ def _sample_family_params(
     return selected
 
 
+def _optuna_search_family(
+    family: str,
+    X_train: "pd.DataFrame",
+    y_train: "np.ndarray",
+    n_trials: int,
+    seed: int,
+    imputation_strategy: str,
+    class_weight: Optional[str],
+    n_jobs: int,
+    cv_splits: int,
+    device: str = "cpu",
+) -> List[Dict[str, Any]]:
+    if optuna is None:
+        raise RuntimeError("optuna is not installed. Install with `pip install optuna`.")
+
+    def _suggest_params(trial: "optuna.Trial") -> Dict[str, Any]:
+        if family in {"logistic_l1", "logistic_l2"}:
+            return {"C": trial.suggest_float("C", 0.001, 10.0, log=True)}
+        if family == "logistic_elasticnet":
+            return {"C": trial.suggest_float("C", 0.01, 5.0, log=True), "l1_ratio": trial.suggest_float("l1_ratio", 0.1, 0.9)}
+        if family in {"random_forest_balanced", "extra_trees_balanced"}:
+            return {
+                "n_estimators": trial.suggest_int("n_estimators", 100, 800, step=50),
+                "max_depth": trial.suggest_int("max_depth", 3, 12),
+                "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
+                "min_samples_leaf": trial.suggest_int("min_samples_leaf", 3, 20),
+                "max_features": trial.suggest_categorical("max_features", ["sqrt", "log2", 0.5]),
+            }
+        if family == "hist_gradient_boosting_l2":
+            return {
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "max_depth": trial.suggest_int("max_depth", 2, 8),
+                "max_iter": trial.suggest_int("max_iter", 100, 800, step=50),
+                "l2_regularization": trial.suggest_float("l2_regularization", 0.1, 30.0, log=True),
+                "min_samples_leaf": trial.suggest_int("min_samples_leaf", 5, 40),
+            }
+        if family == "adaboost":
+            return {
+                "n_estimators": trial.suggest_int("n_estimators", 50, 500, step=50),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 1.0, log=True),
+                "max_depth": trial.suggest_int("max_depth", 1, 4),
+            }
+        if family == "xgboost":
+            return {
+                "n_estimators": trial.suggest_int("n_estimators", 100, 800, step=50),
+                "max_depth": trial.suggest_int("max_depth", 2, 8),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+                "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
+                "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+            }
+        if family == "catboost":
+            return {
+                "iterations": trial.suggest_int("iterations", 100, 800, step=50),
+                "depth": trial.suggest_int("depth", 3, 8),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 30.0, log=True),
+                "border_count": trial.suggest_categorical("border_count", [32, 64, 128, 254]),
+            }
+        if family == "lightgbm":
+            return {
+                "n_estimators": trial.suggest_int("n_estimators", 100, 800, step=50),
+                "max_depth": -1,
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+                "num_leaves": trial.suggest_int("num_leaves", 8, 128),
+                "min_child_samples": trial.suggest_int("min_child_samples", 5, 50),
+                "reg_alpha": trial.suggest_float("reg_alpha", 1e-3, 10.0, log=True),
+                "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 10.0, log=True),
+                "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+            }
+        if family in {"svm_linear", "svm_rbf"}:
+            params: Dict[str, Any] = {"C": trial.suggest_float("C", 0.001, 100.0, log=True)}
+            if family == "svm_rbf":
+                params["gamma"] = trial.suggest_categorical("gamma", ["scale", "auto", 0.01, 0.001, 0.0001])
+            return params
+        return {}
+
+    def objective(trial: "optuna.Trial") -> float:
+        params = _suggest_params(trial)
+        if not params:
+            return 0.0
+        try:
+            est = _build_estimator_for_family(
+                family=family, params=params, seed=seed,
+                imputation_strategy=imputation_strategy,
+                class_weight=class_weight, n_jobs=n_jobs, device=device,
+            )
+            mean_score, _, _, _ = cv_score_pr_auc(est, X_train, y_train, n_splits=cv_splits, seed=seed)
+            return float(mean_score)
+        except Exception:
+            return 0.0
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=seed),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    best_trials = sorted(study.trials, key=lambda t: t.value if t.value is not None else 0.0, reverse=True)
+    results: List[Dict[str, Any]] = []
+    for t in best_trials[:max(1, n_trials // 5)]:
+        params = _suggest_params(t)
+        if params:
+            results.append(params)
+    return results if results else [_suggest_params(study.best_trial)]
+
+
 def _family_grid(family: str) -> List[Dict[str, Any]]:
     if family == "logistic_l1":
         return [{"C": c} for c in [0.3, 0.1, 0.03, 1.0, 3.0]]
@@ -821,18 +982,19 @@ def _family_grid(family: str) -> List[Dict[str, Any]]:
         return [
             {
                 "n_estimators": n_estimators,
-                "max_depth": max_depth,
+                "max_depth": -1,
                 "learning_rate": learning_rate,
                 "num_leaves": num_leaves,
+                "min_child_samples": min_child,
                 "reg_alpha": reg_alpha,
                 "reg_lambda": reg_lambda,
                 "subsample": subsample,
             }
-            for n_estimators, max_depth, learning_rate, num_leaves, reg_alpha, reg_lambda, subsample in product(
+            for n_estimators, learning_rate, num_leaves, min_child, reg_alpha, reg_lambda, subsample in product(
                 [200, 400, 700],
-                [3, 5, 7],
                 [0.03, 0.05, 0.1],
                 [15, 31, 63],
+                [10, 20],
                 [0.0, 0.5],
                 [1.0, 5.0],
                 [0.8, 1.0],
@@ -1054,6 +1216,7 @@ def _build_estimator_for_family(
     imputation_strategy: str,
     class_weight: Optional[str],
     n_jobs: int,
+    device: str = "cpu",
 ) -> BaseEstimator:
     imputer = build_imputer(imputation_strategy, seed)
     if family == "logistic_l1":
@@ -1185,6 +1348,7 @@ def _build_estimator_for_family(
     if family == "xgboost":
         if XGBClassifier is None:
             raise RuntimeError("xgboost backend is not installed.")
+        xgb_device = "cuda" if device == "gpu" else "cpu"
         clf = XGBClassifier(
             objective="binary:logistic",
             eval_metric="logloss",
@@ -1198,6 +1362,7 @@ def _build_estimator_for_family(
             random_state=seed,
             n_jobs=n_jobs,
             tree_method="hist",
+            device=xgb_device,
             verbosity=0,
         )
         return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
@@ -1217,6 +1382,8 @@ def _build_estimator_for_family(
             "allow_writing_files": False,
             "thread_count": int(n_jobs),
         }
+        if device == "gpu":
+            kwargs["task_type"] = "GPU"
         if class_weight == "balanced":
             kwargs["auto_class_weights"] = "Balanced"
         clf = CatBoostClassifier(**kwargs)
@@ -1227,9 +1394,10 @@ def _build_estimator_for_family(
         lgbm_kwargs: Dict[str, Any] = {
             "objective": "binary",
             "n_estimators": int(params["n_estimators"]),
-            "max_depth": int(params["max_depth"]),
+            "max_depth": int(params.get("max_depth", -1)),
             "learning_rate": float(params["learning_rate"]),
             "num_leaves": int(params["num_leaves"]),
+            "min_child_samples": int(params.get("min_child_samples", 20)),
             "reg_alpha": float(params["reg_alpha"]),
             "reg_lambda": float(params["reg_lambda"]),
             "subsample": float(params["subsample"]),
@@ -1237,6 +1405,8 @@ def _build_estimator_for_family(
             "n_jobs": n_jobs,
             "verbose": -1,
         }
+        if device == "gpu":
+            lgbm_kwargs["device"] = "gpu"
         if class_weight == "balanced":
             lgbm_kwargs["is_unbalance"] = True
         clf = LGBMClassifier(**lgbm_kwargs)
@@ -1283,7 +1453,8 @@ def _build_estimator_for_family(
         if TabPFNClassifier is None:
             raise RuntimeError("tabpfn backend is not installed.")
         n_ensemble = int(params.get("N_ensemble_configurations", 16))
-        clf = TabPFNClassifier(N_ensemble_configurations=n_ensemble, device="cpu")
+        device = str(params.get("device", "cpu"))
+        clf = TabPFNClassifier(N_ensemble_configurations=n_ensemble, device=device)
         return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
     raise ValueError(f"Unsupported family: {family}")
 
@@ -1294,11 +1465,19 @@ def build_candidates(
     imputation_strategy: str,
     class_weight: Optional[str],
     model_pool_config: Dict[str, Any],
+    device: str = "cpu",
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     requested_pool = [str(x) for x in model_pool_config.get("model_pool", []) if str(x).strip()]
     max_trials = int(model_pool_config.get("max_trials_per_family", 1))
     search_strategy = str(model_pool_config.get("search_strategy", "random_subsample")).strip().lower()
     n_jobs = int(model_pool_config.get("n_jobs", -1))
+    optuna_trials = int(model_pool_config.get("optuna_trials", 50))
+    optuna_X_train = model_pool_config.get("optuna_X_train")
+    optuna_y_train = model_pool_config.get("optuna_y_train")
+    optuna_cv_splits = int(model_pool_config.get("optuna_cv_splits", 5))
+
+    if search_strategy == "optuna" and optuna is None:
+        raise SystemExit("optuna requested but package is not installed. Install with `pip install optuna`.")
 
     unavailable: List[str] = []
     candidates: List[Dict[str, Any]] = []
@@ -1340,21 +1519,53 @@ def build_candidates(
                     "Install with `pip install tabpfn` or run `python3 scripts/env_doctor.py` for diagnostics."
                 )
             continue
+        if family == "tabpfn":
+            train_rows = int(model_pool_config.get("train_rows", 0))
+            feature_count = int(model_pool_config.get("feature_count", 0))
+            if train_rows > 1000 or feature_count > 100:
+                unavailable.append(family)
+                if family in explicit_cli_models:
+                    raise SystemExit(
+                        f"tabpfn_limits_exceeded: TabPFN supports ≤1000 training samples and ≤100 features. "
+                        f"Current: {train_rows} samples, {feature_count} features. "
+                        f"Remove 'tabpfn' from model pool or reduce dataset dimensions."
+                    )
+                continue
 
-        full_grid = _family_grid(family)
-        chosen_grid = _sample_family_params(
-            family=family,
-            grid=full_grid,
-            max_trials=max_trials,
-            strategy=search_strategy,
-            sampling_seed=sampling_seed,
-        )
-        family_search_space[family] = {
-            "total_configurations": int(len(full_grid)),
-            "sampled_trials": int(len(chosen_grid)),
-            "max_trials_per_family": int(max_trials),
-            "search_strategy": search_strategy,
-        }
+        if search_strategy == "optuna" and family not in {"tabpfn"} and optuna_X_train is not None:
+            chosen_grid = _optuna_search_family(
+                family=family,
+                X_train=optuna_X_train,
+                y_train=optuna_y_train,
+                n_trials=optuna_trials,
+                seed=seed,
+                imputation_strategy=imputation_strategy,
+                class_weight=class_weight,
+                n_jobs=n_jobs,
+                cv_splits=optuna_cv_splits,
+                device=device,
+            )
+            family_search_space[family] = {
+                "total_configurations": optuna_trials,
+                "sampled_trials": int(len(chosen_grid)),
+                "max_trials_per_family": int(len(chosen_grid)),
+                "search_strategy": "optuna",
+            }
+        else:
+            full_grid = _family_grid(family)
+            chosen_grid = _sample_family_params(
+                family=family,
+                grid=full_grid,
+                max_trials=max_trials,
+                strategy=search_strategy if search_strategy != "optuna" else "random_subsample",
+                sampling_seed=sampling_seed,
+            )
+            family_search_space[family] = {
+                "total_configurations": int(len(full_grid)),
+                "sampled_trials": int(len(chosen_grid)),
+                "max_trials_per_family": int(max_trials),
+                "search_strategy": search_strategy if search_strategy != "optuna" else "random_subsample",
+            }
         for trial_idx, params in enumerate(chosen_grid, start=1):
             estimator = _build_estimator_for_family(
                 family=family,
@@ -1363,6 +1574,7 @@ def build_candidates(
                 imputation_strategy=imputation_strategy,
                 class_weight=class_weight,
                 n_jobs=n_jobs,
+                device=device,
             )
             signature = json.dumps(params, sort_keys=True, separators=(",", ":"))
             model_id = f"{family}__t{trial_idx:02d}_{hashlib.sha256(signature.encode('utf-8')).hexdigest()[:8]}"
@@ -1438,21 +1650,28 @@ def build_ensemble_candidates(
             "search_meta": {"ensemble": True, "strategy": "soft_voting", **base_meta},
         })
 
-    if "hard_voting" in requested_ensembles:
+    if "weighted_voting" in requested_ensembles:
+        cv_means = [
+            float(r.get("selection_metrics", {}).get("pr_auc", {}).get("mean", 0.0))
+            for r in top_rows
+        ]
+        total = sum(cv_means) or 1.0
+        weights = [m / total for m in cv_means]
         voter = VotingClassifier(
             estimators=list(base_estimators),
-            voting="hard",
+            voting="soft",
+            weights=weights,
             n_jobs=-1,
         )
         ensemble_candidates.append({
-            "model_id": f"hard_voting__top{top_k}",
-            "base_model_id": "hard_voting",
+            "model_id": f"weighted_voting__top{top_k}",
+            "base_model_id": "weighted_voting",
             "family": "ensemble_voting",
             "complexity_rank": 15000 + top_k + 1,
-            "hyperparameters": {"voting": "hard", "top_k": top_k, **base_meta},
-            "regularization_profile": {"type": "ensemble_majority", "strategy": "hard_voting", **base_meta},
+            "hyperparameters": {"voting": "soft_weighted", "weights": [round(w, 4) for w in weights], "top_k": top_k, **base_meta},
+            "regularization_profile": {"type": "ensemble_weighted_averaging", "strategy": "weighted_voting", **base_meta},
             "estimator": voter,
-            "search_meta": {"ensemble": True, "strategy": "hard_voting", **base_meta},
+            "search_meta": {"ensemble": True, "strategy": "weighted_voting", **base_meta},
         })
 
     if "stacking" in requested_ensembles:
@@ -2593,12 +2812,21 @@ def main() -> int:
     imbalance_ratio = (float(majority_count) / float(minority_count)) if minority_count > 0 else float("inf")
     effective_class_weight: Optional[str] = "balanced" if imbalance_ratio >= 1.5 else None
 
+    resolved_dev = resolve_device(str(getattr(args, 'device', 'cpu')))
+    model_pool_config["train_rows"] = int(X_train.shape[0])
+    model_pool_config["feature_count"] = len(selected_features)
+    if str(model_pool_config.get("search_strategy", "")).strip().lower() == "optuna":
+        model_pool_config["optuna_X_train"] = X_train
+        model_pool_config["optuna_y_train"] = y_train
+        model_pool_config["optuna_cv_splits"] = int(args.cv_splits)
+        model_pool_config["optuna_trials"] = int(getattr(args, "optuna_trials", 50))
     candidates, candidate_space_meta = build_candidates(
         seed=int(args.random_seed),
         sampling_seed=int(args.random_seed),
         imputation_strategy=str(imputation["executed_strategy"]),
         class_weight=effective_class_weight,
         model_pool_config=model_pool_config,
+        device=resolved_dev,
     )
     if len(candidates) < 3:
         raise SystemExit(
@@ -2878,6 +3106,31 @@ def main() -> int:
         },
     }
 
+    overfit_warnings: List[str] = []
+    overfit_gaps: Dict[str, Any] = {}
+    for metric_key in ("pr_auc", "roc_auc", "brier"):
+        train_val = float(train_metrics.get(metric_key, 0.0))
+        valid_val = float(valid_metrics.get(metric_key, 0.0))
+        test_val = float(test_metrics.get(metric_key, 0.0))
+        if metric_key == "brier":
+            tv_gap = train_val - valid_val
+            tt_gap = train_val - test_val
+            overfit_gaps[metric_key] = {"train": train_val, "valid": valid_val, "test": test_val, "train_valid_gap": round(tv_gap, 6), "train_test_gap": round(tt_gap, 6)}
+            if tv_gap < -0.05:
+                overfit_warnings.append(f"Brier score gap (train-valid): {tv_gap:.4f} — possible overfitting.")
+        else:
+            tv_gap = train_val - valid_val
+            tt_gap = train_val - test_val
+            overfit_gaps[metric_key] = {"train": train_val, "valid": valid_val, "test": test_val, "train_valid_gap": round(tv_gap, 6), "train_test_gap": round(tt_gap, 6)}
+            if tv_gap > 0.10:
+                overfit_warnings.append(f"{metric_key} gap (train-valid): {tv_gap:.4f} — possible overfitting.")
+            if tt_gap > 0.15:
+                overfit_warnings.append(f"{metric_key} gap (train-test): {tt_gap:.4f} — likely overfitting or distribution shift.")
+    if overfit_warnings:
+        print(f"[WARN] Overfitting detected ({len(overfit_warnings)} signal(s)):")
+        for w in overfit_warnings:
+            print(f"  - {w}")
+
     evaluation_report = {
         "model_id": selected_model_id,
         "split": "test",
@@ -2887,6 +3140,11 @@ def main() -> int:
             "train": {"metrics": train_metrics, "confusion_matrix": train_cm},
             "valid": {"metrics": valid_metrics, "confusion_matrix": valid_cm},
             "test": {"metrics": test_metrics, "confusion_matrix": test_cm},
+        },
+        "overfitting_analysis": {
+            "gaps": overfit_gaps,
+            "warnings": overfit_warnings,
+            "overfit_detected": bool(overfit_warnings),
         },
         "threshold_selection": {
             "selection_split": threshold_selection_split,
@@ -3340,6 +3598,7 @@ def main() -> int:
                 imputation_strategy=str(imputation["executed_strategy"]),
                 class_weight=effective_class_weight,
                 model_pool_config=model_pool_config,
+                device=resolved_dev,
             )
             seed_estimator_map = {cand["model_id"]: cand["estimator"] for cand in seed_candidates}
             if selected_model_id not in seed_estimator_map:
