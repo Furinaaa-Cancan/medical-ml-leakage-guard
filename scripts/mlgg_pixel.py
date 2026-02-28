@@ -259,7 +259,7 @@ def print_status(ok: bool, message: str) -> None:
 
 
 def show_sparkle(text: str) -> None:
-    frames = ["✦", "✧", "✦", "✧", "★"]
+    frames = ["*", "+", "*", "+", "#"]
     for frame in frames:
         sys.stdout.write(f"\r  {BRIGHT_YELLOW}{frame} {text} {frame}{RESET}  ")
         sys.stdout.flush()
@@ -274,7 +274,7 @@ def show_splash() -> None:
     clear_screen()
     print(LOGO_ART)
     print_centered(f"{DIM}Medical ML Data Leakage Prevention Pipeline{RESET}")
-    print_centered(f"{DIM}28 Fail-Closed Safety Gates • Publication-Grade{RESET}")
+    print_centered(f"{DIM}28 Fail-Closed Safety Gates | Publication-Grade{RESET}")
     print()
     print_divider("═", BRIGHT_CYAN)
     print()
@@ -290,13 +290,13 @@ def show_main_menu() -> int:
     )
     return prompt_choice(
         [
-            ("🚀", "Quick Start  — Download dataset + split + ready to train"),
-            ("📊", "Download Dataset  — Get a real UCI medical dataset"),
-            ("✂️ ", "Split Data  — Split your CSV with safety guarantees"),
-            ("🏥", "Full Pipeline  — Run complete onboarding (demo or your data)"),
-            ("🔍", "Health Check  — Verify installation & dependencies"),
-            ("📖", "Guide & Info  — Learn about this pipeline"),
-            ("🚪", "Exit"),
+            (">>>", "Quick Start  — Download dataset + split + ready to train"),
+            ("[+]", "Download Dataset  — Get a real UCI medical dataset"),
+            ("[/]", "Split Data  — Split your CSV with safety guarantees"),
+            ("[=]", "Full Pipeline  — Run complete onboarding (demo or your data)"),
+            ("[?]", "Health Check  — Verify installation & dependencies"),
+            ("[i]", "Guide & Info  — Learn about this pipeline"),
+            ("[x]", "Exit"),
         ],
         prompt_text="Select",
     )
@@ -317,9 +317,9 @@ def action_quick_start() -> None:
     print_divider()
     ds_choice = prompt_choice(
         [
-            ("❤️ ", "Heart Disease (Cleveland) — 297 rows, 13 features"),
-            ("🎀", "Breast Cancer (Wisconsin) — 569 rows, 30 features"),
-            ("🫘", "Chronic Kidney Disease — 399 rows, 24 features"),
+            ("[H]", "Heart Disease (Cleveland) — 297 rows, 13 features"),
+            ("[B]", "Breast Cancer (Wisconsin) — 569 rows, 30 features"),
+            ("[K]", "Chronic Kidney Disease — 399 rows, 24 features"),
         ],
         prompt_text="Dataset",
     )
@@ -406,10 +406,10 @@ def action_download() -> None:
 
     ds_choice = prompt_choice(
         [
-            ("❤️ ", "Heart Disease (Cleveland) — 297 rows, 13 features, predict heart disease"),
-            ("🎀", "Breast Cancer (Wisconsin) — 569 rows, 30 features, malignant vs benign"),
-            ("🫘", "Chronic Kidney Disease — 399 rows, 24 features, predict CKD"),
-            ("📦", "All datasets"),
+            ("[H]", "Heart Disease (Cleveland) — 297 rows, 13 features, predict heart disease"),
+            ("[B]", "Breast Cancer (Wisconsin) — 569 rows, 30 features, malignant vs benign"),
+            ("[K]", "Chronic Kidney Disease — 399 rows, 24 features, predict CKD"),
+            ("[*]", "All datasets"),
         ],
         prompt_text="Dataset",
     )
@@ -456,9 +456,9 @@ def action_split() -> None:
     print_divider()
     strat_choice = prompt_choice(
         [
-            ("⏰", "Grouped Temporal  — Sort by time, recommended for longitudinal data"),
-            ("🎲", "Grouped Random  — Random split, for cross-sectional data"),
-            ("📊", "Stratified Grouped  — Preserve positive rate across splits"),
+            ("[T]", "Grouped Temporal  — Sort by time, recommended for longitudinal data"),
+            ("[R]", "Grouped Random  — Random split, for cross-sectional data"),
+            ("[S]", "Stratified Grouped  — Preserve positive rate across splits"),
         ],
         prompt_text="Strategy",
     )
@@ -525,8 +525,8 @@ def action_full_pipeline() -> None:
 
     mode_choice = prompt_choice(
         [
-            ("🎮", "Demo Mode  — Use synthetic data, great for first-time users"),
-            ("📂", "Your Data  — Use your own CSV file"),
+            ("[D]", "Demo Mode  — Use synthetic data, great for first-time users"),
+            ("[U]", "Your Data  — Use your own CSV file"),
         ],
         prompt_text="Mode",
     )
@@ -537,7 +537,7 @@ def action_full_pipeline() -> None:
         # Demo mode
         print()
         print(f"  {BRIGHT_YELLOW}Running full demo pipeline...{RESET}")
-        print(f"  {DIM}This may take 3-8 minutes. Grab a coffee! ☕{RESET}")
+        print(f"  {DIM}This may take 3-8 minutes. Grab a coffee!{RESET}")
         print()
 
         show_progress_animation(
@@ -569,9 +569,9 @@ def action_full_pipeline() -> None:
 
         strategy_choice = prompt_choice(
             [
-                ("⏰", "Grouped Temporal"),
-                ("🎲", "Grouped Random"),
-                ("📊", "Stratified Grouped"),
+                ("[T]", "Grouped Temporal"),
+                ("[R]", "Grouped Random"),
+                ("[S]", "Stratified Grouped"),
             ],
             prompt_text="Strategy",
         )
@@ -693,11 +693,11 @@ def action_guide() -> None:
         ),
         (
             "What This Pipeline Does",
-            "• Builds medical binary prediction pipelines under strict controls\n"
-            "• Enforces 28 sequential fail-closed safety gates\n"
-            "• Covers: split contamination, feature leakage, tuning leakage,\n"
+            "- Builds medical binary prediction pipelines under strict controls\n"
+            "- Enforces 28 sequential fail-closed safety gates\n"
+            "- Covers: split contamination, feature leakage, tuning leakage,\n"
             "  calibration misuse, external cohort robustness, and more\n"
-            "• Generates publication-grade evidence artifacts",
+            "- Generates publication-grade evidence artifacts",
         ),
         (
             "Quick Start (Terminal)",
@@ -710,9 +710,9 @@ def action_guide() -> None:
         ),
         (
             "Available Datasets",
-            "  ❤️  Heart Disease (Cleveland)   — 297 rows, 13 features\n"
-            "  🎀  Breast Cancer (Wisconsin)   — 569 rows, 30 features\n"
-            "  🫘  Chronic Kidney Disease       — 399 rows, 24 features\n"
+            "  [H] Heart Disease (Cleveland)   -- 297 rows, 13 features\n"
+            "  [B] Breast Cancer (Wisconsin)   -- 569 rows, 30 features\n"
+            "  [K] Chronic Kidney Disease      -- 399 rows, 24 features\n"
             "\n"
             "  Download: python3 examples/download_real_data.py heart",
         ),
