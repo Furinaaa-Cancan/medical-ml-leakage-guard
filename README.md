@@ -35,6 +35,21 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided -
 
 That's it! After step 5, check `/tmp/mlgg_demo/evidence/onboarding_report.json` for the result.
 
+**Want to use real medical data instead of demo?** Download a real UCI dataset:
+
+```bash
+# Download UCI Heart Disease (297 rows) or Breast Cancer (569 rows)
+python3 examples/download_real_data.py heart
+python3 examples/download_real_data.py breast
+
+# Split and run the pipeline
+python3 scripts/mlgg.py split -- \
+  --input examples/heart_disease.csv \
+  --output-dir /tmp/mlgg_heart/data \
+  --patient-id-col patient_id --target-col y --time-col event_time \
+  --strategy grouped_temporal
+```
+
 ---
 
 ### 1. What This Repository Does
@@ -513,6 +528,21 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided -
 ```
 
 就这么简单！第 5 步完成后查看 `/tmp/mlgg_demo/evidence/onboarding_report.json` 即可看到结果。
+
+**想用真实医学数据代替 demo？** 一键下载 UCI 公开数据集：
+
+```bash
+# 下载 UCI 心脏病数据集 (297 行) 或乳腺癌数据集 (569 行)
+python3 examples/download_real_data.py heart
+python3 examples/download_real_data.py breast
+
+# 分割并运行管线
+python3 scripts/mlgg.py split -- \
+  --input examples/heart_disease.csv \
+  --output-dir /tmp/mlgg_heart/data \
+  --patient-id-col patient_id --target-col y --time-col event_time \
+  --strategy grouped_temporal
+```
 
 ---
 

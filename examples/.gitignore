@@ -1,0 +1,3 @@
+# Generated CSV files from download_real_data.py
+# (real datasets should not be committed to repo)
+*.csv
