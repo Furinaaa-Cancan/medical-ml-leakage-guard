@@ -500,6 +500,7 @@ def parse_suite_outcome(kind: str, summary_file: Path, exit_code: int, expected_
     if detail["status"] != "pass" and not failure_codes:
         failure_codes.append("suite_failed")
     detail["failure_codes"] = dedup_keep_order(failure_codes)
+    detail["failure_code"] = detail["failure_codes"][0] if detail["failure_codes"] else None
     return detail
 
 
@@ -754,7 +755,9 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
                 "suite_name": str(suite.get("name", "")),
                 "kind": str(suite.get("kind", "")),
                 "status": str(suite.get("status", "")),
+                "blocking": bool(suite.get("blocking")),
                 "summary_file": str(summary_file),
+                "failure_code": (coerce_failure_codes(suite.get("failure_codes")) or [None])[0],
                 "failure_codes": coerce_failure_codes(suite.get("failure_codes")),
                 "repeat_statuses": suite.get("repeat_statuses", []),
                 "case_diagnostics": case_diagnostics,
@@ -894,6 +897,7 @@ def main() -> int:
                     "exit_code": None,
                     "overall_status": None,
                     "failure_reason": None,
+                    "failure_code": None,
                     "failure_codes": [],
                     "summary_file": str(summary_file),
                     "command": command,
@@ -949,6 +953,7 @@ def main() -> int:
                 "exit_code": outcome.get("exit_code"),
                 "overall_status": outcome.get("overall_status"),
                 "failure_reason": outcome.get("failure_reason"),
+                "failure_code": outcome.get("failure_code"),
                 "failure_codes": outcome.get("failure_codes", []),
                 "summary_file": str(summary_file),
                 "command": command,

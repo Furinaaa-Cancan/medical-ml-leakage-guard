@@ -1298,6 +1298,8 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
         assert_true(isinstance(obs_items, list) and len(obs_items) == 1, "observational_diagnostics contains one failed non-blocking suite")
         first = obs_items[0] if obs_items else {}
         assert_true(first.get("suite_id") == "authority_release_extended", "observational diagnostics suite id matches")
+        assert_true(first.get("blocking") is False, "observational diagnostics marks blocking=false for non-blocking suite")
+        assert_true(first.get("failure_code") == "strict_pipeline_failed", "observational diagnostics primary failure_code matches")
         case_rows = first.get("case_diagnostics", [])
         assert_true(isinstance(case_rows, list) and len(case_rows) == 1, "observational diagnostics contains failed case row")
         case_row = case_rows[0] if case_rows else {}
@@ -1313,6 +1315,11 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
             diag_payload.get("contract_version") == "release_benchmark_observational_diagnostics.v1",
             "observational diagnostics sidecar contract version matches",
         )
+        suite_rows = report.get("suites", [])
+        assert_true(isinstance(suite_rows, list) and len(suite_rows) >= 2, "benchmark report includes suite summary rows")
+        failed_suite = next((row for row in suite_rows if row.get("suite_id") == "authority_release_extended"), {})
+        assert_true(failed_suite.get("status") == "fail", "failed non-blocking suite preserved in suites summary")
+        assert_true(failed_suite.get("failure_code") == "strict_pipeline_failed", "suite summary primary failure_code is populated")
 
 
 def test_release_benchmark_repeat_outputs_are_not_overwritten() -> None:
