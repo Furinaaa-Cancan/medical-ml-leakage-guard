@@ -83,6 +83,9 @@ def test_basic_temporal_split():
         assert "input_sha256" in report, "report missing SHA256 fingerprint"
         assert len(report["input_sha256"]) == 64, "SHA256 should be 64 hex chars"
         assert "input_rows_excluded" in report, "report missing excluded rows info"
+        assert "input_rows_raw" in report, "report missing raw row count"
+        assert "input_rows_clean" in report, "report missing clean row count"
+        assert report["input_rows_excluded"]["total"] == 0, "no rows should be excluded in clean data"
 
         # Verify patient-level disjoint
         train_df = pd.read_csv(output_dir / "train.csv")
@@ -390,7 +393,7 @@ def test_nan_target_excluded():
         ])
         assert rc == 0, f"should succeed after excluding NaN targets: {stderr}"
         report = json.loads(report_path.read_text())
-        assert report["input_rows_excluded"]["nan_target"] == 3
+        assert report["input_rows_excluded"]["nan_target_after_pid_clean"] == 3
 
     print("  PASS: test_nan_target_excluded")
 

@@ -147,18 +147,18 @@ def validate_binary_target(df: pd.DataFrame, target_col: str) -> int:
     for v in unique:
         try:
             fv = float(v)
-            if fv == 0.0:
-                numeric_values.add(0)
-            elif fv == 1.0:
-                numeric_values.add(1)
-            else:
-                raise ValueError(
-                    f"Target column '{target_col}' contains non-binary value: {v}. "
-                    "Expected only 0/1."
-                )
         except (ValueError, TypeError):
             raise ValueError(
                 f"Target column '{target_col}' contains non-numeric value: {v}. "
+                "Expected only 0/1."
+            )
+        if fv == 0.0:
+            numeric_values.add(0)
+        elif fv == 1.0:
+            numeric_values.add(1)
+        else:
+            raise ValueError(
+                f"Target column '{target_col}' contains non-binary value: {v} (={fv}). "
                 "Expected only 0/1."
             )
     if not numeric_values:
@@ -500,7 +500,11 @@ def generate_split_protocol(
 
 def save_csv(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False)
+    tmp = path.with_name(
+        f".{path.name}.tmp-{os.getpid()}-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+    )
+    df.to_csv(tmp, index=False)
+    tmp.replace(path)
 
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -557,6 +561,9 @@ def main() -> int:
         print(f"[FAIL] {exc}", file=sys.stderr)
         return 2
 
+    # Track true original row count before any exclusions
+    raw_row_count = len(df)
+
     # C3: Reject rows with NaN patient_id
     pid_na_count = int(df[args.patient_id_col].isna().sum())
     if pid_na_count > 0:
@@ -566,17 +573,19 @@ def main() -> int:
         )
         df = df.dropna(subset=[args.patient_id_col])
 
-    # C4: Exclude rows with NaN target
-    if target_na_count > 0:
+    # C4: Exclude rows with NaN target (recount after pid exclusion to avoid double-counting)
+    target_na_after_pid = int(df[args.target_col].isna().sum())
+    if target_na_after_pid > 0:
         df = df.dropna(subset=[args.target_col])
 
-    original_row_count = len(df)
-    if original_row_count == 0:
+    rows_after_clean = len(df)
+    total_excluded = raw_row_count - rows_after_clean
+    if rows_after_clean == 0:
         print("[FAIL] No valid rows remain after excluding NaN patient_id/target.", file=sys.stderr)
         return 2
 
     n_patients = df[args.patient_id_col].nunique()
-    print(f"[INFO] {n_patients} unique patients, strategy: {args.strategy}")
+    print(f"[INFO] {n_patients} unique patients, {rows_after_clean} rows (excluded {total_excluded}), strategy: {args.strategy}")
 
     if n_patients < 6:
         print(
@@ -613,10 +622,10 @@ def main() -> int:
 
     # H2: Row count preservation assertion
     split_total = len(train_df) + len(valid_df) + len(test_df)
-    if split_total != original_row_count:
+    if split_total != rows_after_clean:
         print(
-            f"[FAIL] Row count mismatch: input={original_row_count}, "
-            f"train+valid+test={split_total} (lost {original_row_count - split_total} rows).",
+            f"[FAIL] Row count mismatch: cleaned_input={rows_after_clean}, "
+            f"train+valid+test={split_total} (lost {rows_after_clean - split_total} rows).",
             file=sys.stderr,
         )
         return 2
@@ -692,8 +701,13 @@ def main() -> int:
         "seed": args.seed,
         "input_file": str(input_path),
         "input_sha256": input_sha256,
-        "input_rows": original_row_count,
-        "input_rows_excluded": {"nan_patient_id": pid_na_count, "nan_target": target_na_count},
+        "input_rows_raw": raw_row_count,
+        "input_rows_clean": rows_after_clean,
+        "input_rows_excluded": {
+            "nan_patient_id": pid_na_count,
+            "nan_target_after_pid_clean": target_na_after_pid,
+            "total": total_excluded,
+        },
         "input_patients": n_patients,
         "output_dir": str(output_dir),
         "files": {
