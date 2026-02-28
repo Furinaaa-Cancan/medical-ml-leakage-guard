@@ -46,6 +46,7 @@ UP_LINE = "\033[A"
 
 # ── sentinel ──────────────────────────────────────────────────────────────────
 BACK = type("BACK", (), {"__repr__": lambda self: "BACK"})()
+SKIP = type("SKIP", (), {"__repr__": lambda self: "SKIP"})()
 TOTAL_STEPS = 6
 
 def s(fg: str, text: str, bold: bool = False) -> str:
@@ -211,6 +212,9 @@ def _getch() -> str:
                     ch3 = sys.stdin.read(1)
                     if ch3 == "A": return "UP"
                     if ch3 == "B": return "DOWN"
+                    # Drain remaining bytes of unknown escape sequence
+                    while sel_mod.select([fd], [], [], 0.02)[0]:
+                        sys.stdin.read(1)
                 return "ESC"
             if ch in ("\r", "\n"): return "ENTER"
             if ch == "\x03": return "CTRL_C"
@@ -476,8 +480,6 @@ def step_source(state: Dict) -> Any:
 
 
 def step_dataset(state: Dict) -> Any:
-    _clear()
-    step_header(3, TOTAL_STEPS, t("s_dataset"))
     source = state["source"]
 
     if source == "demo":
@@ -488,7 +490,10 @@ def step_dataset(state: Dict) -> Any:
         state["time"] = "event_time"
         state["strategy"] = "grouped_temporal"
         state["out_dir"] = str(DEFAULT_OUT / "pipeline")
-        return True
+        return SKIP
+
+    _clear()
+    step_header(3, TOTAL_STEPS, t("s_dataset"))
 
     if source == "download":
         ci = select(
@@ -545,7 +550,7 @@ def step_dataset(state: Dict) -> Any:
 
 def step_config(state: Dict) -> Any:
     if state.get("source") in ("demo", "download"):
-        return True
+        return SKIP
 
     _clear()
     step_header(4, TOTAL_STEPS, t("s_config"))
@@ -781,6 +786,7 @@ def wizard() -> int:
     state: Dict[str, Any] = {}
     steps = [step_lang, step_source, step_dataset, step_config,
              step_confirm, step_run]
+    skipped: set = set()  # steps that auto-skipped (no user interaction)
     i = 0
 
     while i < len(steps):
@@ -795,7 +801,14 @@ def wizard() -> int:
                 print(f"\n  {s('C', t('bye'))}\n")
                 return 0
             i -= 1
+            # Skip over auto-skipped steps when going backward
+            while i > 0 and i in skipped:
+                i -= 1
+        elif result is SKIP:
+            skipped.add(i)
+            i += 1
         else:
+            skipped.discard(i)
             i += 1
 
     print()
