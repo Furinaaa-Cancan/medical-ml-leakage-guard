@@ -1065,10 +1065,17 @@ def step_run(state: Dict) -> Any:
     # ── Download + Split + Train flow ──
     completed: List[Tuple[str, str]] = []  # (label, "done"|"fail")
     out_data = str(Path(state["out_dir"]) / "data")
+    total_phases = 3 if source == "download" else 2
 
     def _progress() -> None:
+        done_count = sum(1 for _, st in completed if st == "done")
+        pct = int(done_count * 100 / total_phases) if total_phases else 0
+        bar_w = 20
+        filled = int(bar_w * pct / 100)
+        bar = s('G', '\u2588' * filled) + s('W', '\u2591' * (bar_w - filled))
+        print(f"  {bar} {s('W', f'{pct}%')}")
         for label, st in completed:
-            icon = s('G', '[ok]') if st == "done" else s('R', '[!!]')
+            icon = s('G', '\u2713') if st == "done" else s('R', '\u2717')
             clr = 'W' if st == "done" else 'R'
             print(f"  {icon}  {s(clr, label)}")
 
