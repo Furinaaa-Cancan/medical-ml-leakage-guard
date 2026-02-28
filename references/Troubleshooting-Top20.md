@@ -55,6 +55,25 @@ Use this list with strict pipeline failure codes.
 
 ---
 
+## Extended Mapping / 扩展映射
+
+| Code | Diagnose | One-step Fix | Verify |
+|---|---|---|---|
+| `imbalance_unmitigated` | `python3 scripts/imbalance_policy_gate.py --train <project>/data/train.csv --valid <project>/data/valid.csv --test <project>/data/test.csv --target-col y --imbalance-policy <project>/configs/imbalance_policy.json --strict` / 检查类别不平衡是否被处理 | Add resampling strategy (SMOTE/oversample/undersample) in imbalance policy with `fit_scope=train_only`, then retrain. / 在 imbalance_policy 中指定采样策略并限定 `fit_scope=train_only`，重训 | Same gate command above |
+| `insufficient_minority_samples` | Same imbalance gate command / 同上 | Increase dataset size or merge rare classes. Ensure minority count ≥ `minimum_minority_cases` in policy. / 增大数据集或合并稀有类别，确保少数类 ≥ policy 中 `minimum_minority_cases` | Same gate command |
+| `resampling_scope_leakage` | Same imbalance gate command / 同上 | Set `fit_scope` to `train_only` or `fold_train_only`; never resample validation/test splits. / 将 `fit_scope` 设为 `train_only` 或 `fold_train_only`，禁止对验证/测试集重采样 | Same gate command |
+| `missingness_unhandled` | `python3 scripts/missingness_policy_gate.py --train <project>/data/train.csv --valid <project>/data/valid.csv --test <project>/data/test.csv --target-col y --ignore-cols patient_id,event_time --missingness-policy <project>/configs/missingness_policy.json --evaluation-report <project>/evidence/evaluation_report.json --strict` / 检查缺失值是否被处理 | Define imputation strategy in missingness_policy.json (median/mice/knn) with `fit_scope=train_only`. / 在 missingness_policy.json 中定义填充策略并限定 `fit_scope=train_only` | Same gate command |
+| `mice_scale_guard_violation` | Same missingness gate command / 同上 | Reduce feature count or row count below MICE thresholds (`mice_max_features`, `mice_max_rows`), or switch to simpler imputation. / 减少特征或样本数至 MICE 阈值以下，或改用更简单的填充策略 | Same gate command |
+| `unsupported_search_method` | `python3 scripts/tuning_leakage_gate.py --evaluation-report <project>/evidence/evaluation_report.json --tuning-spec <project>/configs/tuning_protocol.json --strict` / 检查调优方法是否受支持 | Use supported search methods: `fixed`, `random_search`, or `optuna`. / 使用支持的搜索方法：`fixed`、`random_search` 或 `optuna` | Same gate command |
+| `outer_evaluation_not_locked` | Same tuning gate command / 同上 | Ensure tuning uses only inner CV folds; outer test/valid must never influence hyperparameter selection. / 确保调优仅使用内层交叉验证，外层测试/验证不得影响超参选择 | Same gate command |
+| `calibration_insufficient_events` | `python3 scripts/calibration_dca_gate.py --prediction-trace <project>/evidence/prediction_trace.csv.gz --evaluation-report <project>/evidence/evaluation_report.json --external-validation-report <project>/evidence/external_validation_report.json --performance-policy <project>/configs/performance_policy.json --strict` / 检查校准事件数是否足够 | Increase calibration split sample size or use a larger dataset. Ensure ≥ 20 events per calibration bin. / 增大校准分割样本量或使用更大数据集，确保每个校准区间 ≥ 20 个事件 | Same gate command |
+| `external_validation_missing` | `python3 scripts/external_validation_gate.py --external-validation-report <project>/evidence/external_validation_report.json --prediction-trace <project>/evidence/prediction_trace.csv.gz --evaluation-report <project>/evidence/evaluation_report.json --performance-policy <project>/configs/performance_policy.json --strict` / 检查是否缺少外部验证 | Provide external cohort data and generate external_validation_report.json. Configure `external_cohort_spec` in request. / 提供外部队列数据并生成 external_validation_report.json，在 request 中配置 `external_cohort_spec` | Same gate command |
+| `external_validation_metric_replay_mismatch` | Same external validation gate command / 同上 | Regenerate external validation report from the same model checkpoint used for evaluation_report. / 使用与 evaluation_report 相同的模型检查点重新生成外部验证报告 | Same gate command |
+| `seed_stability_exceeds_threshold` | `python3 scripts/seed_stability_gate.py --seed-sensitivity-report <project>/evidence/seed_sensitivity_report.json --evaluation-report <project>/evidence/evaluation_report.json --performance-policy <project>/configs/performance_policy.json --strict` / 检查种子稳定性是否超阈值 | Increase training stability: use ensemble, larger dataset, or reduce model complexity until seed variation falls within policy threshold. / 增强训练稳定性：使用集成、增大数据集或降低模型复杂度，直到种子变异在阈值内 | Same gate command |
+| `robustness_pr_auc_drop_exceeds_threshold` | `python3 scripts/robustness_gate.py --robustness-report <project>/evidence/robustness_report.json --evaluation-report <project>/evidence/evaluation_report.json --performance-policy <project>/configs/performance_policy.json --strict` / 检查鲁棒性 PR-AUC 下降是否超阈值 | Improve model robustness for underperforming subgroups: add features, increase sample diversity, or use group-balanced training. / 改善弱势子群的模型鲁棒性：增加特征、增大样本多样性或使用分组平衡训练 | Same gate command |
+
+---
+
 ## Notes / 说明
 
 - All publication-grade gates are fail-closed; do not bypass by editing report status manually.
