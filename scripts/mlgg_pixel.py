@@ -202,6 +202,7 @@ def _getch() -> str:
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         try:
+            termios.tcflush(fd, termios.TCIFLUSH)  # discard buffered input
             tty.setraw(fd)
             ch = sys.stdin.read(1)
             if ch == "\x1b":
@@ -262,14 +263,16 @@ def select(options: List[str], descs: Optional[List[str]] = None,
             lbl = _trunc(options[i], maxw - 4)
             if i == sel:
                 line = f"  {s('C','>', bold=True)} {BG['b']}{FG['W']}{BOLD} {lbl} {RST}"
-                if has_desc and descs[i]:
-                    d = _trunc(descs[i], maxw - _wlen(lbl) - 6)
+                desc_room = maxw - _wlen(lbl) - 8
+                if has_desc and descs[i] and desc_room > 8:
+                    d = _trunc(descs[i], desc_room)
                     line += f"  {s('C', d)}"
                 print(line)
             else:
                 line = f"    {DIM}{lbl}{RST}"
-                if has_desc and descs[i]:
-                    d = _trunc(descs[i], maxw - _wlen(lbl) - 6)
+                desc_room = maxw - _wlen(lbl) - 8
+                if has_desc and descs[i] and desc_room > 8:
+                    d = _trunc(descs[i], desc_room)
                     line += f"  {DIM}{d}{RST}"
                 print(line)
         print()
@@ -552,12 +555,11 @@ def step_config(state: Dict) -> Any:
     if state.get("source") in ("demo", "download"):
         return SKIP
 
-    _clear()
-    step_header(4, TOTAL_STEPS, t("s_config"))
-
     csv_path = state["csv_path"]
     columns = csv_cols(Path(csv_path))
     if not columns:
+        _clear()
+        step_header(4, TOTAL_STEPS, t("s_config"))
         print(f"  {s('R', t('bad_csv'))}")
         sys.stdout.write(SHOW_CUR)
         try:
@@ -569,17 +571,23 @@ def step_config(state: Dict) -> Any:
     detected = detect_columns(columns)
     rows = csv_rows(Path(csv_path))
 
-    print(f"  {s('W', Path(csv_path).name, bold=True)}  {DIM}{rows} {t('rows')}, {len(columns)} {t('columns')}{RST}")
-    if any(detected.values()):
-        hints = []
-        if detected["pid"]: hints.append(f"ID={detected['pid']}")
-        if detected["target"]: hints.append(f"Target={detected['target']}")
-        if detected["time"]: hints.append(f"Time={detected['time']}")
-        auto_label = t('auto')
-        print(f"  {s('G', '[' + auto_label + ']')} {DIM}{', '.join(hints)}{RST}")
-    print()
+    def _config_header(*chosen: Tuple[str, str]) -> None:
+        _clear()
+        step_header(4, TOTAL_STEPS, t("s_config"))
+        print(f"  {s('W', Path(csv_path).name, bold=True)}  {DIM}{rows} {t('rows')}, {len(columns)} {t('columns')}{RST}")
+        if not chosen and any(detected.values()):
+            hints = []
+            if detected["pid"]: hints.append(f"ID={detected['pid']}")
+            if detected["target"]: hints.append(f"Target={detected['target']}")
+            if detected["time"]: hints.append(f"Time={detected['time']}")
+            auto_label = t('auto')
+            print(f"  {s('G', '[' + auto_label + ']')} {DIM}{', '.join(hints)}{RST}")
+        for label, value in chosen:
+            print(f"  {s('G', '\u2713')} {label} {s('W', value)}")
+        print()
 
     # Patient ID -- put auto-detected first
+    _config_header()
     pid_opts = columns[:]
     if detected["pid"] and detected["pid"] in pid_opts:
         pid_opts.remove(detected["pid"])
@@ -589,6 +597,7 @@ def step_config(state: Dict) -> Any:
     pid = pid_opts[pi]
 
     # Target
+    _config_header((t("c_pid"), pid))
     rem1 = [c for c in columns if c != pid]
     tgt_opts = rem1[:]
     if detected["target"] and detected["target"] in tgt_opts:
@@ -599,6 +608,7 @@ def step_config(state: Dict) -> Any:
     tgt = tgt_opts[ti]
 
     # Strategy
+    _config_header((t("c_pid"), pid), (t("c_target"), tgt))
     si = select(
         [t("strat_temporal"), t("strat_random"), t("strat_stratified")],
         [t("strat_temporal_d"), t("strat_random_d"), t("strat_stratified_d")],
@@ -610,6 +620,7 @@ def step_config(state: Dict) -> Any:
     # Time column
     tcol = ""
     if strat == "grouped_temporal":
+        _config_header((t("c_pid"), pid), (t("c_target"), tgt), (t("c_strat"), strat))
         rem2 = [c for c in columns if c not in (pid, tgt)]
         if not rem2:
             print(f"  {s('R', t('no_time_col'))}")
@@ -812,7 +823,13 @@ def wizard() -> int:
             i += 1
 
     print()
-    sys.stdout.write(SHOW_CUR)
+    sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+    # Flush any keys buffered during spinner execution
+    try:
+        import termios
+        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except Exception:
+        pass
     try:
         input(f"  {DIM}{t('enter_continue')}{RST}")
     except (EOFError, KeyboardInterrupt):
