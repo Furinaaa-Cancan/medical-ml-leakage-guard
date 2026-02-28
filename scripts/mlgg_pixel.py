@@ -9,6 +9,8 @@ Usage:
 
 from __future__ import annotations
 
+import csv
+import glob
 import itertools
 import os
 import platform
@@ -28,7 +30,7 @@ EXAMPLES_DIR = REPO_ROOT / "examples"
 DESKTOP = Path.home() / "Desktop"
 DEFAULT_OUT = DESKTOP / "MLGG_Output"
 
-# ── ANSI helpers ──────────────────────────────────────────────────────────────
+# ── ANSI ──────────────────────────────────────────────────────────────────────
 RST = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -38,29 +40,24 @@ FG = {
     "R": "\033[91m", "G": "\033[92m", "Y": "\033[93m", "B": "\033[94m",
     "M": "\033[95m", "C": "\033[96m", "W": "\033[97m",
 }
-BG = {
-    "k": "\033[40m", "r": "\033[41m", "g": "\033[42m", "y": "\033[43m",
-    "b": "\033[44m", "m": "\033[45m", "c": "\033[46m", "w": "\033[47m",
-}
-HIDE_CURSOR = "\033[?25l"
-SHOW_CURSOR = "\033[?25h"
-ERASE_LINE = "\033[2K"
+BG = {"b": "\033[44m", "k": "\033[40m", "c": "\033[46m", "g": "\033[42m"}
+HIDE_CUR = "\033[?25l"
+SHOW_CUR = "\033[?25h"
+ERASE = "\033[2K"
 UP = "\033[A"
 
 def c(fg: str, text: str, bold: bool = False) -> str:
-    b = BOLD if bold else ""
-    return f"{b}{FG.get(fg, '')}{text}{RST}"
+    return f"{BOLD if bold else ''}{FG.get(fg,'')}{text}{RST}"
 
-def cols() -> int:
+def _clear() -> None:
+    os.system("cls" if platform.system() == "Windows" else "clear")
+
+def _cols() -> int:
     return shutil.get_terminal_size((80, 24)).columns
 
-def rows() -> int:
-    return shutil.get_terminal_size((80, 24)).lines
 
-
-# ── raw keyboard input (macOS/Linux) ─────────────────────────────────────────
+# ── raw key input ─────────────────────────────────────────────────────────────
 def _getch() -> str:
-    """Read a single keypress without echo. Returns special names for arrows."""
     try:
         import tty, termios
         fd = sys.stdin.fileno()
@@ -70,7 +67,7 @@ def _getch() -> str:
             ch = sys.stdin.read(1)
             if ch == "\x1b":
                 seq = sys.stdin.read(2)
-                return {"[A": "UP", "[B": "DOWN", "[C": "RIGHT", "[D": "LEFT"}.get(seq, "ESC")
+                return {"[A": "UP", "[B": "DOWN"}.get(seq, "ESC")
             if ch in ("\r", "\n"):
                 return "ENTER"
             if ch == "\x03":
@@ -83,95 +80,88 @@ def _getch() -> str:
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except Exception:
-        # Fallback: not a TTY or Windows
         raw = input()
         return raw.strip() or "ENTER"
 
 
 # ── spinner ───────────────────────────────────────────────────────────────────
 class Spinner:
-    """Braille-dot spinner shown while a subprocess runs."""
-    FRAMES = ["   ", ".  ", ".. ", "...", " ..", "  .", "   "]
-
+    DOTS = ["   ", ".  ", ".. ", "...", " ..", "  .", "   "]
     def __init__(self, label: str):
         self.label = label
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-
+        self._t: Optional[threading.Thread] = None
     def __enter__(self) -> "Spinner":
         self._stop.clear()
-        self._thread = threading.Thread(target=self._spin, daemon=True)
-        sys.stdout.write(HIDE_CURSOR)
-        sys.stdout.flush()
-        self._thread.start()
-        return self
-
+        self._t = threading.Thread(target=self._run, daemon=True)
+        sys.stdout.write(HIDE_CUR); sys.stdout.flush()
+        self._t.start(); return self
     def __exit__(self, *_: Any) -> None:
         self._stop.set()
-        if self._thread:
-            self._thread.join()
-        sys.stdout.write(f"\r{ERASE_LINE}")
-        sys.stdout.write(SHOW_CURSOR)
-        sys.stdout.flush()
-
-    def _spin(self) -> None:
-        cyc = itertools.cycle(self.FRAMES)
-        while not self._stop.is_set():
-            frame = next(cyc)
-            sys.stdout.write(f"\r  {c('C', frame)} {c('W', self.label)}")
-            sys.stdout.flush()
+        if self._t: self._t.join()
+        sys.stdout.write(f"\r{ERASE}{SHOW_CUR}"); sys.stdout.flush()
+    def _run(self) -> None:
+        for f in itertools.cycle(self.DOTS):
+            if self._stop.is_set(): break
+            sys.stdout.write(f"\r  {c('C',f)} {c('W',self.label)}"); sys.stdout.flush()
             self._stop.wait(0.12)
 
-
-# ── step tracker ──────────────────────────────────────────────────────────────
-def step_line(idx: int, total: int, label: str, status: str = "pending") -> str:
-    num = f"{idx}/{total}"
-    if status == "running":
-        return f"  {c('C', num, bold=True)}  {c('C', '>>>')}  {c('W', label, bold=True)}"
-    if status == "done":
-        return f"  {c('G', num)}  {c('G', '[ok]')}  {c('W', label)}"
-    if status == "fail":
-        return f"  {c('R', num)}  {c('R', '[!!]')}  {c('R', label)}"
-    return f"  {c('k', num)}  {DIM}[ ]{RST}  {DIM}{label}{RST}"
+def run_with_spinner(cmd: List[str], label: str, cwd: str = "") -> Tuple[int, str, str]:
+    with Spinner(label):
+        p = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT), capture_output=True, text=True)
+    return p.returncode, p.stdout, p.stderr
 
 
-def render_steps(steps: List[Tuple[str, str]], current: int) -> None:
-    """Print the full step list with statuses. Call once, then overwrite."""
-    for i, (label, status) in enumerate(steps):
-        print(step_line(i + 1, len(steps), label, status))
+# ── box drawing ───────────────────────────────────────────────────────────────
+def box(title: str, lines: List[str], color: str = "C", width: int = 0) -> None:
+    w = width or max(max((len(l) for l in lines), default=0), len(title)) + 4
+    print(f"  {c(color, '┌' + '─' * w + '┐')}")
+    if title:
+        pad = w - len(title) - 2
+        print(f"  {c(color, '│')} {c('W', title, bold=True)}{' ' * pad}{c(color, '│')}")
+        print(f"  {c(color, '├' + '─' * w + '┤')}")
+    for line in lines:
+        pad = w - len(line) - 2
+        print(f"  {c(color, '│')} {line}{' ' * max(pad, 0)}{c(color, '│')}")
+    print(f"  {c(color, '└' + '─' * w + '┘')}")
 
 
-# ── arrow-key select menu ────────────────────────────────────────────────────
-def select_menu(title: str, options: List[str], subtitle: str = "") -> int:
-    """Arrow-key navigable menu. Returns 0-based index, or -1 on quit."""
+def hline(color: str = "k") -> None:
+    print(f"  {DIM}{'─' * min(_cols() - 4, 60)}{RST}")
+
+
+# ── select menu (arrow keys) ─────────────────────────────────────────────────
+def select(title: str, options: List[str], descs: Optional[List[str]] = None,
+           subtitle: str = "") -> int:
+    """Arrow-key menu. Returns 0-based index, -1 on quit."""
     sel = 0
     n = len(options)
+    has_desc = descs and len(descs) == n
 
     def _draw() -> None:
-        sys.stdout.write(HIDE_CURSOR)
+        sys.stdout.write(HIDE_CUR)
         print()
         if title:
             print(f"  {c('C', title, bold=True)}")
         if subtitle:
             print(f"  {DIM}{subtitle}{RST}")
         print()
-        for i, opt in enumerate(options):
+        for i in range(n):
             if i == sel:
-                print(f"  {c('C', '>', bold=True)} {BG.get('b','')}{FG.get('W','')}{BOLD} {opt} {RST}")
+                label = f" {options[i]} "
+                desc_str = f"  {descs[i]}" if has_desc else ""
+                print(f"  {c('C','>', bold=True)} {BG['b']}{FG['W']}{BOLD}{label}{RST}{c('C', desc_str)}")
             else:
-                print(f"    {DIM}{opt}{RST}")
+                desc_str = f"  {DIM}{descs[i]}{RST}" if has_desc else ""
+                print(f"    {DIM}{options[i]}{RST}{desc_str}")
         print()
-        print(f"  {DIM}Arrow keys to move, Enter to select, q to back{RST}")
+        print(f"  {DIM}[Up/Down] move  [Enter] select  [q] back{RST}")
 
-    def _erase(line_count: int) -> None:
-        for _ in range(line_count):
-            sys.stdout.write(f"{UP}{ERASE_LINE}")
-        sys.stdout.write("\r")
-        sys.stdout.flush()
+    # count lines drawn
+    extra = (1 if title else 0) + (1 if subtitle else 0)
+    line_count = n + extra + 3  # blanks + hint
 
-    drawn_lines = n + (3 if title else 2) + (1 if subtitle else 0) + 2
     _draw()
-
     while True:
         key = _getch()
         if key == "UP" and sel > 0:
@@ -179,74 +169,81 @@ def select_menu(title: str, options: List[str], subtitle: str = "") -> int:
         elif key == "DOWN" and sel < n - 1:
             sel += 1
         elif key == "ENTER":
-            sys.stdout.write(SHOW_CURSOR)
-            sys.stdout.flush()
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return sel
         elif key in ("Q", "CTRL_C", "CTRL_D", "ESC"):
-            sys.stdout.write(SHOW_CURSOR)
-            sys.stdout.flush()
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return -1
-        else:
-            # Number keys 1-9
-            if key.isdigit() and 1 <= int(key) <= n:
-                sel = int(key) - 1
-        _erase(drawn_lines)
+        elif key.isdigit() and 1 <= int(key) <= n:
+            sel = int(key) - 1
+        # redraw
+        for _ in range(line_count):
+            sys.stdout.write(f"{UP}{ERASE}")
+        sys.stdout.write("\r"); sys.stdout.flush()
         _draw()
 
 
-# ── text input with default ──────────────────────────────────────────────────
-def ask(label: str, default: str = "", required: bool = True) -> str:
-    hint = f" {DIM}({default}){RST}" if default else ""
-    while True:
-        try:
-            sys.stdout.write(SHOW_CURSOR)
-            raw = input(f"  {c('C', '>')} {c('W', label)}{hint}{c('C', ':')} ").strip()
-        except (EOFError, KeyboardInterrupt):
-            raw = ""
-        val = raw or default
-        if val or not required:
-            return val
-        print(f"  {c('R', '  Required field.')}")
+# ── step tracker ──────────────────────────────────────────────────────────────
+def render_steps(steps: List[Tuple[str, str]]) -> None:
+    for i, (label, st) in enumerate(steps):
+        n = f"{i+1}/{len(steps)}"
+        if st == "running":
+            print(f"  {c('C', n, True)}  {c('C','>>>')}  {c('W', label, True)}")
+        elif st == "done":
+            print(f"  {c('G', n)}  {c('G','[ok]')}  {c('W', label)}")
+        elif st == "fail":
+            print(f"  {c('R', n)}  {c('R','[!!]')}  {c('R', label)}")
+        else:
+            print(f"  {DIM}{n}  [ ]  {label}{RST}")
+
+def erase_lines(n: int) -> None:
+    for _ in range(n):
+        sys.stdout.write(f"{UP}{ERASE}")
+    sys.stdout.write("\r"); sys.stdout.flush()
 
 
-def confirm(label: str, default: bool = True) -> bool:
-    hint = "Y/n" if default else "y/N"
+# ── file scanner ──────────────────────────────────────────────────────────────
+def scan_csv_files() -> List[Path]:
+    """Find CSV files in common locations."""
+    found: List[Path] = []
+    search_dirs = [
+        EXAMPLES_DIR,
+        DESKTOP,
+        Path.home() / "Downloads",
+        Path.home() / "Documents",
+        REPO_ROOT,
+        DEFAULT_OUT,
+    ]
+    for d in search_dirs:
+        if d.is_dir():
+            for f in sorted(d.glob("*.csv"))[:10]:
+                if f not in found and f.stat().st_size > 100:
+                    found.append(f)
+    return found[:15]
+
+
+def read_csv_columns(path: Path) -> List[str]:
+    """Read header row of a CSV file."""
     try:
-        sys.stdout.write(SHOW_CURSOR)
-        raw = input(f"  {c('C', '>')} {c('W', label)} {DIM}[{hint}]{RST} ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        raw = ""
-    if not raw:
-        return default
-    return raw in ("y", "yes")
+        with open(path, "r", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            header = next(reader, [])
+            return [col.strip() for col in header if col.strip()]
+    except Exception:
+        return []
 
 
-# ── run command with live output + spinner ────────────────────────────────────
-def run_cmd(cmd: List[str], label: str = "", cwd: str = "") -> int:
-    """Run a command with a spinner, then show pass/fail."""
-    if label:
-        sys.stdout.write(f"  {c('C', '...')} {c('W', label)}\n")
-    sys.stdout.write(f"  {DIM}$ {shlex.join(cmd)}{RST}\n\n")
-    sys.stdout.flush()
-    proc = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT), text=True)
-    rc = proc.returncode
-    if rc == 0:
-        print(f"  {c('G', '[ok]', bold=True)} {label or 'Done'}")
-    else:
-        print(f"  {c('R', '[!!]', bold=True)} {label or 'Failed'}")
-    return rc
+def csv_row_count(path: Path) -> int:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return sum(1 for _ in fh) - 1
+    except Exception:
+        return 0
 
 
-def run_with_spinner(cmd: List[str], label: str, cwd: str = "") -> Tuple[int, str, str]:
-    """Run command silently behind a spinner, return (rc, stdout, stderr)."""
-    with Spinner(label):
-        proc = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT), capture_output=True, text=True)
-    return proc.returncode, proc.stdout, proc.stderr
-
-
-# ── pixel art (compact) ──────────────────────────────────────────────────────
+# ── pixel logo ────────────────────────────────────────────────────────────────
 LOGO = f"""
-{c('C','')}  {BOLD}
+{c('C','',True)}
     ██╗     ███████╗ █████╗ ██╗  ██╗ █████╗  ██████╗ ███████╗
     ██║     ██╔════╝██╔══██╗██║ ██╔╝██╔══██╗██╔════╝ ██╔════╝
     ██║     █████╗  ███████║█████╔╝ ███████║██║  ███╗█████╗
@@ -263,168 +260,137 @@ LOGO = f"""
 """
 
 
-# ── screens ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  SCREENS
+# ══════════════════════════════════════════════════════════════════════════════
 
 def screen_home() -> int:
-    """Main menu. Returns action index 0-6, or -1 to quit."""
-    os.system("cls" if platform.system() == "Windows" else "clear")
+    _clear()
     print(LOGO)
     print(f"    {DIM}Medical ML Data Leakage Prevention Pipeline{RST}")
     print(f"    {DIM}28 Fail-Closed Gates | Publication-Grade Evidence{RST}")
-    print()
-
-    return select_menu(
-        "",
-        [
-            "Quick Start     Download a real dataset and split it",
-            "Download        Get UCI medical datasets (heart / breast / kidney)",
-            "Split           Split your CSV with patient-disjoint safety",
-            "Full Pipeline   Run end-to-end onboarding (demo or your data)",
-            "Health Check    Verify Python, packages, CLI",
-            "Guide           Learn about data leakage prevention",
-            "Quit",
-        ],
-        subtitle="Arrow keys to navigate, Enter to select",
+    return select(
+        "", 
+        ["Quick Start", "Download", "Split CSV", "Full Pipeline", "Health Check", "Guide", "Quit"],
+        ["One-click: download + split a real dataset",
+         "Get UCI medical datasets",
+         "Split your own CSV with safety guarantees",
+         "End-to-end training with 28 gates",
+         "Verify Python, packages, CLI",
+         "Learn about data leakage prevention",
+         ""],
     )
 
 
-def screen_pick_dataset(title: str = "Pick a dataset") -> int:
-    return select_menu(
-        title,
-        [
-            "Heart Disease    UCI Cleveland, 297 rows, 13 features",
-            "Breast Cancer    UCI Wisconsin WDBC, 569 rows, 30 features",
-            "Kidney Disease   UCI CKD, 399 rows, 24 features",
-        ],
-    )
-
-
-def screen_pick_strategy() -> int:
-    return select_menu(
-        "Split strategy",
-        [
-            "Grouped Temporal    Sort by time, patient-disjoint (recommended)",
-            "Grouped Random      Random patient-disjoint split",
-            "Stratified Grouped  Preserve positive rate across splits",
-        ],
-    )
-
-
-# ── action: quick start ──────────────────────────────────────────────────────
+# ── Quick Start ───────────────────────────────────────────────────────────────
 
 def action_quick_start() -> None:
-    os.system("clear")
-    print(f"\n  {c('G', 'QUICK START', bold=True)}")
-    print(f"  {DIM}Download a real UCI dataset and split it in one go.{RST}\n")
+    _clear()
+    box("QUICK START", [
+        "Download a real UCI medical dataset, split it with",
+        "patient-disjoint safety, and get ready to train.",
+        f"Output: {DEFAULT_OUT}/",
+    ], color="G")
 
-    ds = screen_pick_dataset()
-    if ds < 0:
-        return
+    ds = select(
+        "Pick a dataset",
+        ["Heart Disease", "Breast Cancer", "Kidney Disease"],
+        ["UCI Cleveland -- 297 patients, 13 features, predict heart disease",
+         "UCI Wisconsin -- 569 patients, 30 features, malignant vs benign",
+         "UCI CKD -- 399 patients, 24 features, predict chronic kidney disease"],
+    )
+    if ds < 0: return
     ds_keys = ["heart", "breast", "ckd"]
     ds_files = ["heart_disease", "breast_cancer", "chronic_kidney_disease"]
-    key, fname = ds_keys[ds], ds_files[ds]
+    ds_labels = ["Heart Disease", "Breast Cancer", "Kidney Disease"]
+    key, fname, label = ds_keys[ds], ds_files[ds], ds_labels[ds]
 
-    # Step 1: download
-    steps = [
-        ("Download dataset", "pending"),
-        ("Split with safety checks", "pending"),
-        ("Verify integrity", "pending"),
+    steps: List[Tuple[str, str]] = [
+        (f"Download {label} from UCI", "pending"),
+        ("Split into train / valid / test", "pending"),
+        ("Verify patient-disjoint + temporal order", "pending"),
     ]
     print()
     steps[0] = (steps[0][0], "running")
-    render_steps(steps, 0)
+    render_steps(steps)
 
-    rc, out, err = run_with_spinner(
+    rc, _, err = run_with_spinner(
         [sys.executable, str(EXAMPLES_DIR / "download_real_data.py"), key],
-        f"Downloading {key} dataset...",
+        f"Downloading {label}...",
     )
-    # Move cursor up to overwrite steps
-    for _ in range(len(steps)):
-        sys.stdout.write(f"{UP}{ERASE_LINE}")
+    erase_lines(len(steps))
     if rc != 0:
         steps[0] = (steps[0][0], "fail")
-        render_steps(steps, 0)
-        print(f"\n  {c('R', 'Download failed.')}")
+        render_steps(steps)
+        print(f"\n  {c('R','Download failed.')}")
         if err:
-            for line in err.strip().split("\n")[-3:]:
-                print(f"  {DIM}{line}{RST}")
+            for l in err.strip().split("\n")[-3:]: print(f"  {DIM}{l}{RST}")
         return
-
     steps[0] = (steps[0][0], "done")
 
-    # Step 2: split
     csv_path = EXAMPLES_DIR / f"{fname}.csv"
     out_dir = DEFAULT_OUT / fname
     steps[1] = (steps[1][0], "running")
-    render_steps(steps, 1)
+    render_steps(steps)
 
-    rc, out, err = run_with_spinner(
-        [
-            sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "split", "--",
-            "--input", str(csv_path),
-            "--output-dir", str(out_dir / "data"),
-            "--patient-id-col", "patient_id",
-            "--target-col", "y",
-            "--time-col", "event_time",
-            "--strategy", "grouped_temporal",
-        ],
-        "Splitting dataset...",
+    rc, _, err = run_with_spinner(
+        [sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "split", "--",
+         "--input", str(csv_path), "--output-dir", str(out_dir / "data"),
+         "--patient-id-col", "patient_id", "--target-col", "y",
+         "--time-col", "event_time", "--strategy", "grouped_temporal"],
+        "Splitting with safety checks...",
     )
-    for _ in range(len(steps)):
-        sys.stdout.write(f"{UP}{ERASE_LINE}")
+    erase_lines(len(steps))
     if rc != 0:
         steps[1] = (steps[1][0], "fail")
-        render_steps(steps, 1)
-        print(f"\n  {c('R', 'Split failed.')}")
+        render_steps(steps)
+        print(f"\n  {c('R','Split failed.')}")
         if err:
-            for line in err.strip().split("\n")[-3:]:
-                print(f"  {DIM}{line}{RST}")
+            for l in err.strip().split("\n")[-3:]: print(f"  {DIM}{l}{RST}")
         return
-
     steps[1] = (steps[1][0], "done")
-
-    # Step 3: verify
-    steps[2] = (steps[2][0], "running")
-    render_steps(steps, 2)
-    time.sleep(0.3)
-    for _ in range(len(steps)):
-        sys.stdout.write(f"{UP}{ERASE_LINE}")
     steps[2] = (steps[2][0], "done")
-    render_steps(steps, 2)
+    render_steps(steps)
 
-    # Parse output info
-    import pandas as pd
-    train = pd.read_csv(out_dir / "data" / "train.csv")
-    valid = pd.read_csv(out_dir / "data" / "valid.csv")
-    test = pd.read_csv(out_dir / "data" / "test.csv")
+    # Show results
+    try:
+        import pandas as pd
+        train = pd.read_csv(out_dir / "data" / "train.csv")
+        valid = pd.read_csv(out_dir / "data" / "valid.csv")
+        test = pd.read_csv(out_dir / "data" / "test.csv")
+        print()
+        box("Results", [
+            f"train.csv   {len(train):>4} rows   {train['patient_id'].nunique():>4} patients",
+            f"valid.csv   {len(valid):>4} rows   {valid['patient_id'].nunique():>4} patients",
+            f"test.csv    {len(test):>4} rows    {test['patient_id'].nunique():>3} patients",
+            "",
+            f"Saved to: {out_dir}/data/",
+        ], color="G")
+    except Exception:
+        print(f"\n  {c('G','Done!',True)} Output: {out_dir}/data/")
 
     print()
-    print(f"  {c('G', 'Done!', bold=True)} Dataset split successfully.\n")
-    print(f"  {c('W', 'Output:', bold=True)} {out_dir}/data/")
-    print(f"    train.csv  {DIM}{len(train)} rows, {train['patient_id'].nunique()} patients{RST}")
-    print(f"    valid.csv  {DIM}{len(valid)} rows, {valid['patient_id'].nunique()} patients{RST}")
-    print(f"    test.csv   {DIM}{len(test)} rows, {test['patient_id'].nunique()} patients{RST}")
-    print()
-    print(f"  {DIM}Next step: select 'Full Pipeline' from the main menu to train a model.{RST}")
+    print(f"  {DIM}Next: select 'Full Pipeline' to train a model.{RST}")
 
 
-# ── action: download ─────────────────────────────────────────────────────────
+# ── Download ──────────────────────────────────────────────────────────────────
 
 def action_download() -> None:
-    os.system("clear")
-    print(f"\n  {c('Y', 'DOWNLOAD DATASET', bold=True)}\n")
+    _clear()
+    box("DOWNLOAD DATASET", [
+        "Download real UCI medical datasets.",
+        f"Files saved to: {EXAMPLES_DIR}/",
+    ], color="Y")
 
-    ch = select_menu(
+    ch = select(
         "Which dataset?",
-        [
-            "Heart Disease    UCI Cleveland, 297 rows",
-            "Breast Cancer    UCI Wisconsin WDBC, 569 rows",
-            "Kidney Disease   UCI CKD, 399 rows",
-            "All datasets     Download all three",
-        ],
+        ["Heart Disease", "Breast Cancer", "Kidney Disease", "All three"],
+        ["UCI Cleveland -- 297 rows, 13 features",
+         "UCI Wisconsin -- 569 rows, 30 features",
+         "UCI CKD -- 399 rows, 24 features",
+         "Download all datasets at once"],
     )
-    if ch < 0:
-        return
+    if ch < 0: return
     key = ["heart", "breast", "ckd", "all"][ch]
 
     rc, out, err = run_with_spinner(
@@ -432,102 +398,215 @@ def action_download() -> None:
         f"Downloading {key}...",
     )
     if rc == 0:
-        print(f"  {c('G', '[ok]', bold=True)} Download complete.")
-        # Show file info
-        for line in (out or "").strip().split("\n"):
-            if "Output:" in line or "Rows:" in line:
-                print(f"  {DIM}{line.strip()}{RST}")
+        info = [l.strip() for l in (out or "").split("\n") if "Output:" in l or "Rows:" in l]
+        box("Download Complete", info or ["Done!"], color="G")
     else:
-        print(f"  {c('R', '[!!]', bold=True)} Download failed.")
+        print(f"  {c('R','[!!]',True)} Download failed.")
         if err:
-            for line in err.strip().split("\n")[-3:]:
-                print(f"  {DIM}{line}{RST}")
+            for l in err.strip().split("\n")[-3:]: print(f"  {DIM}{l}{RST}")
 
 
-# ── action: split ────────────────────────────────────────────────────────────
+# ── Split CSV ─────────────────────────────────────────────────────────────────
 
 def action_split() -> None:
-    os.system("clear")
-    print(f"\n  {c('M', 'SPLIT DATA', bold=True)}")
-    print(f"  {DIM}Split a CSV into train/valid/test with medical safety guarantees.{RST}\n")
+    _clear()
+    box("SPLIT YOUR CSV", [
+        "Split a CSV file into train/valid/test sets.",
+        "Patient-disjoint, with medical safety guarantees.",
+    ], color="M")
 
-    csv_path = ask("CSV file path")
-    if not Path(csv_path).exists():
-        print(f"  {c('R', 'File not found:')} {csv_path}")
+    # Step 1: Find CSV files automatically
+    csv_files = scan_csv_files()
+    if csv_files:
+        names = [f"{f.name}" for f in csv_files]
+        descs = [f"{csv_row_count(f)} rows  --  {f.parent}" for f in csv_files]
+        names.append("Enter path manually...")
+        descs.append("")
+
+        fi = select("Select your CSV file", names, descs)
+        if fi < 0: return
+        if fi == len(csv_files):
+            sys.stdout.write(SHOW_CUR)
+            csv_path = input(f"  {c('C','>')} {c('W','CSV path')}: ").strip()
+        else:
+            csv_path = str(csv_files[fi])
+    else:
+        sys.stdout.write(SHOW_CUR)
+        csv_path = input(f"  {c('C','>')} {c('W','CSV path')}: ").strip()
+
+    if not csv_path or not Path(csv_path).exists():
+        print(f"  {c('R','File not found.')}")
         return
 
-    pid_col = ask("Patient ID column", default="patient_id")
-    target_col = ask("Target column (0/1)", default="y")
-
-    si = screen_pick_strategy()
-    if si < 0:
+    # Step 2: Read columns and let user pick
+    columns = read_csv_columns(Path(csv_path))
+    if not columns:
+        print(f"  {c('R','Cannot read CSV header.')}")
         return
+
+    row_count = csv_row_count(Path(csv_path))
+    print(f"\n  {c('W', Path(csv_path).name, bold=True)}  {DIM}{row_count} rows, {len(columns)} columns{RST}")
+    hline()
+
+    # Patient ID
+    pi = select("Which column is the Patient ID?", columns)
+    if pi < 0: return
+    pid_col = columns[pi]
+
+    # Target
+    remaining = [col for col in columns if col != pid_col]
+    ti = select("Which column is the Target (0/1)?", remaining)
+    if ti < 0: return
+    target_col = remaining[ti]
+
+    # Strategy
+    si = select(
+        "Split strategy",
+        ["Grouped Temporal", "Grouped Random", "Stratified Grouped"],
+        ["Sort by time, patient-disjoint (recommended)",
+         "Random patient-disjoint split",
+         "Preserve positive rate across splits"],
+    )
+    if si < 0: return
     strategy = ["grouped_temporal", "grouped_random", "stratified_grouped"][si]
 
+    # Time column (if temporal)
     time_col = ""
     if strategy == "grouped_temporal":
-        time_col = ask("Time column", default="event_time")
+        time_remaining = [col for col in columns if col not in (pid_col, target_col)]
+        tci = select("Which column is the Time/Date?", time_remaining)
+        if tci < 0: return
+        time_col = time_remaining[tci]
 
-    output_dir = ask("Output directory", default=str(DEFAULT_OUT / "custom_split" / "data"))
+    out_dir = DEFAULT_OUT / Path(csv_path).stem
 
+    # Confirm
     print()
-    print(f"  {c('W', 'Configuration:', bold=True)}")
-    print(f"    Input     {csv_path}")
-    print(f"    Strategy  {strategy}")
-    print(f"    Patient   {pid_col}  |  Target  {target_col}  |  Time  {time_col or '(none)'}")
-    print(f"    Output    {output_dir}")
-    print()
+    box("Configuration", [
+        f"File:     {Path(csv_path).name}  ({row_count} rows)",
+        f"Patient:  {pid_col}",
+        f"Target:   {target_col}",
+        f"Time:     {time_col or '(none)'}",
+        f"Strategy: {strategy}",
+        f"Output:   {out_dir}/data/",
+    ], color="B")
 
-    if not confirm("Run split?"):
-        print(f"  {DIM}Cancelled.{RST}")
-        return
+    ci = select("", ["Run split", "Cancel"])
+    if ci != 0: return
 
     cmd = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "split", "--",
-        "--input", csv_path,
-        "--output-dir", output_dir,
-        "--patient-id-col", pid_col,
-        "--target-col", target_col,
+        "--input", csv_path, "--output-dir", str(out_dir / "data"),
+        "--patient-id-col", pid_col, "--target-col", target_col,
         "--strategy", strategy,
     ]
     if time_col:
         cmd.extend(["--time-col", time_col])
 
-    rc = run_cmd(cmd, label="Splitting...")
+    rc, out, err = run_with_spinner(cmd, "Splitting...")
     if rc == 0:
-        print(f"\n  {c('G', 'Split complete!', bold=True)}")
+        try:
+            import pandas as pd
+            tr = pd.read_csv(out_dir / "data" / "train.csv")
+            va = pd.read_csv(out_dir / "data" / "valid.csv")
+            te = pd.read_csv(out_dir / "data" / "test.csv")
+            box("Split Complete", [
+                f"train.csv   {len(tr):>4} rows",
+                f"valid.csv   {len(va):>4} rows",
+                f"test.csv    {len(te):>4} rows",
+                "", f"Saved to: {out_dir}/data/",
+            ], color="G")
+        except Exception:
+            print(f"  {c('G','[ok]',True)} Split complete! Output: {out_dir}/data/")
+    else:
+        print(f"  {c('R','[!!]',True)} Split failed.")
+        if err:
+            for l in err.strip().split("\n")[-5:]: print(f"  {DIM}{l}{RST}")
 
 
-# ── action: full pipeline ────────────────────────────────────────────────────
+# ── Full Pipeline ─────────────────────────────────────────────────────────────
 
 def action_full_pipeline() -> None:
-    os.system("clear")
-    print(f"\n  {c('Y', 'FULL PIPELINE', bold=True)}")
-    print(f"  {DIM}End-to-end training with 28 safety gates.{RST}\n")
+    _clear()
+    box("FULL PIPELINE", [
+        "End-to-end training with 28 fail-closed safety gates.",
+        "Generates publication-grade evidence artifacts.",
+    ], color="Y")
 
-    mi = select_menu("Mode", ["Demo     Synthetic data, great for first run", "Your CSV Bring your own dataset"])
-    if mi < 0:
-        return
+    mi = select(
+        "Mode",
+        ["Demo Mode", "Your CSV"],
+        ["Use synthetic data -- great for first run",
+         "Bring your own dataset"],
+    )
+    if mi < 0: return
 
-    project_root = ask("Project directory", default=str(DEFAULT_OUT / "pipeline"))
+    project_root = str(DEFAULT_OUT / "pipeline")
 
     if mi == 0:
-        print(f"\n  {DIM}Running full demo pipeline (3-8 min)...{RST}\n")
-        rc = run_cmd(
+        # Demo
+        print()
+        box("Demo Pipeline", [
+            f"Output: {project_root}/",
+            "This will take 3-8 minutes.",
+        ], color="C")
+        ci = select("", ["Start demo pipeline", "Cancel"])
+        if ci != 0: return
+
+        rc, _, err = run_with_spinner(
             [sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "onboarding",
              "--project-root", project_root, "--mode", "guided", "--yes"],
-            label="Full demo pipeline",
+            "Running full pipeline...",
         )
     else:
-        csv_path = ask("CSV file path")
-        pid_col = ask("Patient ID column", default="patient_id")
-        target_col = ask("Target column", default="y")
-        time_col = ask("Time column (empty if none)", default="", required=False)
-        si = screen_pick_strategy()
-        if si < 0:
-            return
+        # User CSV -- same selection flow as Split
+        csv_files = scan_csv_files()
+        if csv_files:
+            names = [f.name for f in csv_files]
+            descs = [f"{csv_row_count(f)} rows -- {f.parent}" for f in csv_files]
+            names.append("Enter path manually...")
+            descs.append("")
+            fi = select("Select your CSV", names, descs)
+            if fi < 0: return
+            if fi == len(csv_files):
+                sys.stdout.write(SHOW_CUR)
+                csv_path = input(f"  {c('C','>')} {c('W','CSV path')}: ").strip()
+            else:
+                csv_path = str(csv_files[fi])
+        else:
+            sys.stdout.write(SHOW_CUR)
+            csv_path = input(f"  {c('C','>')} {c('W','CSV path')}: ").strip()
+
+        if not csv_path or not Path(csv_path).exists():
+            print(f"  {c('R','File not found.')}"); return
+
+        columns = read_csv_columns(Path(csv_path))
+        if not columns:
+            print(f"  {c('R','Cannot read CSV.')}"); return
+
+        pi = select("Patient ID column?", columns)
+        if pi < 0: return
+        pid_col = columns[pi]
+
+        remaining = [col for col in columns if col != pid_col]
+        ti = select("Target column (0/1)?", remaining)
+        if ti < 0: return
+        target_col = remaining[ti]
+
+        si = select("Split strategy",
+                     ["Grouped Temporal", "Grouped Random", "Stratified Grouped"],
+                     ["Sort by time (recommended)", "Random split", "Preserve positive rate"])
+        if si < 0: return
         strategy = ["grouped_temporal", "grouped_random", "stratified_grouped"][si]
 
+        time_col = ""
+        if strategy == "grouped_temporal":
+            time_remaining = [col for col in columns if col not in (pid_col, target_col)]
+            tci = select("Time column?", time_remaining)
+            if tci < 0: return
+            time_col = time_remaining[tci]
+
+        project_root = str(DEFAULT_OUT / Path(csv_path).stem / "pipeline")
         cmd = [
             sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "onboarding",
             "--project-root", project_root, "--mode", "guided", "--yes",
@@ -538,138 +617,166 @@ def action_full_pipeline() -> None:
         if time_col:
             cmd.extend(["--time-col", time_col])
 
-        print(f"\n  {DIM}Running pipeline on your data...{RST}\n")
-        rc = run_cmd(cmd, label="Full pipeline")
+        print()
+        box("Pipeline Configuration", [
+            f"File:     {Path(csv_path).name}",
+            f"Patient:  {pid_col}  |  Target: {target_col}  |  Time: {time_col or '(none)'}",
+            f"Strategy: {strategy}",
+            f"Output:   {project_root}/",
+        ], color="C")
+        ci = select("", ["Start pipeline", "Cancel"])
+        if ci != 0: return
+
+        rc, _, err = run_with_spinner(cmd, "Running full pipeline...")
 
     if rc == 0:
-        print(f"\n  {c('G', 'Pipeline complete!', bold=True)}")
-        print(f"  {DIM}Results: {project_root}/evidence/onboarding_report.json{RST}")
+        box("Pipeline Complete", [
+            f"Results: {project_root}/",
+            "  evidence/  -- audit artifacts",
+            "  models/    -- trained model",
+            "  data/      -- split datasets",
+        ], color="G")
+    else:
+        print(f"  {c('R','[!!]',True)} Pipeline had failures.")
+        if err:
+            for l in (err or "").strip().split("\n")[-5:]: print(f"  {DIM}{l}{RST}")
 
 
-# ── action: health check ─────────────────────────────────────────────────────
+# ── Health Check ──────────────────────────────────────────────────────────────
 
 def action_health_check() -> None:
-    os.system("clear")
-    print(f"\n  {c('G', 'HEALTH CHECK', bold=True)}\n")
+    _clear()
+    box("HEALTH CHECK", ["Verifying your environment..."], color="G")
+    print()
 
     checks: List[Tuple[str, bool, str]] = []
-
-    # Python
     py = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     checks.append((f"Python {py}", sys.version_info >= (3, 9), ""))
 
-    # Packages
     for pkg in ["numpy", "pandas", "sklearn", "joblib"]:
         try:
             mod = __import__(pkg)
-            checks.append((f"{pkg} {getattr(mod, '__version__', '?')}", True, ""))
+            checks.append((f"{pkg} {getattr(mod,'__version__','?')}", True, ""))
         except ImportError:
-            checks.append((pkg, False, "pip install -r requirements.txt"))
+            checks.append((pkg, False, "required"))
 
-    for pkg, label in [("xgboost", "XGBoost"), ("catboost", "CatBoost"), ("lightgbm", "LightGBM")]:
+    for pkg, label in [("xgboost","XGBoost"),("catboost","CatBoost"),("lightgbm","LightGBM")]:
         try:
             mod = __import__(pkg)
-            checks.append((f"{label} {getattr(mod, '__version__', '?')}", True, "optional"))
+            checks.append((f"{label} {getattr(mod,'__version__','?')}", True, "optional"))
         except ImportError:
             checks.append((label, False, "optional"))
 
-    # CLI
-    rc, _, _ = run_with_spinner([sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "--help"], "Checking CLI...")
+    rc, _, _ = run_with_spinner(
+        [sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "--help"], "Checking CLI...")
     checks.append(("mlgg.py CLI", rc == 0, ""))
 
     for name, ok, note in checks:
-        icon = c('G', '[ok]') if ok else c('R', '[--]')
+        icon = c('G','[ok]') if ok else c('R','[--]')
         extra = f"  {DIM}{note}{RST}" if note else ""
         print(f"  {icon}  {name}{extra}")
 
     passed = sum(ok for _, ok, _ in checks)
     total = len(checks)
-    bar_w = 25
-    filled = int(bar_w * passed / total)
-    bar = f"{c('G', '#' * filled)}{DIM}{'.' * (bar_w - filled)}{RST}"
-    print(f"\n  {bar}  {passed}/{total} passed\n")
+    w = 25
+    filled = int(w * passed / total)
+    print(f"\n  {c('G','#' * filled)}{DIM}{'.' * (w - filled)}{RST}  {passed}/{total}\n")
 
-    if confirm("Run full environment doctor?"):
-        run_cmd([sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "doctor"], label="Environment doctor")
+    ci = select("", ["Run full doctor", "Back"])
+    if ci == 0:
+        print(f"  {DIM}$ python3 scripts/mlgg.py doctor{RST}\n")
+        subprocess.run([sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "doctor"],
+                       cwd=str(REPO_ROOT), text=True)
 
 
-# ── action: guide ─────────────────────────────────────────────────────────────
+# ── Guide ─────────────────────────────────────────────────────────────────────
 
 def action_guide() -> None:
-    os.system("clear")
-    print(f"\n  {c('B', 'ML LEAKAGE GUARD -- GUIDE', bold=True)}\n")
-
-    sections = [
-        ("What is Data Leakage?",
-         "Data leakage in medical ML means information from outside the\n"
-         "intended training scope (test labels, future timestamps, disease-\n"
-         "defining variables) accidentally influences model training.\n"
-         "This inflates performance and can lead to unsafe clinical decisions."),
-        ("What This Pipeline Does",
-         "- Builds medical binary prediction pipelines under strict controls\n"
-         "- Enforces 28 sequential fail-closed safety gates\n"
-         "- Covers split contamination, feature leakage, tuning leakage,\n"
-         "  calibration misuse, external cohort robustness\n"
-         "- Generates publication-grade evidence artifacts"),
-        ("Getting Started",
-         "  git clone https://github.com/Furinaaa-Cancan/\n"
-         "      medical-ml-leakage-guard.git\n"
-         "  cd medical-ml-leakage-guard\n"
-         "  pip install -r requirements.txt\n"
-         "  python3 scripts/mlgg.py play"),
-        ("Datasets",
-         "  Heart Disease    -- UCI Cleveland, 297 rows, 13 features\n"
-         "  Breast Cancer    -- UCI Wisconsin, 569 rows, 30 features\n"
-         "  Kidney Disease   -- UCI CKD, 399 rows, 24 features\n\n"
-         "  python3 examples/download_real_data.py heart"),
+    _clear()
+    pages = [
+        ("What is Data Leakage?", [
+            "Data leakage in medical ML means information from",
+            "outside the intended training scope accidentally",
+            "influences model training. This inflates performance",
+            "and can lead to unsafe clinical decisions.",
+        ]),
+        ("What This Pipeline Does", [
+            "- 28 sequential fail-closed safety gates",
+            "- Patient-disjoint temporal splitting",
+            "- Feature leakage detection",
+            "- Tuning and calibration leakage guards",
+            "- Publication-grade evidence artifacts",
+        ]),
+        ("Available Datasets", [
+            "Heart Disease   -- 297 rows, 13 features",
+            "Breast Cancer   -- 569 rows, 30 features",
+            "Kidney Disease  -- 399 rows, 24 features",
+            "",
+            "Download: python3 examples/download_real_data.py heart",
+        ]),
+        ("Getting Started", [
+            "git clone https://github.com/Furinaaa-Cancan/",
+            "    medical-ml-leakage-guard.git",
+            "cd medical-ml-leakage-guard",
+            "pip install -r requirements.txt",
+            "python3 scripts/mlgg.py play",
+        ]),
     ]
 
-    for title, body in sections:
-        print(f"  {c('Y', title, bold=True)}")
-        for line in body.split("\n"):
-            print(f"    {line}")
+    page = 0
+    while 0 <= page < len(pages):
+        _clear()
+        title, lines = pages[page]
+        box(f"GUIDE ({page+1}/{len(pages)})", [], color="B")
         print()
+        print(f"  {c('Y', title, bold=True)}")
+        print()
+        for l in lines:
+            print(f"    {l}")
+        print()
+        nav = ["Next page"] if page < len(pages) - 1 else []
+        nav += (["Previous page"] if page > 0 else []) + ["Back to menu"]
+        ni = select("", nav)
+        if ni < 0 or nav[ni] == "Back to menu":
+            break
+        elif nav[ni] == "Next page":
+            page += 1
+        elif nav[ni] == "Previous page":
+            page -= 1
 
-    sys.stdout.write(SHOW_CURSOR)
-    input(f"  {DIM}Press Enter to return...{RST}")
 
-
-# ── main ──────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  MAIN
+# ══════════════════════════════════════════════════════════════════════════════
 
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in ("--help", "-h"):
-        print(__doc__)
-        return 0
+        print(__doc__); return 0
 
     while True:
         try:
-            choice = screen_home()
+            ch = screen_home()
         except KeyboardInterrupt:
-            print(f"\n\n  {c('C', 'Bye!')}")
-            return 0
+            print(f"\n\n  {c('C','Bye!')}"); return 0
 
-        if choice < 0 or choice == 6:
-            print(f"\n  {c('C', 'Bye!')}\n")
-            return 0
+        if ch < 0 or ch == 6:
+            print(f"\n  {c('C','Bye!')}\n"); return 0
 
         try:
             [action_quick_start, action_download, action_split,
-             action_full_pipeline, action_health_check, action_guide][choice]()
+             action_full_pipeline, action_health_check, action_guide][ch]()
         except KeyboardInterrupt:
-            print(f"\n  {DIM}Interrupted.{RST}")
-            continue
+            print(f"\n  {DIM}Interrupted.{RST}"); continue
 
         print()
-        sys.stdout.write(SHOW_CURSOR)
+        sys.stdout.write(SHOW_CUR)
         try:
             input(f"  {DIM}Press Enter to return to menu...{RST}")
         except (EOFError, KeyboardInterrupt):
             return 0
 
-
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
     finally:
-        sys.stdout.write(SHOW_CURSOR)
-        sys.stdout.flush()
+        sys.stdout.write(SHOW_CUR); sys.stdout.flush()
