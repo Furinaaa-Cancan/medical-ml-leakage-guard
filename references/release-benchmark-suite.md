@@ -39,6 +39,7 @@ python3 scripts/mlgg.py benchmark-suite \
   --profile release \
   --repeat 3 \
   --registry-file references/benchmark-registry.json \
+  --suite-timeout-seconds 7200 \
   --emit-junit /tmp/mlgg_release_benchmark.junit.xml
 ```
 
@@ -50,7 +51,8 @@ python3 scripts/mlgg.py benchmark-suite \
 - Output report: `release_benchmark_matrix.v2`.
 - Required fields:
   - `status_reason`
-  - `failure_codes`
+  - `failure_codes` (blocking-only + matrix-level codes)
+  - `all_failure_codes` (blocking + observational + matrix-level codes)
   - `blocking_failure_codes`
   - `observational_failure_codes`
   - `repeat_count`
@@ -114,6 +116,7 @@ python3 scripts/mlgg.py benchmark-suite \
   --profile release \
   --repeat 3 \
   --registry-file references/benchmark-registry.json \
+  --suite-timeout-seconds 7200 \
   --emit-junit /tmp/mlgg_release_benchmark.junit.xml
 ```
 
@@ -125,7 +128,8 @@ python3 scripts/mlgg.py benchmark-suite \
 - 输出契约：`release_benchmark_matrix.v2`。
 - 必填字段：
   - `status_reason`
-  - `failure_codes`
+  - `failure_codes`（仅阻断失败码 + 矩阵级失败码）
+  - `all_failure_codes`（阻断 + 观测 + 矩阵级失败码全集）
   - `blocking_failure_codes`
   - `observational_failure_codes`
   - `repeat_count`

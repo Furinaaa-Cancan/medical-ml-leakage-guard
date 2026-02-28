@@ -63,6 +63,8 @@ DATA_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 RAW_ROOT = DATA_ROOT / "raw"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 REFERENCES_ROOT = REPO_ROOT / "references"
+DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = int(os.environ.get("MLLG_SUBPROCESS_TIMEOUT_SECONDS", "3600"))
+SUBPROCESS_TIMEOUT_SECONDS = max(1, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
 SPLIT_RANDOM_SEED_BY_CASE: Dict[str, int] = {
     "uci-heart-disease": 20250003,
     "uci-breast-cancer-wdbc": 20260224,
@@ -666,6 +668,15 @@ def parse_args() -> argparse.Namespace:
         help=f"Stress search profile set name (default: {DEFAULT_STRESS_PROFILE_SET}).",
     )
     parser.add_argument(
+        "--subprocess-timeout-seconds",
+        type=int,
+        default=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        help=(
+            "Timeout budget per spawned subprocess in seconds "
+            f"(default: {DEFAULT_SUBPROCESS_TIMEOUT_SECONDS})."
+        ),
+    )
+    parser.add_argument(
         "--auto-scan-diabetes-feasibility",
         action="store_true",
         help=(
@@ -697,12 +708,38 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_cmd(cmd: List[str], cwd: Path | None = None, allow_fail: bool = False) -> subprocess.CompletedProcess[str]:
-    proc = subprocess.run(
-        cmd,
-        cwd=str(cwd) if cwd else None,
-        text=True,
-        capture_output=True,
-    )
+    timeout_seconds = float(SUBPROCESS_TIMEOUT_SECONDS)
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+        timeout_note = (
+            f"subprocess_timeout: timeout_after_seconds={int(SUBPROCESS_TIMEOUT_SECONDS)} "
+            f"cwd={str(cwd) if cwd else ''}"
+        )
+        stderr_combined = "\n".join([part for part in [stderr_text.strip(), timeout_note] if part]).strip()
+        timed_out_proc = subprocess.CompletedProcess(
+            args=cmd,
+            returncode=124,
+            stdout=stdout_text,
+            stderr=stderr_combined,
+        )
+        if allow_fail:
+            return timed_out_proc
+        raise RuntimeError(
+            "Command failed (timeout):\n"
+            f"$ {' '.join(cmd)}\n"
+            f"exit={timed_out_proc.returncode}\n"
+            f"stdout:\n{timed_out_proc.stdout}\n"
+            f"stderr:\n{timed_out_proc.stderr}"
+        )
     if not allow_fail and proc.returncode != 0:
         raise RuntimeError(
             "Command failed:\n"
@@ -3445,6 +3482,10 @@ def maybe_run_auto_diabetes_feasibility_scan(
 
 def main() -> int:
     args = parse_args()
+    if int(args.subprocess_timeout_seconds) < 1:
+        raise SystemExit("--subprocess-timeout-seconds must be >= 1.")
+    global SUBPROCESS_TIMEOUT_SECONDS
+    SUBPROCESS_TIMEOUT_SECONDS = int(args.subprocess_timeout_seconds)
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     summary_path = resolve_output_path(args.summary_file)
     include_large_cases = bool(args.include_large_cases or parse_bool_env("MLLG_INCLUDE_LARGE_CASES", default=False))
@@ -3725,6 +3766,7 @@ def main() -> int:
         "stress_seed_search_enabled": bool(stress_seed_search_enabled),
         "stress_profile_set": stress_profile_set,
         "stress_seed_range": {"min": int(args.stress_seed_min), "max": int(args.stress_seed_max)},
+        "subprocess_timeout_seconds": int(SUBPROCESS_TIMEOUT_SECONDS),
         "stress_seed_cache_file": str(stress_seed_cache),
         "stress_selection_file": str(stress_selection_file),
         "stress_seed_selected": int(stress_result.selected_seed) if stress_result is not None else None,

@@ -27,6 +27,7 @@ FAIL_BENCHMARK_REGISTRY_MISSING = "benchmark_registry_missing"
 FAIL_BENCHMARK_REGISTRY_MISMATCH = "benchmark_registry_mismatch"
 FAIL_BENCHMARK_REPEAT_INCONSISTENT = "benchmark_repeat_inconsistent"
 FAIL_BENCHMARK_BLOCKING_SUITE_FAILED = "benchmark_blocking_suite_failed"
+FAIL_BENCHMARK_SUITE_TIMEOUT = "benchmark_suite_timeout"
 
 
 @dataclass
@@ -201,6 +202,12 @@ def parse_args() -> argparse.Namespace:
         "--emit-junit",
         default="",
         help="Optional JUnit XML output path for CI consumption.",
+    )
+    parser.add_argument(
+        "--suite-timeout-seconds",
+        type=int,
+        default=7200,
+        help="Per-suite subprocess timeout in seconds (default: 7200).",
     )
     parser.add_argument(
         "--observational-diagnostics-out",
@@ -541,10 +548,20 @@ def suite_signature(row: Dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
 
-def write_junit(path: Path, suite_runs: List[Dict[str, Any]], overall_status: str, failure_codes: List[str]) -> None:
+def write_junit(
+    path: Path,
+    suite_runs: List[Dict[str, Any]],
+    overall_status: str,
+    failure_codes: List[str],
+    status_reason: str,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tests = len(suite_runs) if suite_runs else 1
     failures = sum(1 for row in suite_runs if str(row.get("status")) not in {"pass", "dry_run"})
+    needs_global_failure = bool(suite_runs and overall_status != "pass" and failures == 0)
+    if needs_global_failure:
+        tests += 1
+        failures += 1
     root = ET.Element(
         "testsuite",
         attrib={
@@ -570,6 +587,13 @@ def write_junit(path: Path, suite_runs: List[Dict[str, Any]], overall_status: st
                     "failure",
                     attrib={"message": ",".join(row.get("failure_codes", []) or ["suite_failed"])},
                 ).text = str(row.get("stderr_tail", ""))[:2000]
+        if needs_global_failure:
+            case = ET.SubElement(root, "testcase", attrib={"classname": "mlgg.benchmark", "name": "global"})
+            ET.SubElement(
+                case,
+                "failure",
+                attrib={"message": ",".join(failure_codes or [status_reason or "benchmark_failed"])},
+            )
     else:
         case = ET.SubElement(root, "testcase", attrib={"classname": "mlgg.benchmark", "name": "global"})
         if overall_status != "pass":
@@ -743,6 +767,8 @@ def build_observational_diagnostics(suite_rows: List[Dict[str, Any]]) -> List[Di
 
 def main() -> int:
     args = parse_args()
+    if int(args.suite_timeout_seconds) < 1:
+        raise SystemExit("--suite-timeout-seconds must be >= 1.")
     if int(args.repeat) < 1:
         raise SystemExit("--repeat must be >= 1.")
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -780,6 +806,7 @@ def main() -> int:
             "overall_status": "fail",
             "status_reason": registry_fail_code,
             "failure_codes": [registry_fail_code],
+            "all_failure_codes": [registry_fail_code],
             "blocking_failure_codes": [],
             "observational_failure_codes": [],
             "repeat_count": int(args.repeat),
@@ -811,7 +838,13 @@ def main() -> int:
         print(f"Release benchmark matrix summary: {output_path}")
         print(f"Observational diagnostics: {diagnostics_path}")
         if str(args.emit_junit).strip():
-            write_junit(Path(str(args.emit_junit)).expanduser().resolve(), [], "fail", [registry_fail_code])
+            write_junit(
+                Path(str(args.emit_junit)).expanduser().resolve(),
+                [],
+                "fail",
+                [registry_fail_code],
+                registry_fail_code,
+            )
         return 2
 
     assert registry is not None
@@ -872,18 +905,40 @@ def main() -> int:
                 continue
 
             summary_file.parent.mkdir(parents=True, exist_ok=True)
-            proc = subprocess.run(
-                command,
-                cwd=str(REPO_ROOT),
-                text=True,
-                capture_output=True,
-            )
-            outcome = parse_suite_outcome(
-                suite.kind,
-                summary_file,
-                int(proc.returncode),
-                suite.expected_case_ids,
-            )
+            try:
+                proc = subprocess.run(
+                    command,
+                    cwd=str(REPO_ROOT),
+                    text=True,
+                    capture_output=True,
+                    timeout=float(args.suite_timeout_seconds),
+                )
+                outcome = parse_suite_outcome(
+                    suite.kind,
+                    summary_file,
+                    int(proc.returncode),
+                    suite.expected_case_ids,
+                )
+            except subprocess.TimeoutExpired as exc:
+                stdout_text = exc.stdout if isinstance(exc.stdout, str) else ""
+                stderr_text = exc.stderr if isinstance(exc.stderr, str) else ""
+                outcome = {
+                    "status": "fail",
+                    "failure_reason": "suite_timeout",
+                    "failure_codes": [FAIL_BENCHMARK_SUITE_TIMEOUT],
+                    "exit_code": 124,
+                    "overall_status": None,
+                    "error": (
+                        f"suite_timeout_seconds={int(args.suite_timeout_seconds)} "
+                        f"elapsed={float(exc.timeout):.3f}"
+                    ),
+                }
+                proc = subprocess.CompletedProcess(
+                    args=command,
+                    returncode=124,
+                    stdout=stdout_text,
+                    stderr=stderr_text,
+                )
             row = {
                 "repeat_index": repeat_index,
                 "suite_id": suite.suite_id,
@@ -941,7 +996,7 @@ def main() -> int:
     blocking_failures = dedup_keep_order(blocking_failures)
     nonblocking_failures = dedup_keep_order(nonblocking_failures)
 
-    failure_codes: List[str] = []
+    all_failure_codes: List[str] = []
     blocking_failure_codes: List[str] = []
     observational_failure_codes: List[str] = []
     for row in suite_runs:
@@ -950,11 +1005,13 @@ def main() -> int:
         row_codes = coerce_failure_codes(row.get("failure_codes"))
         for code in row_codes:
             if isinstance(code, str) and code.strip():
-                failure_codes.append(code.strip())
+                all_failure_codes.append(code.strip())
                 if bool(row.get("blocking")):
                     blocking_failure_codes.append(code.strip())
                 else:
                     observational_failure_codes.append(code.strip())
+
+    failure_codes: List[str] = list(dedup_keep_order(blocking_failure_codes))
 
     if args.dry_run:
         overall_status = "dry_run"
@@ -964,16 +1021,19 @@ def main() -> int:
         overall_status = "fail"
         exit_code = 2
         status_reason = FAIL_BENCHMARK_REPEAT_INCONSISTENT
+        all_failure_codes.append(FAIL_BENCHMARK_REPEAT_INCONSISTENT)
         failure_codes.append(FAIL_BENCHMARK_REPEAT_INCONSISTENT)
     elif blocking_failures:
         overall_status = "fail"
         exit_code = 2
         status_reason = FAIL_BENCHMARK_BLOCKING_SUITE_FAILED
+        all_failure_codes.append(FAIL_BENCHMARK_BLOCKING_SUITE_FAILED)
         failure_codes.append(FAIL_BENCHMARK_BLOCKING_SUITE_FAILED)
     else:
         overall_status = "pass"
         exit_code = 0
         status_reason = "all_blocking_suites_passed"
+    all_failure_codes = dedup_keep_order(all_failure_codes)
     failure_codes = dedup_keep_order(failure_codes)
     blocking_failure_codes = dedup_keep_order(blocking_failure_codes)
     observational_failure_codes = dedup_keep_order(observational_failure_codes)
@@ -995,6 +1055,7 @@ def main() -> int:
         "overall_status": overall_status,
         "status_reason": status_reason,
         "failure_codes": failure_codes,
+        "all_failure_codes": all_failure_codes,
         "blocking_failure_codes": blocking_failure_codes,
         "observational_failure_codes": observational_failure_codes,
         "repeat_count": int(args.repeat),
@@ -1027,7 +1088,7 @@ def main() -> int:
     )
     if str(args.emit_junit).strip():
         junit_path = Path(str(args.emit_junit)).expanduser().resolve()
-        write_junit(junit_path, suite_runs, overall_status, failure_codes)
+        write_junit(junit_path, suite_runs, overall_status, failure_codes, status_reason)
         print(f"JUnit summary: {junit_path}")
     print(f"Release benchmark matrix summary: {output_path}")
     print(f"Observational diagnostics: {diagnostics_path}")

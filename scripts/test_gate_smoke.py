@@ -682,6 +682,7 @@ def test_release_benchmark_contract_v2_fields_present() -> None:
         assert_true(report.get("contract_version") == "release_benchmark_matrix.v2", "benchmark contract is v2")
         assert_true("status_reason" in report, "benchmark report includes status_reason")
         assert_true("failure_codes" in report and isinstance(report.get("failure_codes"), list), "benchmark report includes failure_codes")
+        assert_true("all_failure_codes" in report and isinstance(report.get("all_failure_codes"), list), "benchmark report includes all_failure_codes")
         assert_true(report.get("repeat_count") == 3, "benchmark report includes repeat_count")
         assert_true("repeat_consistent" in report, "benchmark report includes repeat_consistent")
         assert_true("dataset_registry_sha256" in report, "benchmark report includes dataset_registry_sha256")
@@ -816,6 +817,7 @@ def test_release_benchmark_registry_failure_contract_fields_present() -> None:
         assert_true(report.get("contract_version") == "release_benchmark_matrix.v2", "registry failure report keeps v2 contract")
         assert_true(report.get("status_reason") == "benchmark_registry_missing", "registry failure status reason matches")
         assert_true(isinstance(report.get("failure_codes"), list), "registry failure includes failure_codes list")
+        assert_true(isinstance(report.get("all_failure_codes"), list), "registry failure includes all_failure_codes list")
         assert_true(isinstance(report.get("blocking_failure_codes"), list), "registry failure includes blocking_failure_codes list")
         assert_true(
             isinstance(report.get("observational_failure_codes"), list),
@@ -973,6 +975,155 @@ def test_release_benchmark_repeat_detects_authority_metric_drift() -> None:
         )
 
 
+def test_release_benchmark_junit_marks_repeat_inconsistent_global_failure() -> None:
+    print("\n=== benchmark-suite: junit marks global failure on repeat inconsistency ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "authority_release_core",
+                    "name": "Authority release core",
+                    "kind": "authority",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": ["uci-breast-cancer-wdbc"],
+                }
+            ],
+        )
+        counter = td / "counter_junit.txt"
+        fake_python = td / "fake_python_authority_junit_drift.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            f"COUNTER='{counter}'\n"
+            "count=0\n"
+            "if [ -f \"$COUNTER\" ]; then count=$(cat \"$COUNTER\"); fi\n"
+            "count=$((count+1))\n"
+            "echo \"$count\" > \"$COUNTER\"\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "if [ \"$count\" -eq 1 ]; then pr='0.910000'; else pr='0.780000'; fi\n"
+            "printf '{\"overall_status\":\"pass\",\"results\":[{\"case_id\":\"uci-breast-cancer-wdbc\",\"status\":\"pass\",\"metrics\":{\"pr_auc\":%s,\"roc_auc\":0.930000,\"f2_beta\":0.740000,\"brier\":0.120000}}]}' \"$pr\" > \"$out\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        junit = td / "benchmark.junit.xml"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "2",
+                "--python",
+                str(fake_python),
+                "--emit-junit",
+                str(junit),
+            ]
+        )
+        assert_true(proc.returncode == 2, "repeat inconsistency exits 2 (junit test)")
+        report = load_report(out)
+        assert_true(
+            report.get("status_reason") == "benchmark_repeat_inconsistent",
+            "repeat inconsistency status reason matches (junit test)",
+        )
+        junit_text = junit.read_text(encoding="utf-8")
+        assert_true("failures=\"1\"" in junit_text or "failures='1'" in junit_text, "junit reports one failure")
+        assert_true("name=\"global\"" in junit_text or "name='global'" in junit_text, "junit contains global testcase")
+        assert_true(
+            "benchmark_repeat_inconsistent" in junit_text,
+            "junit global failure message includes repeat inconsistency code",
+        )
+
+
+def test_release_benchmark_suite_timeout_is_fail_closed() -> None:
+    print("\n=== benchmark-suite: suite timeout fails closed with standard code ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        fake_python = td / "fake_python_timeout.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "out=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--output\" ] || [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "sleep 2\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "printf '{\"overall_status\":\"pass\",\"passed_count\":1,\"scenario_count\":1,\"results\":[{\"name\":\"s1\",\"passed\":true,\"observed_codes\":[]}]}' > \"$out\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--repeat",
+                "1",
+                "--python",
+                str(fake_python),
+                "--suite-timeout-seconds",
+                "1",
+            ]
+        )
+        assert_true(proc.returncode == 2, "suite timeout exits 2")
+        report = load_report(out)
+        assert_true(report.get("overall_status") == "fail", "suite timeout yields fail status")
+        assert_true(
+            "benchmark_suite_timeout" in report.get("blocking_failure_codes", []),
+            "suite timeout code appears in blocking failure codes",
+        )
+        assert_true(
+            "benchmark_blocking_suite_failed" in report.get("failure_codes", []),
+            "suite timeout still maps to blocking suite failed status code",
+        )
+
+
 def test_release_benchmark_repeat_detects_adversarial_count_drift() -> None:
     print("\n=== benchmark-suite: repeat inconsistency catches adversarial count drift ===")
     with tempfile.TemporaryDirectory() as tmp:
@@ -1122,6 +1273,10 @@ def test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failu
         report = load_report(out)
         assert_true(report.get("overall_status") == "pass", "overall status remains pass with non-blocking failure")
         assert_true(
+            isinstance(report.get("failure_codes"), list) and len(report.get("failure_codes")) == 0,
+            "top-level failure_codes remains empty when only non-blocking suites fail",
+        )
+        assert_true(
             isinstance(report.get("blocking_failure_codes"), list) and len(report.get("blocking_failure_codes")) == 0,
             "blocking_failure_codes remains empty",
         )
@@ -1233,6 +1388,19 @@ def test_authority_e2e_gitignore_covers_runtime_outputs() -> None:
         "uci-diabetes-130-readmission/" in text,
         "authority-e2e gitignore includes Diabetes130 runtime directory",
     )
+
+
+def test_authority_e2e_run_cmd_has_subprocess_timeout_guard() -> None:
+    print("\n=== authority-e2e: run_cmd has subprocess timeout guard ===")
+    script = SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_authority_e2e.py"
+    text = script.read_text(encoding="utf-8")
+    assert_true("DEFAULT_SUBPROCESS_TIMEOUT_SECONDS" in text, "authority-e2e defines timeout default constant")
+    assert_true("--subprocess-timeout-seconds" in text, "authority-e2e parser exposes subprocess timeout option")
+    assert_true(
+        "timeout=timeout_seconds" in text,
+        "authority-e2e run_cmd applies timeout to subprocess.run",
+    )
+    assert_true("subprocess_timeout: timeout_after_seconds=" in text, "authority-e2e timeout path is explicitly reported")
 
 
 def test_mlgg_interactive_profile_value_validation_fail_closed() -> None:
@@ -1866,10 +2034,13 @@ def main() -> int:
     test_release_benchmark_registry_failure_contract_fields_present()
     test_release_benchmark_repeat_inconsistency_detected()
     test_release_benchmark_repeat_detects_authority_metric_drift()
+    test_release_benchmark_junit_marks_repeat_inconsistent_global_failure()
+    test_release_benchmark_suite_timeout_is_fail_closed()
     test_release_benchmark_repeat_detects_adversarial_count_drift()
     test_release_benchmark_emits_observational_diagnostics_for_nonblocking_failures()
     test_release_benchmark_repeat_outputs_are_not_overwritten()
     test_authority_e2e_gitignore_covers_runtime_outputs()
+    test_authority_e2e_run_cmd_has_subprocess_timeout_guard()
     test_mlgg_interactive_profile_value_validation_fail_closed()
     test_mlgg_interactive_workflow_default_evidence_dir_uses_request_project_base()
     test_render_user_summary_propagates_fail_status()
