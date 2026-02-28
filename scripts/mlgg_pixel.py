@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Optional, Tuple
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 EXAMPLES_DIR = REPO_ROOT / "examples"
+DESKTOP = Path.home() / "Desktop"
+DEFAULT_OUT = DESKTOP / "MLGG_Output"
 
 # ── ANSI helpers ──────────────────────────────────────────────────────────────
 RST = "\033[0m"
@@ -352,7 +354,7 @@ def action_quick_start() -> None:
 
     # Step 2: split
     csv_path = EXAMPLES_DIR / f"{fname}.csv"
-    out_dir = REPO_ROOT / "output" / fname
+    out_dir = DEFAULT_OUT / fname
     steps[1] = (steps[1][0], "running")
     render_steps(steps, 1)
 
@@ -466,7 +468,7 @@ def action_split() -> None:
     if strategy == "grouped_temporal":
         time_col = ask("Time column", default="event_time")
 
-    output_dir = ask("Output directory", default=str(REPO_ROOT / "output" / "split" / "data"))
+    output_dir = ask("Output directory", default=str(DEFAULT_OUT / "custom_split" / "data"))
 
     print()
     print(f"  {c('W', 'Configuration:', bold=True)}")
@@ -507,7 +509,7 @@ def action_full_pipeline() -> None:
     if mi < 0:
         return
 
-    project_root = ask("Project directory", default="/tmp/mlgg_pipeline")
+    project_root = ask("Project directory", default=str(DEFAULT_OUT / "pipeline"))
 
     if mi == 0:
         print(f"\n  {DIM}Running full demo pipeline (3-8 min)...{RST}\n")
