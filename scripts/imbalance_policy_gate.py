@@ -335,8 +335,8 @@ def main() -> int:
         add_issue(
             failures,
             "split_label_read_error",
-            "Failed to read split labels for imbalance audit.",
-            {"error": str(exc)},
+            f"Failed to read '{split_name}' split labels for imbalance audit.",
+            {"error": str(exc), "path": str(path)},
         )
         return finish(args, failures, warnings, spec, splits, strategy=strategy)
 

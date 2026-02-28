@@ -361,8 +361,8 @@ def ensure_revocation_file(path: Path) -> Dict[str, Any]:
             "revoked_key_ids": [],
             "revoked_public_key_fingerprints_sha256": [],
         }
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(loaded, fh, ensure_ascii=True, indent=2)
+    from _gate_utils import write_json as _write_revocation
+    _write_revocation(path, loaded)
     return loaded
 
 

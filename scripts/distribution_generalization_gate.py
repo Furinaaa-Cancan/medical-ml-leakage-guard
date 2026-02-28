@@ -395,18 +395,22 @@ def main() -> int:
         if failures:
             return finish(args, failures, warnings, {})
 
+    _split_dfs: Dict[str, Any] = {}
     try:
-        train_df = load_split(args.train)
-        valid_df = load_split(args.valid)
-        test_df = load_split(args.test)
+        for _sn, _sp in (("train", args.train), ("valid", args.valid), ("test", args.test)):
+            _split_dfs[_sn] = load_split(_sp)
     except Exception as exc:
         add_issue(
             failures,
             "distribution_report_schema_invalid",
-            "Unable to load required split CSV files.",
-            {"error": str(exc)},
+            f"Unable to load '{_sn}' split CSV.",
+            {"error": str(exc), "path": str(_sp)},
         )
         return finish(args, failures, warnings, {})
+
+    train_df = _split_dfs["train"]
+    valid_df = _split_dfs["valid"]
+    test_df = _split_dfs["test"]
 
     try:
         external_payload = load_json(args.external_validation_report)

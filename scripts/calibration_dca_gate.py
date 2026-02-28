@@ -334,7 +334,7 @@ def main() -> int:
             failures,
             "calibration_insufficient_events",
             "Unable to parse required JSON input for calibration/DCA gate.",
-            {"error": str(exc)},
+            {"error": str(exc), "eval_path": str(eval_path), "ext_path": str(ext_path)},
         )
         return finish(args, failures, warnings, {})
 
