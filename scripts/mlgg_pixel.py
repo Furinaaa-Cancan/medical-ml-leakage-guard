@@ -14,12 +14,10 @@ import itertools
 import locale
 import os
 import platform
-import shlex
 import shutil
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -34,7 +32,6 @@ DEFAULT_OUT = DESKTOP / "MLGG_Output"
 RST = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
-ITALIC = "\033[3m"
 FG = {
     "k": "\033[30m", "r": "\033[31m", "g": "\033[32m", "y": "\033[33m",
     "b": "\033[34m", "m": "\033[35m", "c": "\033[36m", "w": "\033[37m",
@@ -55,9 +52,6 @@ def s(fg: str, text: str, bold: bool = False) -> str:
 
 def _clear() -> None:
     os.system("cls" if platform.system() == "Windows" else "clear")
-
-def _cols() -> int:
-    return shutil.get_terminal_size((80, 24)).columns
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -263,7 +257,7 @@ def t(key: str, **kwargs: Any) -> str:
 def detect_lang() -> str:
     """Auto-detect language from system locale."""
     try:
-        loc = locale.getdefaultlocale()[0] or ""
+        loc = locale.getlocale()[0] or os.environ.get("LANG", "")
         if loc.startswith("zh"):
             return "zh"
     except Exception:
@@ -304,8 +298,8 @@ def _getch() -> str:
                     # Arrow keys: [A, [B
                     if len(buf) == 2 and buf[0] == "[" and buf[1] in "ABCD":
                         return {"[A": "UP", "[B": "DOWN"}.get(buf, "ESC")
-                    # Other short sequences
-                    if len(buf) >= 6:
+                    # Guard: very long unexpected sequences
+                    if len(buf) >= 20:
                         break
                 return "ESC"
             if ch in ("\r", "\n"):
@@ -406,13 +400,15 @@ def select(title: str, options: List[str], descs: Optional[List[str]] = None) ->
     def _draw() -> None:
         nonlocal menu_start_row
         sys.stdout.write(HIDE_CUR)
-        sys.stdout.write(MOUSE_ON)
+        sys.stdout.write(MOUSE_OFF)  # disable mouse during cursor query
         sys.stdout.flush()
         print()
         if title:
             print(f"  {s('C', title, bold=True)}")
         print()
-        menu_start_row = _cursor_row()  # row of first option
+        menu_start_row = _cursor_row()  # query before mouse is on
+        sys.stdout.write(MOUSE_ON)
+        sys.stdout.flush()
         for i in range(n):
             if i == sel:
                 lbl = f" {options[i]} "
