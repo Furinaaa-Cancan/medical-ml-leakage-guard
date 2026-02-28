@@ -133,19 +133,22 @@ def main() -> int:
     failures: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
 
+    split_dfs: Dict[str, Any] = {}
     try:
-        train_df = load_split(args.train)
-        valid_df = load_split(args.valid)
-        test_df = load_split(args.test)
+        for _split_name, _split_path in (("train", args.train), ("valid", args.valid), ("test", args.test)):
+            split_dfs[_split_name] = load_split(_split_path)
     except Exception as exc:
         add_issue(
             failures,
             "split_read_failed",
-            "Unable to read split CSV files.",
-            {"error": str(exc)},
+            f"Unable to read '{_split_name}' split CSV.",
+            {"error": str(exc), "path": str(_split_path)},
         )
         return finish(args, failures, warnings, {}, None)
 
+    train_df = split_dfs["train"]
+    valid_df = split_dfs["valid"]
+    test_df = split_dfs["test"]
     common_columns = sorted(set(train_df.columns) & set(valid_df.columns) & set(test_df.columns))
     if not common_columns:
         add_issue(
