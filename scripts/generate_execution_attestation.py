@@ -309,8 +309,15 @@ def ensure_parent(path: Path) -> None:
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
     ensure_parent(path)
-    with path.open("w", encoding="utf-8") as fh:
+    tmp_path = path.with_name(
+        f".{path.name}.tmp-{os.getpid()}"
+    )
+    with tmp_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    tmp_path.replace(path)
 
 
 def count_lines(path: Path) -> int:

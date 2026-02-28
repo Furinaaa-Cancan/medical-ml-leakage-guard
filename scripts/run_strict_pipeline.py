@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_utils import load_json_from_path as load_json, resolve_path
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the full strict publication-grade gate pipeline.")
@@ -55,23 +57,6 @@ def run_step(name: str, cmd: List[str]) -> Tuple[int, str, str]:
     if proc.stderr:
         print(proc.stderr, file=sys.stderr, end="")
     return proc.returncode, proc.stdout, proc.stderr
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError(f"JSON root must be object: {path}")
-    return payload
-
-
-def resolve_path(base: Path, value: str) -> Path:
-    p = Path(value).expanduser()
-    if not p.is_absolute():
-        p = (base / p).resolve()
-    else:
-        p = p.resolve()
-    return p
 
 
 def ensure_number(value: Any, name: str) -> float:

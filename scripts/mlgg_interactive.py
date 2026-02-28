@@ -12,6 +12,7 @@ Supported commands:
 from __future__ import annotations
 
 import argparse
+import csv as _csv_mod
 import importlib.util
 import json
 import re
@@ -145,6 +146,127 @@ def infer_project_base_from_request(request_path: str) -> Path:
     if parent.name.lower() == "configs" and parent.parent != parent:
         return parent.parent
     return parent
+
+
+def read_csv_columns(csv_path: str) -> List[str]:
+    """Read column headers from a CSV file without loading the full dataset."""
+    p = Path(csv_path).expanduser().resolve()
+    with p.open("r", encoding="utf-8") as fh:
+        reader = _csv_mod.reader(fh)
+        headers = next(reader, None)
+    return list(headers) if headers else []
+
+
+def validate_binary_target(csv_path: str, col: str) -> Tuple[bool, str]:
+    """Check that a column exists and contains only 0/1 values. Returns (ok, message)."""
+    p = Path(csv_path).expanduser().resolve()
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            reader = _csv_mod.DictReader(fh)
+            if col not in (reader.fieldnames or []):
+                return False, f"column '{col}' not found in {p.name}"
+            unique_values: set = set()
+            for row_idx, row in enumerate(reader):
+                raw = str(row.get(col, "")).strip()
+                unique_values.add(raw)
+                if row_idx > 500:
+                    break
+        allowed = {"0", "1", "0.0", "1.0"}
+        non_binary = unique_values - allowed - {""}
+        if non_binary:
+            samples = sorted(non_binary)[:5]
+            return False, f"column '{col}' has non-binary values: {samples}"
+        if not unique_values & {"0", "1", "0.0", "1.0"}:
+            return False, f"column '{col}' appears empty or has no 0/1 values"
+        return True, "binary target validated"
+    except Exception as exc:
+        return False, f"validation error: {exc}"
+
+
+def prompt_column_choice(
+    label: str,
+    columns: List[str],
+    default: str,
+    required: bool = True,
+    validate_fn: Optional[Any] = None,
+) -> str:
+    """Prompt user to select a column from available CSV columns."""
+    if PROMPT_AUTO_ACCEPT_DEFAULTS:
+        if default and default in columns:
+            return default
+        if required and columns:
+            return columns[0]
+        return default
+
+    print(f"\n{label}")
+    print(f"  Available columns ({len(columns)}): {', '.join(columns[:30])}")
+    if len(columns) > 30:
+        print(f"  ... and {len(columns) - 30} more")
+
+    while True:
+        suffix = f" [default: {default}]" if default else ""
+        try:
+            raw = input(f"  Select column{suffix}: ").strip()
+        except EOFError as exc:
+            raise ValueError(
+                "interactive stdin is not available; use --accept-defaults or --print-only."
+            ) from exc
+        value = raw if raw else default
+        if required and not value:
+            print("  [WARN] This field is required.")
+            continue
+        if value and value not in columns:
+            print(f"  [WARN] Column '{value}' not found in CSV. Available: {', '.join(columns[:15])}")
+            confirm = input("  Use anyway? (yes/no) [no]: ").strip().lower()
+            if confirm not in ("yes", "y"):
+                continue
+        if validate_fn and value:
+            ok, msg = validate_fn(value)
+            if not ok:
+                print(f"  [WARN] {msg}")
+                confirm = input("  Use anyway? (yes/no) [no]: ").strip().lower()
+                if confirm not in ("yes", "y"):
+                    continue
+        return str(value)
+
+
+def prompt_ignore_cols(
+    columns: List[str],
+    target_col: str,
+    patient_id_col: str,
+    default: str,
+) -> str:
+    """Prompt user to select columns to ignore (non-feature columns)."""
+    if PROMPT_AUTO_ACCEPT_DEFAULTS:
+        return default
+
+    default_set = set(s.strip() for s in default.split(",") if s.strip())
+    feature_cols = [c for c in columns if c not in default_set and c != target_col]
+
+    print(f"\n  Columns to IGNORE (non-feature, comma-separated)")
+    print(f"  Current ignore list: {default}")
+    print(f"  Resulting feature columns ({len(feature_cols)}): {', '.join(feature_cols[:20])}")
+    if len(feature_cols) > 20:
+        print(f"  ... and {len(feature_cols) - 20} more")
+
+    while True:
+        try:
+            raw = input(f"  Ignore columns [default: {default}]: ").strip()
+        except EOFError as exc:
+            raise ValueError(
+                "interactive stdin is not available; use --accept-defaults or --print-only."
+            ) from exc
+        value = raw if raw else default
+        ignore_set = set(s.strip() for s in value.split(",") if s.strip())
+        missing = ignore_set - set(columns) - {target_col}
+        if missing:
+            print(f"  [WARN] These ignore columns not found in CSV: {sorted(missing)}")
+        result_features = [c for c in columns if c not in ignore_set and c != target_col]
+        print(f"  → {len(result_features)} feature columns will be used")
+        if not result_features:
+            print("  [WARN] No feature columns would remain!")
+            continue
+        return value
 
 
 def infer_project_base_from_split_path(split_path: str) -> Path:
@@ -715,23 +837,61 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
     project_base = infer_project_base_from_split_path(values["train"])
     default_evidence_dir = (project_base / "evidence").resolve()
 
-    for key, label, default in (
-        ("target_col", "Target column", "y"),
-        ("patient_id_col", "Patient ID column", "patient_id"),
-    ):
-        seed, source = merged_seed(key, default, profile, explicit)
-        if source == "cli":
-            values[key] = require_string(seed, key)
-        else:
-            values[key] = prompt_text(label=label, default=str(seed), required=True)
+    # Read CSV columns for data-aware prompts
+    train_columns: List[str] = []
+    try:
+        train_columns = read_csv_columns(values["train"])
+        if train_columns:
+            print(f"\n  [INFO] Train CSV has {len(train_columns)} columns: {', '.join(train_columns[:25])}")
+            if len(train_columns) > 25:
+                print(f"         ... and {len(train_columns) - 25} more")
+    except Exception as exc:
+        print(f"  [WARN] Could not read train CSV headers: {exc}", file=sys.stderr)
 
-    seed, source = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
-    if source == "cli":
-        values["ignore_cols"] = str(seed).strip()
+    # Target column: show available columns + validate binary
+    seed_target, source_target = merged_seed("target_col", "y", profile, explicit)
+    if source_target == "cli":
+        values["target_col"] = require_string(seed_target, "target_col")
+    elif train_columns:
+        values["target_col"] = prompt_column_choice(
+            label="  Select TARGET column (must be binary 0/1):",
+            columns=train_columns,
+            default=str(seed_target),
+            required=True,
+            validate_fn=lambda col: validate_binary_target(values["train"], col),
+        )
+    else:
+        values["target_col"] = prompt_text(label="Target column", default=str(seed_target), required=True)
+
+    # Patient ID column: show available columns
+    seed_pid, source_pid = merged_seed("patient_id_col", "patient_id", profile, explicit)
+    if source_pid == "cli":
+        values["patient_id_col"] = require_string(seed_pid, "patient_id_col")
+    elif train_columns:
+        values["patient_id_col"] = prompt_column_choice(
+            label="  Select PATIENT ID column:",
+            columns=train_columns,
+            default=str(seed_pid),
+            required=True,
+        )
+    else:
+        values["patient_id_col"] = prompt_text(label="Patient ID column", default=str(seed_pid), required=True)
+
+    # Ignore columns: show feature preview
+    seed_ignore, source_ignore = merged_seed("ignore_cols", "patient_id,event_time", profile, explicit)
+    if source_ignore == "cli":
+        values["ignore_cols"] = str(seed_ignore).strip()
+    elif train_columns:
+        values["ignore_cols"] = prompt_ignore_cols(
+            columns=train_columns,
+            target_col=values["target_col"],
+            patient_id_col=values["patient_id_col"],
+            default=str(seed_ignore),
+        )
     else:
         values["ignore_cols"] = prompt_text(
             label="Ignore columns CSV (non-feature columns to exclude)",
-            default=str(seed),
+            default=str(seed_ignore),
             required=False,
         )
 

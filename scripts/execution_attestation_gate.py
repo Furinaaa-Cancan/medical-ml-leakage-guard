@@ -311,7 +311,8 @@ def file_line_count(path: Path) -> Optional[int]:
             for _ in fh:
                 total += 1
         return total
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] file_line_count failed for {path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -332,7 +333,8 @@ def log_boundary_hashes(path: Path) -> Optional[Dict[str, Any]]:
             "first_line_sha256": sha256_text(first_line) if first_line is not None else None,
             "last_line_sha256": sha256_text(last_line) if last_line is not None else None,
         }
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] log_boundary_hashes failed for {path}: {exc}", file=sys.stderr)
         return None
 
 
@@ -2974,10 +2976,8 @@ def finish(
     }
 
     if args.report:
-        out = Path(args.report).expanduser().resolve()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=True, indent=2)
+        from _gate_utils import write_json as _write_report
+        _write_report(Path(args.report).expanduser().resolve(), report)
 
     print(f"Status: {report['status']}")
     print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")

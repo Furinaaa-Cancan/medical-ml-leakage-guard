@@ -724,10 +724,8 @@ def finish(
     }
 
     if args.report:
-        out = Path(args.report).expanduser().resolve()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=True, indent=2)
+        from _gate_utils import write_json as _write_report
+        _write_report(Path(args.report).expanduser().resolve(), report)
 
     print(f"Status: {report['status']}")
     print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")

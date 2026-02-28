@@ -571,7 +571,7 @@ def feature_stability_frequency(
     if pos_idx.size == 0 or neg_idx.size == 0:
         return {feature: 0.0 for feature in features}
 
-    for _ in range(int(repeats)):
+    for repeat_idx in range(int(repeats)):
         sample_pos = rng.choice(pos_idx, size=max(1, int(0.8 * pos_idx.size)), replace=True)
         sample_neg = rng.choice(neg_idx, size=max(1, int(0.8 * neg_idx.size)), replace=True)
         idx = np.concatenate([sample_pos, sample_neg], axis=0)
@@ -593,7 +593,8 @@ def feature_stability_frequency(
                 if abs(float(value)) > 1e-10:
                     counts[feature] += 1
             effective += 1
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] feature stability fit failed (repeat {repeat_idx}): {exc}", file=sys.stderr)
             continue
     if effective <= 0:
         return {feature: 0.0 for feature in features}
@@ -816,7 +817,8 @@ def _optuna_search_family(
             )
             mean_score, _, _, _ = cv_score_pr_auc(est, X_train, y_train, n_splits=cv_splits, seed=seed)
             return float(mean_score)
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] optuna trial failed for {family}: {exc}", file=sys.stderr)
             return 0.0
 
     study = optuna.create_study(
@@ -827,10 +829,9 @@ def _optuna_search_family(
     best_trials = sorted(study.trials, key=lambda t: t.value if t.value is not None else 0.0, reverse=True)
     results: List[Dict[str, Any]] = []
     for t in best_trials[:max(1, n_trials // 5)]:
-        params = _suggest_params(t)
-        if params:
-            results.append(params)
-    return results if results else [_suggest_params(study.best_trial)]
+        if t.params:
+            results.append(dict(t.params))
+    return results if results else [dict(study.best_trial.params)]
 
 
 def _family_grid(family: str) -> List[Dict[str, Any]]:
@@ -1453,8 +1454,8 @@ def _build_estimator_for_family(
         if TabPFNClassifier is None:
             raise RuntimeError("tabpfn backend is not installed.")
         n_ensemble = int(params.get("N_ensemble_configurations", 16))
-        device = str(params.get("device", "cpu"))
-        clf = TabPFNClassifier(N_ensemble_configurations=n_ensemble, device=device)
+        tabpfn_device = str(params.get("device", device))
+        clf = TabPFNClassifier(N_ensemble_configurations=n_ensemble, device=tabpfn_device)
         return Pipeline(steps=[("imputer", imputer), ("clf", clf)])
     raise ValueError(f"Unsupported family: {family}")
 
@@ -1566,6 +1567,7 @@ def build_candidates(
                 "max_trials_per_family": int(max_trials),
                 "search_strategy": search_strategy if search_strategy != "optuna" else "random_subsample",
             }
+        family_total_configs = int(family_search_space[family]["total_configurations"])
         for trial_idx, params in enumerate(chosen_grid, start=1):
             estimator = _build_estimator_for_family(
                 family=family,
@@ -1589,7 +1591,7 @@ def build_candidates(
                     "estimator": estimator,
                     "search_meta": {
                         "trial_index": int(trial_idx),
-                        "family_total_configurations": int(len(full_grid)),
+                        "family_total_configurations": family_total_configs,
                         "family_sampled_trials": int(len(chosen_grid)),
                         "search_strategy": search_strategy,
                     },
@@ -2161,11 +2163,13 @@ def metric_panel_robust(y_true: np.ndarray, proba: np.ndarray, threshold: float,
     )
     try:
         pr_auc = float(average_precision_score(y_true, proba))
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] pr_auc fallback in metric_panel_robust: {exc}", file=sys.stderr)
         pr_auc = safe_ratio(float(np.sum(y_true.astype(int) == 1)), float(y_true.shape[0]))
     try:
         brier = float(brier_score_loss(y_true, proba))
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] brier fallback in metric_panel_robust: {exc}", file=sys.stderr)
         brier = 1.0
     pr_auc = min(1.0, max(0.0, float(pr_auc)))
     f2 = min(1.0, max(0.0, float(f2)))
@@ -2247,7 +2251,8 @@ def resolve_imputation_plan(
         mice_max_cols_i = int(mice_max_cols)
         large_rows_i = int(large_rows)
         large_cols_i = int(large_cols)
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] imputation scale guard parse error, using defaults: {exc}", file=sys.stderr)
         mice_max_rows_i = 200000
         mice_max_cols_i = 200
         large_rows_i = 1_000_000
@@ -2483,8 +2488,15 @@ def feature_jsd(train: pd.Series, other: pd.Series) -> Optional[float]:
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
     ensure_parent(path)
-    with path.open("w", encoding="utf-8") as fh:
+    tmp_path = path.with_name(
+        f".{path.name}.tmp-{os.getpid()}"
+    )
+    with tmp_path.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=True, indent=2)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    tmp_path.replace(path)
 
 
 def summarize_seed_metric(values: Sequence[float]) -> Dict[str, float]:

@@ -80,6 +80,15 @@ def write_json_simple(path: Path, payload: Dict[str, Any]) -> None:
     tmp_path.replace(path)
 
 
+def resolve_path(base: Path, value: str) -> Path:
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = (base / p).resolve()
+    else:
+        p = p.resolve()
+    return p
+
+
 def to_float(value: Any) -> Optional[float]:
     if isinstance(value, bool):
         return None

@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from _gate_utils import add_issue
@@ -379,8 +380,8 @@ def finish(
     }
 
     if args.report:
-        with open(args.report, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=True, indent=2)
+        from _gate_utils import write_json as _write_json
+        _write_json(Path(args.report).expanduser().resolve(), report)
 
     print(f"Status: {report['status']}")
     print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
@@ -393,4 +394,4 @@ def finish(
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

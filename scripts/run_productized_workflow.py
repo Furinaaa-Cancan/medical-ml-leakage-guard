@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from _gate_utils import load_json_from_path as load_json, write_json, resolve_path
+
 
 CONTRACT_VERSION = "productized_workflow_report.v2"
 MTIME_EPSILON_SECONDS = 0.5
@@ -41,27 +43,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    if not isinstance(payload, dict):
-        raise ValueError("JSON root must be object.")
-    return payload
-
-
-def write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(
-        f".{path.name}.tmp-{os.getpid()}-{int(time.time() * 1_000_000)}"
-    )
-    with tmp_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=True, indent=2)
-        fh.write("\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    tmp_path.replace(path)
-
-
 def run_step(name: str, cmd: List[str]) -> Dict[str, Any]:
     print(f"\n== Step: {name} ==")
     print(f"$ {shlex.join(cmd)}")
@@ -80,15 +61,6 @@ def run_step(name: str, cmd: List[str]) -> Dict[str, Any]:
         "blocking": bool(name in BLOCKING_STEP_NAMES),
         "recovered_by_step": None,
     }
-
-
-def resolve_path(base: Path, value: str) -> Path:
-    p = Path(value).expanduser()
-    if not p.is_absolute():
-        p = (base / p).resolve()
-    else:
-        p = p.resolve()
-    return p
 
 
 def infer_project_base(request_path: Path) -> Path:

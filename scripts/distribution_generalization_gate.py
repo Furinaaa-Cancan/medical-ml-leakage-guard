@@ -45,7 +45,8 @@ def parse_selected_features_from_evaluation_report(path: Optional[str]) -> List[
         return []
     try:
         payload = load_json(path)
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] failed to load evaluation report for feature list: {exc}", file=sys.stderr)
         return []
     metadata = payload.get("metadata")
     if not isinstance(metadata, dict):
@@ -706,10 +707,8 @@ def finish(
         "summary": summary,
     }
     if args.report:
-        out = Path(args.report).expanduser().resolve()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=True, indent=2)
+        from _gate_utils import write_json as _write_report
+        _write_report(Path(args.report).expanduser().resolve(), report)
     print(f"Status: {report['status']}")
     print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
     for issue in failures:
