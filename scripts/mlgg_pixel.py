@@ -525,19 +525,25 @@ _TIME_HINTS = ["time", "date", "timestamp", "event_time", "datetime",
                "admission", "visit_date", "created_at"]
 
 
+def _hint_match(hint: str, col_lower: str) -> bool:
+    if "_" in hint:
+        return hint in col_lower
+    return hint in col_lower.split("_")
+
+
 def detect_columns(cols: List[str]) -> Dict[str, Optional[str]]:
     pid = target = time_col = None
     for col in cols:
         low = col.lower().strip().replace(" ", "_")
         if not pid:
             for h in _PID_HINTS:
-                if h in low: pid = col; break
+                if _hint_match(h, low): pid = col; break
         if not target:
             for h in _TGT_HINTS:
-                if h in low: target = col; break
+                if _hint_match(h, low): target = col; break
         if not time_col:
             for h in _TIME_HINTS:
-                if h in low: time_col = col; break
+                if _hint_match(h, low): time_col = col; break
     return {"pid": pid, "target": target, "time": time_col}
 
 
@@ -708,12 +714,20 @@ def step_dataset(state: Dict) -> Any:
             return BACK
         if fi == len(files):
             sys.stdout.write(SHOW_CUR)
-            path = input(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ").strip()
+            try:
+                path = input(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return BACK
         else:
             path = str(files[fi])
     else:
         sys.stdout.write(SHOW_CUR)
-        path = input(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ").strip()
+        try:
+            path = input(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return BACK
 
     if not path or not Path(path).exists():
         print(f"\n  {s('R', t('not_found'))}")
@@ -854,7 +868,7 @@ def step_split(state: Dict) -> Any:
                     input(f"  {DIM}{t('enter_continue')}{RST}")
                 except (EOFError, KeyboardInterrupt):
                     pass
-                return BACK
+                sub = 0; continue
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
             print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}\n")
