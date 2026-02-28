@@ -131,6 +131,10 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_kidney_d":   {"en": "UCI CKD -- 399 patients, 24 features",
                       "zh": "UCI CKD -- 399 \u4f8b, 24 \u7279\u5f81"},
 
+    "src_repeat":    {"en": "Repeat last run", "zh": "\u91cd\u590d\u4e0a\u6b21\u8fd0\u884c"},
+    "src_repeat_d":  {"en": "Reload previous configuration", "zh": "\u52a0\u8f7d\u4e0a\u6b21\u914d\u7f6e"},
+    "hist_saved":    {"en": "Run saved to history.", "zh": "\u8fd0\u884c\u5df2\u4fdd\u5b58\u5230\u5386\u53f2\u8bb0\u5f55\u3002"},
+
     "pick_csv":      {"en": "Select CSV file", "zh": "\u9009\u62e9 CSV \u6587\u4ef6"},
     "manual_path":   {"en": "Enter path manually...", "zh": "\u624b\u52a8\u8f93\u5165\u8def\u5f84..."},
     "csv_prompt":    {"en": "CSV path", "zh": "CSV \u8def\u5f84"},
@@ -662,6 +666,46 @@ DEFAULT_MODELS = [0, 1, 3, 5]  # L1, L2, RF, HGB
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  RUN HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+_HISTORY_PATH = Path.home() / ".mlgg" / "history.json"
+
+_HISTORY_KEYS = [
+    "source", "dataset_key", "csv_path", "pid", "target", "time",
+    "strategy", "train_ratio", "valid_ratio", "test_ratio",
+    "model_pool", "hyperparam_search", "calibration", "device",
+    "out_dir", "ignore_cols", "n_jobs", "max_trials",
+    "include_optional_models",
+]
+
+
+def _save_history(state: Dict) -> None:
+    """Save current run config to ~/.mlgg/history.json."""
+    try:
+        import json as _json, datetime as _dt
+        _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        snapshot = {k: state[k] for k in _HISTORY_KEYS if k in state}
+        snapshot["_timestamp"] = _dt.datetime.now().isoformat()
+        _HISTORY_PATH.write_text(_json.dumps(snapshot, indent=2, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _load_history() -> Optional[Dict]:
+    """Load last run config from ~/.mlgg/history.json. Returns None if unavailable."""
+    try:
+        import json as _json
+        if _HISTORY_PATH.exists():
+            data = _json.loads(_HISTORY_PATH.read_text())
+            if isinstance(data, dict) and "source" in data:
+                return data
+    except Exception:
+        pass
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  WIZARD STEPS
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -682,17 +726,28 @@ def step_lang(state: Dict) -> Any:
 def step_source(state: Dict) -> Any:
     _clear()
     step_header(2, TOTAL_STEPS, t("s_source"))
-    ci = select(
-        [t("src_download"), t("src_csv"), t("src_demo")],
-        [t("src_download_d"), t("src_csv_d"), t("src_demo_d")],
-    )
+    hist = _load_history()
+    opts = [t("src_download"), t("src_csv"), t("src_demo")]
+    descs = [t("src_download_d"), t("src_csv_d"), t("src_demo_d")]
+    if hist:
+        opts.append(t("src_repeat"))
+        descs.append(t("src_repeat_d"))
+    ci = select(opts, descs)
     if ci < 0:
         return BACK
+    if hist and ci == 3:
+        for k, v in hist.items():
+            if not k.startswith("_"):
+                state[k] = v
+        state["_from_history"] = True
+        return True
     state["source"] = ["download", "csv", "demo"][ci]
     return True
 
 
 def step_dataset(state: Dict) -> Any:
+    if state.get("_from_history"):
+        return SKIP
     source = state["source"]
 
     if source == "demo":
@@ -799,6 +854,8 @@ def step_dataset(state: Dict) -> Any:
 
 def step_config(state: Dict) -> Any:
     """Column selection -- Patient ID + Target (CSV mode only)."""
+    if state.get("_from_history"):
+        return SKIP
     if state.get("source") in ("demo", "download"):
         return SKIP
 
@@ -880,6 +937,8 @@ def step_config(state: Dict) -> Any:
 
 def step_split(state: Dict) -> Any:
     """Strategy + time column (if temporal) + split ratio."""
+    if state.get("_from_history"):
+        return SKIP
     if state.get("source") == "demo":
         return SKIP
 
@@ -959,7 +1018,7 @@ def step_split(state: Dict) -> Any:
 
 def step_models(state: Dict) -> Any:
     """Multi-select model families."""
-    if state.get("source") == "demo":
+    if state.get("source") == "demo" or state.get("_from_history"):
         return SKIP
 
     _clear()
@@ -978,7 +1037,7 @@ def step_models(state: Dict) -> Any:
 
 def step_tuning(state: Dict) -> Any:
     """Tuning strategy + calibration + device."""
-    if state.get("source") == "demo":
+    if state.get("source") == "demo" or state.get("_from_history"):
         return SKIP
 
     sub = 0
@@ -1027,7 +1086,7 @@ def step_tuning(state: Dict) -> Any:
 
 def step_advanced(state: Dict) -> Any:
     """Advanced settings — ignore-cols, n-jobs, max-trials, optional backends."""
-    if state.get("source") == "demo":
+    if state.get("source") == "demo" or state.get("_from_history"):
         return SKIP
 
     _clear()
@@ -1455,6 +1514,9 @@ def step_run(state: Dict) -> Any:
     except Exception:
         pass
 
+    # Save run to history
+    state.pop("_from_history", None)
+    _save_history(state)
     print(f"\n  {DIM}{t('r_next')}{RST}")
     return True
 
