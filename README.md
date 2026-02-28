@@ -1,5 +1,7 @@
 # medical-ml-leakage-guard
 
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+
 Publication-grade medical prediction workflow with strict anti-data-leakage gates, reproducibility evidence, and fail-closed review logic.
 
 面向医学预测任务的发布级防泄漏工作流，提供严格门控、可复现实验工件与 fail-closed 审核机制。
@@ -390,6 +392,24 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 ---
 
+### 11. License
+
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/). See the [LICENSE](LICENSE) file for the full text.
+
+**You may**:
+- Use this software for personal study, academic research, and non-profit purposes
+- Modify and redistribute under the same license terms
+- Use within educational institutions, public research organizations, and government agencies
+
+**You may not**:
+- Use this software for any commercial purpose
+- Sell the software or services built on it
+- Incorporate it into commercial products
+
+For commercial licensing inquiries, please contact the repository owner.
+
+---
+
 ## 中文指南
 
 ### 1. 这个仓库是做什么的
@@ -772,3 +792,21 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - 系统**不会**自动为你在生产环境训练模型——它验证你的训练流程是否防泄漏且可复现。
 - 支持任务类型：仅限**二分类**。多分类、回归和生存分析不在范围内。
 - 28 步管线是**确定性且 fail-closed** 的：任何一个 gate 失败都会阻断整个发布级声明，没有手动覆盖机制。
+
+---
+
+### 11. 许可证
+
+本项目采用 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) 许可协议。完整条文见 [LICENSE](LICENSE) 文件。
+
+**允许**：
+- 个人学习、学术研究、非营利用途
+- 在同一许可条款下修改和再分发
+- 教育机构、公共研究组织、政府机关使用
+
+**禁止**：
+- 任何商业用途
+- 出售本软件或基于它的服务
+- 嵌入商业产品
+
+如需商业授权，请联系仓库所有者。
