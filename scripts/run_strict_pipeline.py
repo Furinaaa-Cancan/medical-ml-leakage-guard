@@ -6,10 +6,12 @@ Single-entry strict pipeline runner for medical leakage-safe prediction review.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import shlex
 import subprocess
 import sys
+import time as _time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -45,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Diagnostic mode: keep executing subsequent gates after failures (never publication-valid).",
     )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Run independent gates concurrently within each dependency layer.",
+    )
     return parser.parse_args()
 
 
@@ -57,6 +64,37 @@ def run_step(name: str, cmd: List[str]) -> Tuple[int, str, str]:
     if proc.stderr:
         print(proc.stderr, file=sys.stderr, end="")
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _run_one(name_cmd: Tuple[str, List[str]]) -> Dict[str, Any]:
+    """Run a single gate in a subprocess (for parallel execution)."""
+    name, cmd = name_cmd
+    code, stdout, stderr = run_step(name, cmd)
+    return {
+        "name": name,
+        "command": shlex.join(cmd),
+        "exit_code": code,
+        "stdout_tail": stdout[-4000:],
+        "stderr_tail": stderr[-4000:],
+    }
+
+
+def run_parallel_batch(
+    batch: List[Tuple[str, List[str]]],
+) -> List[Dict[str, Any]]:
+    """Execute a batch of gate commands concurrently.
+
+    Returns list of step result dicts in the original order.
+    """
+    results: List[Dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as pool:
+        futures = {pool.submit(_run_one, item): i for i, item in enumerate(batch)}
+        indexed: List[Tuple[int, Dict[str, Any]]] = []
+        for future in concurrent.futures.as_completed(futures):
+            indexed.append((futures[future], future.result()))
+        indexed.sort(key=lambda x: x[0])
+        results = [r for _, r in indexed]
+    return results
 
 
 def ensure_number(value: Any, name: str) -> float:
@@ -149,6 +187,29 @@ def main() -> int:
                 )
                 return True
         return ok
+
+    use_parallel = bool(getattr(args, "parallel", False))
+
+    def execute_batch(batch: List[Tuple[str, List[str]]]) -> bool:
+        """Run a batch of independent gates (parallel if --parallel, else sequential)."""
+        nonlocal had_failure
+        if use_parallel and len(batch) > 1:
+            print(f"\n== Parallel batch: {len(batch)} gates ==")
+            batch_results = run_parallel_batch(batch)
+            all_ok = True
+            for result in batch_results:
+                steps.append(result)
+                if result["exit_code"] != 0:
+                    had_failure = True
+                    all_ok = False
+                    if not continue_on_fail:
+                        return False
+            return all_ok or continue_on_fail
+        else:
+            for name, cmd in batch:
+                if not execute(name, cmd):
+                    return False
+            return True
 
     # Step 1: request contract
     if not execute(
@@ -401,79 +462,33 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 4: leakage gate
-    if not execute(
-        "leakage_gate",
-        [
-            args.python,
-            str(scripts_dir / "leakage_gate.py"),
-            *split_args,
-            "--id-cols",
-            id_col,
-            "--time-col",
-            time_col,
-            "--target-col",
-            label_col,
-            "--report",
-            str(reports["leakage_report"]),
-            *strict_flag,
-        ],
-    ):
-        return finalize(args, reports, steps, success=False)
-
-    # Step 5: split protocol gate
-    if not execute(
-        "split_protocol_gate",
-        [
-            args.python,
-            str(scripts_dir / "split_protocol_gate.py"),
-            "--protocol-spec",
-            split_protocol_spec,
-            *split_args,
-            "--id-col",
-            id_col,
-            "--time-col",
-            time_col,
-            "--target-col",
-            label_col,
-            "--report",
-            str(reports["split_protocol_report"]),
-            *strict_flag,
-        ],
-    ):
-        return finalize(args, reports, steps, success=False)
-
-    # Step 6: covariate shift gate
-    if not execute(
-        "covariate_shift_gate",
-        [
-            args.python,
-            str(scripts_dir / "covariate_shift_gate.py"),
-            *split_args,
-            "--target-col",
-            label_col,
-            "--ignore-cols",
-            f"{id_col},{time_col}",
-            "--report",
-            str(reports["covariate_shift_report"]),
-            *strict_flag,
-        ],
-    ):
-        return finalize(args, reports, steps, success=False)
-
-    # Step 7: reporting and bias checklist gate
-    if not execute(
-        "reporting_bias_gate",
-        [
-            args.python,
-            str(scripts_dir / "reporting_bias_gate.py"),
-            "--checklist-spec",
-            reporting_bias_checklist_spec,
-            "--report",
-            str(reports["reporting_bias_report"]),
-            *strict_flag,
-        ],
-    ):
+    # Steps 4-7: independent data validation gates (parallelizable)
+    data_validation_batch: List[Tuple[str, List[str]]] = [
+        ("leakage_gate", [
+            args.python, str(scripts_dir / "leakage_gate.py"),
+            *split_args, "--id-cols", id_col, "--time-col", time_col,
+            "--target-col", label_col,
+            "--report", str(reports["leakage_report"]), *strict_flag,
+        ]),
+        ("split_protocol_gate", [
+            args.python, str(scripts_dir / "split_protocol_gate.py"),
+            "--protocol-spec", split_protocol_spec, *split_args,
+            "--id-col", id_col, "--time-col", time_col, "--target-col", label_col,
+            "--report", str(reports["split_protocol_report"]), *strict_flag,
+        ]),
+        ("covariate_shift_gate", [
+            args.python, str(scripts_dir / "covariate_shift_gate.py"),
+            *split_args, "--target-col", label_col,
+            "--ignore-cols", f"{id_col},{time_col}",
+            "--report", str(reports["covariate_shift_report"]), *strict_flag,
+        ]),
+        ("reporting_bias_gate", [
+            args.python, str(scripts_dir / "reporting_bias_gate.py"),
+            "--checklist-spec", reporting_bias_checklist_spec,
+            "--report", str(reports["reporting_bias_report"]), *strict_flag,
+        ]),
+    ]
+    if not execute_batch(data_validation_batch):
         return finalize(args, reports, steps, success=False)
 
     # Step 8: definition variable guard
