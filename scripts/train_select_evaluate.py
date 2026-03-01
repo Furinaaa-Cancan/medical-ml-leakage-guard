@@ -38,6 +38,7 @@ import hashlib
 import json
 import math
 import os
+import sys
 import warnings
 from itertools import product
 from pathlib import Path
@@ -535,7 +536,7 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
         if isinstance(model_block.get("max_trials_per_family"), int):
             policy_max_trials = int(model_block["max_trials_per_family"])
         token = str(model_block.get("search_strategy", "")).strip().lower()
-        if token in {"random_subsample", "fixed_grid"}:
+        if token in {"random_subsample", "fixed_grid", "optuna"}:
             policy_search = token
         if isinstance(model_block.get("n_jobs"), int):
             policy_n_jobs = int(model_block["n_jobs"])
@@ -573,7 +574,7 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
         if isinstance(policy_search, str) and policy_search
         else str(args.hyperparam_search).strip().lower()
     )
-    if search_strategy not in {"random_subsample", "fixed_grid"}:
+    if search_strategy not in {"random_subsample", "fixed_grid", "optuna"}:
         search_strategy = "random_subsample"
 
     max_trials_per_family = (
@@ -4110,8 +4111,7 @@ def _environment_versions() -> Dict[str, str]:
             versions[pkg] = str(getattr(mod, "__version__", "unknown"))
         except ImportError:
             versions[pkg] = "not_installed"
-    import sys as _sys
-    versions["python"] = _sys.version.split()[0]
+    versions["python"] = sys.version.split()[0]
     import platform as _plat
     versions["platform"] = _plat.platform()
     return versions
