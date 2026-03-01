@@ -304,6 +304,7 @@ CV Splits:  {{ session.cv_splits }}
 # ── routes ─────────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
+    """Render the main wizard page for the current session."""
     sid = request.cookies.get("sid") or str(uuid.uuid4())
     session = get_session(sid)
     resp = Response(
@@ -317,6 +318,7 @@ def index():
 
 @app.route("/step/<int:step_num>", methods=["POST"])
 def handle_step(step_num: int):
+    """Process form submission for a wizard step."""
     sid = request.form.get("sid") or request.cookies.get("sid", "")
     session = get_session(sid)
 
@@ -374,6 +376,7 @@ def handle_step(step_num: int):
 
 @app.route("/advance")
 def advance():
+    """Advance to the next pipeline phase after a background task completes."""
     sid = request.args.get("sid") or request.cookies.get("sid", "")
     session = get_session(sid)
     if session["step"] == 6:
@@ -389,6 +392,7 @@ def advance():
 
 @app.route("/reset")
 def reset():
+    """Reset the session and start a new wizard run."""
     sid = request.args.get("sid") or request.cookies.get("sid", "")
     if sid in _sessions:
         del _sessions[sid]
