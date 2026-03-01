@@ -4223,15 +4223,17 @@ def _error_analysis(
         if len(fp_vals) > 0 and len(tn_vals) > 0:
             fp_m = float(np.nanmean(fp_vals))
             tn_m = float(np.nanmean(tn_vals))
-            entry["fp_mean"] = round(fp_m, 4)
-            entry["tn_mean"] = round(tn_m, 4)
-            entry["fp_tn_diff"] = round(fp_m - tn_m, 4)
+            if np.isfinite(fp_m) and np.isfinite(tn_m):
+                entry["fp_mean"] = round(fp_m, 4)
+                entry["tn_mean"] = round(tn_m, 4)
+                entry["fp_tn_diff"] = round(fp_m - tn_m, 4)
         if len(fn_vals) > 0 and len(tp_vals) > 0:
             fn_m = float(np.nanmean(fn_vals))
             tp_m = float(np.nanmean(tp_vals))
-            entry["fn_mean"] = round(fn_m, 4)
-            entry["tp_mean"] = round(tp_m, 4)
-            entry["fn_tp_diff"] = round(fn_m - tp_m, 4)
+            if np.isfinite(fn_m) and np.isfinite(tp_m):
+                entry["fn_mean"] = round(fn_m, 4)
+                entry["tp_mean"] = round(tp_m, 4)
+                entry["fn_tp_diff"] = round(fn_m - tp_m, 4)
         if entry:
             feature_diffs[str(col)] = entry
 
