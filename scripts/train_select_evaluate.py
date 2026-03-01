@@ -241,7 +241,8 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Comma-separated model families. Supported: "
             "logistic_l1,logistic_l2,logistic_elasticnet,random_forest_balanced,"
-            "extra_trees_balanced,hist_gradient_boosting_l2,adaboost,xgboost,catboost."
+            "extra_trees_balanced,hist_gradient_boosting_l2,adaboost,xgboost,catboost,"
+            "lightgbm,svm_linear,svm_rbf,tabpfn,soft_voting,weighted_voting,stacking."
         ),
     )
     parser.add_argument(
@@ -5516,7 +5517,7 @@ def main() -> int:
         group_count = max(1, int(args.robustness_group_count))
         time_slices_block: Dict[str, Any] = {"slice_field": "event_time", "n_slices": time_slices, "slices": []}
         patient_groups_block: Dict[str, Any] = {
-            "group_method": f"sha256(patient_id)%{group_count}",
+            "group_method": f"sha256({args.patient_id_col})%{group_count}",
             "n_groups": group_count,
             "groups": [],
         }
@@ -5543,9 +5544,9 @@ def main() -> int:
                 }
             )
 
-        if "patient_id" not in test_df.columns:
-            raise SystemExit("robustness report requires patient_id column in test split.")
-        patient_ids = test_df["patient_id"].astype(str).tolist()
+        if args.patient_id_col not in test_df.columns:
+            raise SystemExit(f"robustness report requires {args.patient_id_col} column in test split.")
+        patient_ids = test_df[args.patient_id_col].astype(str).tolist()
         group_indices: Dict[int, List[int]] = {k: [] for k in range(group_count)}
         for idx, pid in enumerate(patient_ids):
             group_indices[stable_group_index(pid, group_count)].append(idx)
