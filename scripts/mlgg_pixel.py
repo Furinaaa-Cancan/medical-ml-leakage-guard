@@ -593,20 +593,33 @@ def detect_columns(cols: List[str]) -> Dict[str, Optional[str]]:
 
 
 def scan_csv() -> List[Path]:
+    _MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+    _DIR_TIMEOUT = 2.0  # seconds per directory
+    _MAX_TOTAL = 30
     found: List[Path] = []
+    seen: set[Path] = set()
     for d in [EXAMPLES_DIR, DESKTOP, Path.home()/"Downloads",
               Path.home()/"Documents", REPO_ROOT, DEFAULT_OUT]:
+        if len(found) >= _MAX_TOTAL:
+            break
         if d.is_dir():
             try:
+                t0 = time.time()
                 for f in sorted(d.glob("*.csv"))[:10]:
+                    if time.time() - t0 > _DIR_TIMEOUT:
+                        break
                     try:
-                        if f not in found and f.stat().st_size > 100:
+                        st = f.stat()
+                        if f not in seen and 100 < st.st_size <= _MAX_FILE_SIZE:
                             found.append(f)
+                            seen.add(f)
                     except (PermissionError, OSError):
                         pass
+                    if len(found) >= _MAX_TOTAL:
+                        break
             except (PermissionError, OSError):
                 pass
-    return found[:15]
+    return found[:_MAX_TOTAL]
 
 
 def csv_cols(path: Path) -> List[str]:
