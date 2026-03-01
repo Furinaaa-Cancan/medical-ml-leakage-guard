@@ -227,8 +227,16 @@ def main() -> int:
         print(f"Report not found: {path}", file=sys.stderr)
         return 1
 
-    with path.open("r", encoding="utf-8") as f:
-        report = json.load(f)
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            report = json.load(f)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON in report: {exc}", file=sys.stderr)
+        return 1
+
+    if not isinstance(report, dict):
+        print(f"Report is not a JSON object.", file=sys.stderr)
+        return 1
 
     result = explain_report(report, args.lang)
 

@@ -19,7 +19,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -228,8 +228,15 @@ def main() -> int:
         print(f"Evaluation report not found: {report_path}", file=sys.stderr)
         return 1
 
-    with report_path.open("r", encoding="utf-8") as f:
-        report = json.load(f)
+    try:
+        with report_path.open("r", encoding="utf-8") as f:
+            report = json.load(f)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON in evaluation report: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(report, dict):
+        print(f"Evaluation report is not a JSON object.", file=sys.stderr)
+        return 1
 
     out = Path(args.output_dir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)

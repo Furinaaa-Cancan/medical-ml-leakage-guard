@@ -22,20 +22,17 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 try:
     from flask import (
         Flask,
         Response,
-        jsonify,
         redirect,
         render_template_string,
         request,
-        send_from_directory,
         url_for,
     )
 except ImportError:

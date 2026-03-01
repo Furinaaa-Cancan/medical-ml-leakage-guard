@@ -65,9 +65,12 @@ def _load(path: Optional[str]) -> Optional[Dict[str, Any]]:
     p = Path(path).expanduser().resolve()
     if not p.exists():
         return None
-    with p.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data if isinstance(data, dict) else None
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _escape(text: str) -> str:
