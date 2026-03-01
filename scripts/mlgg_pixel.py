@@ -713,6 +713,95 @@ def run_spinner(cmd: List[str], label: str, cwd: str = "",
     return p.returncode, p.stdout, p.stderr
 
 
+def run_with_progress(cmd: List[str], label: str, total: int = 0,
+                      cwd: str = "", timeout: int = 3600) -> Tuple[int, str, str]:
+    """Run a subprocess while parsing ``[PROGRESS] i/n model_id`` lines from stderr.
+
+    Displays a real-time progress bar with the current model name.
+    Falls back to a spinner if no [PROGRESS] lines arrive.
+    """
+    import re as _re
+    _prog_re = _re.compile(r"\[PROGRESS\]\s+(\d+)/(\d+)\s+(.*)")
+    bar_w = 24
+    current = 0
+    cur_model = ""
+    stderr_lines: List[str] = []
+    stdout_buf: List[str] = []
+
+    sys.stdout.write(HIDE_CUR)
+    sys.stdout.flush()
+
+    def _draw_bar(done: int, total_n: int, model_name: str) -> None:
+        if total_n <= 0:
+            total_n = 1
+        pct = min(int(done * 100 / total_n), 100)
+        filled = int(bar_w * done / total_n)
+        bar = s('C', '\u2588' * filled) + DIM + '\u2591' * (bar_w - filled) + RST
+        name = model_name[:30] if model_name else ""
+        sys.stdout.write(f"\r{ERASE}  {bar} {s('W', f'{pct:>3}%')}  "
+                         f"{s('W', label)} {s('D', name)}")
+        sys.stdout.flush()
+
+    _draw_bar(0, max(total, 1), "")
+
+    try:
+        proc = subprocess.Popen(
+            cmd, cwd=cwd or str(REPO_ROOT),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True,
+        )
+        import selectors as _sel
+        sel = _sel.DefaultSelector()
+        sel.register(proc.stdout, _sel.EVENT_READ)
+        sel.register(proc.stderr, _sel.EVENT_READ)
+
+        open_streams = 2
+        while open_streams > 0:
+            events = sel.select(timeout=0.2)
+            if not events:
+                # animate spinner in the model name field while waiting
+                spin_frames = Spinner.FRAMES
+                idx = int(time.time() * 10) % len(spin_frames)
+                _draw_bar(current, max(total, 1),
+                          cur_model + " " + spin_frames[idx] if cur_model else spin_frames[idx])
+                continue
+            for key, _ in events:
+                line = key.fileobj.readline()
+                if not line:
+                    sel.unregister(key.fileobj)
+                    open_streams -= 1
+                    continue
+                if key.fileobj is proc.stderr:
+                    stderr_lines.append(line)
+                    m = _prog_re.match(line.strip())
+                    if m:
+                        current = int(m.group(1))
+                        total = int(m.group(2))
+                        cur_model = m.group(3).strip()
+                        _draw_bar(current, total, cur_model)
+                else:
+                    stdout_buf.append(line)
+
+        proc.wait(timeout=timeout)
+        rc = proc.returncode
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        rc = 124
+        stderr_lines.append(f"\n[TIMEOUT] Process killed after {timeout}s.\n")
+    except KeyboardInterrupt:
+        proc.kill()
+        rc = 130
+        stderr_lines.append("\n[INTERRUPTED] Process terminated by user.\n")
+
+    # final complete bar
+    if total > 0:
+        _draw_bar(total, total, s('G', '\u2713'))
+    sys.stdout.write(f"\r{ERASE}{SHOW_CUR}")
+    sys.stdout.flush()
+
+    return rc, "".join(stdout_buf), "".join(stderr_lines)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  SMART DETECTION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1927,7 +2016,7 @@ def step_run(state: Dict) -> Any:
     if state.get("hyperparam_search") == "optuna":
         train_cmd.extend(["--optuna-trials", str(state.get("optuna_trials", 50))])
 
-    rc, _, err = run_spinner(train_cmd, train_label)
+    rc, _, err = run_with_progress(train_cmd, train_label, total=model_count)
     if rc != 0:
         completed.append((train_label, "fail"))
         _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()

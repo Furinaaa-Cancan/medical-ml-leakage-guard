@@ -4619,11 +4619,14 @@ def main() -> int:
             print(f"Checkpoint: corrupted or unreadable ({exc}), starting fresh.", file=sys.stderr)
 
     candidate_rows: List[Dict[str, Any]] = []
-    for cand in candidates:
+    n_candidates = len(candidates)
+    for cand_idx, cand in enumerate(candidates):
         mid = str(cand["model_id"])
         if mid in resumed_rows:
             candidate_rows.append(resumed_rows[mid])
+            print(f"[PROGRESS] {cand_idx + 1}/{n_candidates} {mid} (cached)", file=sys.stderr, flush=True)
             continue
+        print(f"[PROGRESS] {cand_idx + 1}/{n_candidates} {mid}", file=sys.stderr, flush=True)
         if selection_data == "cv_inner":
             mean_score, std_score, n_folds, fold_scores = cv_score_pr_auc(
                 cand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
