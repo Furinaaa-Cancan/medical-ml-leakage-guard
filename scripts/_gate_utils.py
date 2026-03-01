@@ -25,10 +25,12 @@ def add_issue(
     message: str,
     details: Dict[str, Any],
 ) -> None:
+    """Append a structured issue dict to a bucket list."""
     bucket.append({"code": code, "message": message, "details": details})
 
 
 def load_json_from_path(path: Path) -> Dict[str, Any]:
+    """Load and validate a JSON object from a Path."""
     with path.open("r", encoding="utf-8") as fh:
         payload = json.load(fh)
     if not isinstance(payload, dict):
@@ -37,6 +39,7 @@ def load_json_from_path(path: Path) -> Dict[str, Any]:
 
 
 def load_json_from_str(path: str) -> Dict[str, Any]:
+    """Load and validate a JSON object from a string path."""
     p = Path(path).expanduser().resolve()
     with p.open("r", encoding="utf-8") as fh:
         payload = json.load(fh)
@@ -46,12 +49,14 @@ def load_json_from_str(path: str) -> Dict[str, Any]:
 
 
 def load_json(path: Union[str, Path]) -> Dict[str, Any]:
+    """Load a JSON object from a string or Path."""
     if isinstance(path, Path):
         return load_json_from_path(path)
     return load_json_from_str(path)
 
 
 def load_json_optional(path: Path) -> Optional[Dict[str, Any]]:
+    """Load a JSON object if the file exists, else return None."""
     if not path.exists():
         return None
     with path.open("r", encoding="utf-8") as fh:
@@ -62,6 +67,7 @@ def load_json_optional(path: Path) -> Optional[Dict[str, Any]]:
 
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
+    """Atomically write a JSON object to a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(
         f".{path.name}.tmp-{os.getpid()}-{int(time.time() * 1_000_000)}"
@@ -75,6 +81,7 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 
 def resolve_path(base: Path, value: str) -> Path:
+    """Resolve a potentially relative path against a base directory."""
     p = Path(value).expanduser()
     if not p.is_absolute():
         p = (base / p).resolve()
@@ -179,6 +186,7 @@ def install_gate_timeout(
 
 
 def to_float(value: Any) -> Optional[float]:
+    """Safely convert a value to float, rejecting inf/nan and non-numeric."""
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)) and math.isfinite(float(value)):
