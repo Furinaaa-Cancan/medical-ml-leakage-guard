@@ -1720,6 +1720,37 @@ def step_run(state: Dict) -> Any:
                     if len(cmp_lines) > 1:
                         print()
                         box("Train / Valid / Test", cmp_lines, color="C")
+
+            # Model selection summary (mean±std from CV)
+            ms_path = Path(evidence_dir) / "model_selection_report.json"
+            if ms_path.exists():
+                ms_data = _json.loads(ms_path.read_text())
+                candidates = ms_data.get("candidates", [])
+                sel_id = ms_data.get("selected_model_id", "")
+                trace = ms_data.get("selection_trace", {})
+                if candidates:
+                    sel_lines = []
+                    sel_lines.append(f"  {'Candidates':<14} {len(candidates)}")
+                    if trace.get("one_se_threshold") is not None:
+                        sel_lines.append(f"  {'1-SE cutoff':<14} {float(trace['one_se_threshold']):.4f}")
+                    sel_lines.append("")
+                    sel_lines.append(f"  {'':20} {'mean':>8}  {'std':>8}  {'folds':>5}")
+                    top = sorted(candidates,
+                                 key=lambda c: -float(c.get("selection_metrics", {}).get("pr_auc", {}).get("mean", 0)))
+                    for c in top[:5]:
+                        sm = c.get("selection_metrics", {}).get("pr_auc", {})
+                        m = sm.get("mean")
+                        sd = sm.get("std")
+                        nf = sm.get("n_folds", 1)
+                        if m is not None:
+                            tag = " *" if c.get("model_id") == sel_id else ""
+                            name = str(c.get("model_id", "?"))[:20]
+                            sd_str = f"{float(sd):.4f}" if sd else "   --"
+                            sel_lines.append(f"  {name:<20} {float(m):>8.4f}  {sd_str:>8}  {nf:>5}{tag}")
+                    sel_lines.append("")
+                    sel_lines.append(f"  {DIM}* = selected (1-SE rule){RST}")
+                    print()
+                    box("Model Selection (CV)", sel_lines, color="C")
     except Exception:
         pass
 
