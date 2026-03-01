@@ -556,7 +556,7 @@ class Spinner:
         self._t.start(); return self
     def __exit__(self, *_: Any) -> None:
         self._stop.set()
-        if self._t: self._t.join()
+        if self._t: self._t.join(timeout=2)
         sys.stdout.write(f"\r{ERASE}{SHOW_CUR}"); sys.stdout.flush()
     def _run(self) -> None:
         for f in itertools.cycle(self.FRAMES):
@@ -572,13 +572,16 @@ def run_spinner(cmd: List[str], label: str, cwd: str = "",
         try:
             p = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT),
                                capture_output=True, text=True,
-                               timeout=timeout)
+                               timeout=timeout,
+                               start_new_session=True)
         except subprocess.TimeoutExpired as exc:
             return (
                 124,
                 exc.stdout or "",
                 (exc.stderr or "") + f"\n[TIMEOUT] Process killed after {timeout}s.\n",
             )
+        except KeyboardInterrupt:
+            return (130, "", "\n[INTERRUPTED] Process terminated by user.\n")
     return p.returncode, p.stdout, p.stderr
 
 
@@ -747,6 +750,18 @@ def _load_history() -> Optional[Dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 #  WIZARD STEPS
 # ══════════════════════════════════════════════════════════════════════════════
+
+def prompt(label: str, default: str = "") -> str:
+    """Prompt the user for a text input with optional default value."""
+    sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+    suffix = f" [{default}]" if default else ""
+    try:
+        raw = input(f"  {s('C','>')} {s('W', label)}{suffix}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+    return raw if raw else default
+
 
 def step_lang(state: Dict) -> Any:
     _clear()
