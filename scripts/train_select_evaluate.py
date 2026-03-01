@@ -4040,6 +4040,14 @@ def _inference_benchmark(
     """
     import time
     sample = X_sample.head(min(100, len(X_sample)))
+    # Warm-up run to exclude JIT/cache cold-start
+    try:
+        if hasattr(estimator, "predict_proba"):
+            estimator.predict_proba(sample)
+        else:
+            estimator.predict(sample)
+    except Exception:
+        pass
     times = []
     for _ in range(n_repeats):
         t0 = time.perf_counter()
