@@ -4316,10 +4316,6 @@ def main() -> int:
             "skipped_fast_diagnostic_mode": True,
         }
 
-    if low_mem:
-        del train_df, valid_df, test_df
-        gc.collect()
-
     compute_ci_matrix = bool(args.ci_matrix_report_out) or not fast_diagnostic_mode
     ci_matrix_report_payload: Optional[Dict[str, Any]] = None
     if compute_ci_matrix:
@@ -4590,6 +4586,10 @@ def main() -> int:
                 "test_rows": int(X_test.shape[0]),
             },
         }
+
+    if low_mem:
+        del train_df, valid_df, test_df
+        gc.collect()
 
     model_selection_out = Path(args.model_selection_report_out).expanduser().resolve()
     evaluation_out = Path(args.evaluation_report_out).expanduser().resolve()
