@@ -59,9 +59,10 @@ def s(fg: str, text: str, bold: bool = False) -> str:
     return f"{BOLD if bold else ''}{FG.get(fg, '')}{text}{RST}"
 
 def _wlen(text: str) -> int:
-    import unicodedata
+    import unicodedata, re
+    clean = re.sub(r'\033\[[0-9;]*m', '', text)
     return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-               for ch in text)
+               for ch in clean)
 
 def _cols() -> int:
     return shutil.get_terminal_size((80, 24)).columns
