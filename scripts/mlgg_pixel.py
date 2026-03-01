@@ -97,11 +97,11 @@ _T: Dict[str, Dict[str, str]] = {
     "lang_en":       {"en": "English", "zh": "English"},
     "lang_zh":       {"en": "\u4e2d\u6587", "zh": "\u4e2d\u6587"},
 
-    "nav":           {"en": "[\u2191\u2193] move  [Enter] next  [q] back",
-                      "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [q] \u8fd4\u56de"},
-    "nav_first":     {"en": "[\u2191\u2193] move  [Enter] next  [q] quit",
-                      "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [q] \u9000\u51fa"},
-    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] toggle  [Enter] confirm  [a] all  [q] back",
+    "nav":           {"en": "[\u2191\u2193] move  [Enter] next  [\u2190/q] back",
+                      "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u8fd4\u56de"},
+    "nav_first":     {"en": "[\u2191\u2193] move  [Enter] next  [\u2190/q] quit",
+                      "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u9000\u51fa"},
+    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] toggle  [Enter] confirm  [a] all  [\u2190/q] back",
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u5207\u6362  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [q] \u8fd4\u56de"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
@@ -343,8 +343,12 @@ def detect_lang() -> str:
 #  TERMINAL INPUT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _getch() -> str:
-    """Read one keypress using os.read (unbuffered) to avoid Python stdin buffering."""
+def _getch(text_mode: bool = False) -> str:
+    """Read one keypress using os.read (unbuffered) to avoid Python stdin buffering.
+
+    When *text_mode* is True, printable characters (including ``q`` and ``a``)
+    are returned as-is instead of being mapped to command strings.
+    """
     try:
         import tty, termios, select as sel_mod
         fd = sys.stdin.fileno()
@@ -373,15 +377,78 @@ def _getch() -> str:
             if ch in (b"\r", b"\n"): return "ENTER"
             if ch == b"\x03": return "CTRL_C"
             if ch == b"\x04": return "CTRL_D"
-            if ch == b" ": return "SPACE"
-            if ch == b"q": return "Q"
-            if ch == b"a": return "A"
+            if not text_mode:
+                if ch == b" ": return "SPACE"
+                if ch == b"q": return "Q"
+                if ch == b"a": return "A"
             return ch.decode("latin-1")
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except Exception:
         raw = input()
         return raw.strip() or "ENTER"
+
+
+_BACK_SENTINEL = None  # returned by _input_line on ESC
+
+
+def _input_line(prompt_str: str, default: str = "") -> Optional[str]:
+    """Read a line of text using _getch(text_mode=True).
+
+    - **ESC / Ctrl-C / Ctrl-D** → return ``None`` (back signal)
+    - **Enter** → return the buffer (or *default* when empty)
+    - **Backspace** / **LEFT** / **RIGHT** → editing
+    - All printable characters inserted at cursor position
+    """
+    buf: List[str] = []
+    cur = 0
+    sys.stdout.write(SHOW_CUR)
+    sys.stdout.write(prompt_str)
+    sys.stdout.flush()
+
+    def _redraw() -> None:
+        sys.stdout.write(f"\r{ERASE}{prompt_str}{''.join(buf)}")
+        tail = len(buf) - cur
+        if tail > 0:
+            sys.stdout.write(f"\033[{tail}D")
+        sys.stdout.flush()
+
+    while True:
+        key = _getch(text_mode=True)
+        if key == "ESC":
+            sys.stdout.write(f"\r{ERASE}")
+            sys.stdout.flush()
+            return None
+        elif key in ("CTRL_C", "CTRL_D"):
+            sys.stdout.write(f"\r{ERASE}")
+            sys.stdout.flush()
+            return None
+        elif key == "ENTER":
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            result = "".join(buf).strip()
+            return result if result else default
+        elif key in ("\x7f", "\x08"):
+            if cur > 0:
+                buf.pop(cur - 1)
+                cur -= 1
+                _redraw()
+        elif key == "LEFT":
+            if cur > 0:
+                cur -= 1
+                sys.stdout.write("\033[D")
+                sys.stdout.flush()
+        elif key == "RIGHT":
+            if cur < len(buf):
+                cur += 1
+                sys.stdout.write("\033[C")
+                sys.stdout.flush()
+        elif key in ("UP", "DOWN", "PAGE_UP", "PAGE_DOWN"):
+            pass  # ignore in text input
+        elif len(key) == 1 and (key.isprintable() or key == " "):
+            buf.insert(cur, key)
+            cur += 1
+            _redraw()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -473,7 +540,7 @@ def select(options: List[str], descs: Optional[List[str]] = None,
         elif key == "ENTER":
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return sel
-        elif key in ("Q", "CTRL_C", "CTRL_D", "ESC"):
+        elif key in ("Q", "CTRL_C", "CTRL_D", "ESC", "LEFT"):
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return -1
         elif len(key) == 1 and key.isdigit() and 1 <= int(key) <= min(n, 9):
@@ -575,7 +642,7 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
         elif key == "ENTER":
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return sorted(checked)
-        elif key in ("Q", "CTRL_C", "CTRL_D", "ESC"):
+        elif key in ("Q", "CTRL_C", "CTRL_D", "ESC", "LEFT"):
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return None
         else:
@@ -810,16 +877,18 @@ def _load_history() -> Optional[Dict]:
 #  WIZARD STEPS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def prompt(label: str, default: str = "") -> str:
-    """Prompt the user for a text input with optional default value."""
-    sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+def prompt(label: str, default: str = "") -> Optional[str]:
+    """Prompt the user for a text input with optional default value.
+
+    Returns None when the user presses ESC (back signal).
+    Returns "" only on empty input with no default.
+    """
     suffix = f" [{default}]" if default else ""
-    try:
-        raw = input(f"  {s('C','>')} {s('W', label)}{suffix}: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return ""
-    return raw if raw else default
+    prompt_str = f"  {s('C','>')} {s('W', label)}{suffix}: "
+    result = _input_line(prompt_str, default="")
+    if result is None:
+        return None
+    return result if result else default
 
 
 def step_lang(state: Dict) -> Any:
@@ -928,11 +997,8 @@ def step_dataset(state: Dict) -> Any:
 
         default_name = files[ci]
         print(f"\n  {s('W', t('pick_outname'))}")
-        sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-        try:
-            name = input(f"  {s('C','>')} [{default_name}]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
+        name = _input_line(f"  {s('C','>')} [{default_name}]: ")
+        if name is None:
             return BACK
         if name:
             state["out_dir"] = str(DEFAULT_OUT / name)
@@ -949,20 +1015,14 @@ def step_dataset(state: Dict) -> Any:
         if fi < 0:
             return BACK
         if fi == len(files):
-            sys.stdout.write(SHOW_CUR)
-            try:
-                path = input(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            path = _input_line(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ")
+            if path is None:
                 return BACK
         else:
             path = str(files[fi])
     else:
-        sys.stdout.write(SHOW_CUR)
-        try:
-            path = input(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
+        path = _input_line(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ")
+        if path is None:
             return BACK
 
     if not path or not Path(path).exists():
@@ -980,11 +1040,8 @@ def step_dataset(state: Dict) -> Any:
 
     default_name = Path(path).stem
     print(f"\n  {s('W', t('pick_outname'))}")
-    sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-    try:
-        name = input(f"  {s('C','>')} [{default_name}]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
+    name = _input_line(f"  {s('C','>')} [{default_name}]: ")
+    if name is None:
         return BACK
     if name:
         state["out_dir"] = str(DEFAULT_OUT / name)
@@ -1285,11 +1342,8 @@ def step_tuning(state: Dict) -> Any:
             step_header(8, TOTAL_STEPS, t("s_tuning"))
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
             print(f"  {s('W', t('pick_optuna_trials'))}")
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-            try:
-                raw = input(f"  {s('C','>')} [{state.get('optuna_trials', 50)}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            raw = _input_line(f"  {s('C','>')} [{state.get('optuna_trials', 50)}]: ")
+            if raw is None:
                 sub = 0; continue
             try:
                 state["optuna_trials"] = int(raw) if raw else 50
@@ -1305,11 +1359,8 @@ def step_tuning(state: Dict) -> Any:
                 print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
             print()
             print(f"  {s('W', t('adv_trials'))}")
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-            try:
-                raw = input(f"  {s('C','>')} [{state.get('max_trials', 20)}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            raw = _input_line(f"  {s('C','>')} [{state.get('max_trials', 20)}]: ")
+            if raw is None:
                 sub = 1 if state["hyperparam_search"] == "optuna" else 0
                 continue
             try:
@@ -1387,11 +1438,8 @@ def step_advanced(state: Dict) -> Any:
                 ignore_parts.append(state["time"])
             default_ignore = state.get("ignore_cols", ",".join(ignore_parts))
             print(f"  {s('W', t('adv_ignore'))}")
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-            try:
-                raw = input(f"  {s('C','>')} [{default_ignore}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            raw = _input_line(f"  {s('C','>')} [{default_ignore}]: ")
+            if raw is None:
                 return BACK
             state["ignore_cols"] = raw if raw else default_ignore
             sub = 1
@@ -1401,11 +1449,8 @@ def step_advanced(state: Dict) -> Any:
             step_header(9, TOTAL_STEPS, t("s_advanced"))
             print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}\n")
             print(f"  {s('W', t('adv_njobs'))}")
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-            try:
-                raw = input(f"  {s('C','>')} [{state.get('n_jobs', 1)}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
+            raw = _input_line(f"  {s('C','>')} [{state.get('n_jobs', 1)}]: ")
+            if raw is None:
                 sub = 0; continue
             try:
                 state["n_jobs"] = int(raw) if raw else state.get("n_jobs", 1)
