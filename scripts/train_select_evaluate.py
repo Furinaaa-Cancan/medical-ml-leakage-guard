@@ -287,11 +287,11 @@ def parse_args() -> argparse.Namespace:
         default=-1,
         help="Parallel CPU workers for multi-core estimators (e.g., RF/XGBoost).",
     )
-    parser.add_argument("--beta", type=float, default=2.0, help="Beta for F-beta threshold objective.")
-    parser.add_argument("--sensitivity-floor", type=float, default=0.85, help="Minimum sensitivity for threshold choice.")
-    parser.add_argument("--npv-floor", type=float, default=0.90, help="Minimum NPV for threshold choice.")
-    parser.add_argument("--specificity-floor", type=float, default=0.40, help="Minimum specificity for threshold choice.")
-    parser.add_argument("--ppv-floor", type=float, default=0.55, help="Minimum PPV for threshold choice.")
+    parser.add_argument("--beta", type=float, default=1.5, help="Beta for F-beta threshold objective.")
+    parser.add_argument("--sensitivity-floor", type=float, default=0.70, help="Minimum sensitivity for threshold choice.")
+    parser.add_argument("--npv-floor", type=float, default=0.70, help="Minimum NPV for threshold choice.")
+    parser.add_argument("--specificity-floor", type=float, default=0.60, help="Minimum specificity for threshold choice.")
+    parser.add_argument("--ppv-floor", type=float, default=0.50, help="Minimum PPV for threshold choice.")
     parser.add_argument("--random-seed", type=int, default=20260225, help="Random seed.")
     parser.add_argument("--primary-metric", default="pr_auc", help="Primary optimization metric.")
     parser.add_argument("--bootstrap-resamples", type=int, default=500, help="Bootstrap samples for CI.")

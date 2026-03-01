@@ -1634,10 +1634,10 @@ def step_run(state: Dict) -> Any:
                     metric_lines.append("")
                 # Core metrics
                 for key, label in [("roc_auc", "ROC-AUC"), ("pr_auc", "PR-AUC"),
-                                   ("sensitivity", "Sensitivity"), ("npv", "NPV"),
-                                   ("specificity", "Specificity"), ("ppv", "PPV"),
-                                   ("f2_beta", "F2-beta"), ("brier", "Brier"),
-                                   ("accuracy", "Accuracy")]:
+                                   ("f2_beta", "F-beta"), ("accuracy", "Accuracy"),
+                                   ("sensitivity", "Sensitivity"), ("specificity", "Specificity"),
+                                   ("ppv", "PPV"), ("npv", "NPV"),
+                                   ("brier", "Brier")]:
                     val = metrics.get(key)
                     if val is not None:
                         line = f"  {label:<14} {float(val):.4f}"
