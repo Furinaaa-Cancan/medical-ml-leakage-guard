@@ -347,8 +347,11 @@ def log_boundary_hashes(path: Path) -> Tuple[int, Optional[str], Optional[str]]:
 def ensure_revocation_file(path: Path) -> Dict[str, Any]:
     ensure_parent(path)
     if path.exists():
-        with path.open("r", encoding="utf-8") as fh:
-            loaded = json.load(fh)
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON in revocation list {path}: {exc}") from exc
         if not isinstance(loaded, dict):
             raise ValueError(f"revocation_list_file must be JSON object: {path}")
         if "revoked_key_ids" not in loaded:

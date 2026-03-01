@@ -200,8 +200,11 @@ def read_missing_stats(path: str, split_name: str, target_col: str) -> Dict[str,
 
 def load_json_obj(path: str) -> Dict[str, Any]:
     p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {p}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("JSON root must be object.")
     return payload

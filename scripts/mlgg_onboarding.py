@@ -206,8 +206,11 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 
 def load_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"JSON root must be object: {path}")
     return payload
