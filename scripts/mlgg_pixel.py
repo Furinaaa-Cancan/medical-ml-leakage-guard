@@ -43,6 +43,7 @@ FG = {
     "b": "\033[34m", "m": "\033[35m", "c": "\033[36m", "w": "\033[37m",
     "R": "\033[91m", "G": "\033[92m", "Y": "\033[93m", "B": "\033[94m",
     "M": "\033[95m", "C": "\033[96m", "W": "\033[97m",
+    "D": "\033[2m",
 }
 BG = {"b": "\033[44m", "c": "\033[46m", "g": "\033[42m", "y": "\033[43m", "k": "\033[40m"}
 HIDE_CUR = "\033[?25l"
@@ -77,13 +78,25 @@ def _clear() -> None:
 def _trunc(text: str, maxw: int) -> str:
     if _wlen(text) <= maxw:
         return text
-    import unicodedata
+    import unicodedata, re
+    # Walk visible characters, skipping ANSI sequences
     w = 0
-    for i, ch in enumerate(text):
+    i = 0
+    n = len(text)
+    while i < n:
+        # Skip ANSI escape sequence
+        if text[i] == '\033' and i + 1 < n and text[i + 1] == '[':
+            j = i + 2
+            while j < n and text[j] not in 'mGHJK':
+                j += 1
+            i = j + 1
+            continue
+        ch = text[i]
         cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
         if w + cw + 3 > maxw:
-            return text[:i] + "..."
+            return text[:i] + RST + "..."
         w += cw
+        i += 1
     return text
 
 
