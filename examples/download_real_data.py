@@ -49,6 +49,10 @@ RAW_DIR = REPO_ROOT / "experiments" / "authority-e2e" / "raw"
 URLS = {
     "heart": "https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data",
     "breast": "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data",
+    "hepatitis": "https://archive.ics.uci.edu/ml/machine-learning-databases/hepatitis/hepatitis.data",
+    "spect": "https://archive.ics.uci.edu/ml/machine-learning-databases/spect/SPECT.train",
+    "spect_test": "https://archive.ics.uci.edu/ml/machine-learning-databases/spect/SPECT.test",
+    "dermatology": "https://archive.ics.uci.edu/ml/machine-learning-databases/dermatology/dermatology.data",
 }
 
 
@@ -310,6 +314,122 @@ def prepare_ckd(output: Path) -> None:
     print(f"      --strategy grouped_temporal")
 
 
+def prepare_hepatitis(output: Path) -> None:
+    """UCI Hepatitis — ~155 patients, 19 features."""
+    print("\n=== UCI Hepatitis ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/hepatitis")
+    print("  Rows: ~155 | Features: 19 | Task: predict survival")
+
+    raw_path = output.parent / ".hepatitis_raw.data"
+    download_file(URLS["hepatitis"], raw_path)
+
+    columns = [
+        "class", "age", "sex", "steroid", "antivirals", "fatigue", "malaise",
+        "anorexia", "liver_big", "liver_firm", "spleen_palpable", "spiders",
+        "ascites", "varices", "bilirubin", "alk_phosphate", "sgot",
+        "albumin", "protime", "histology",
+    ]
+    df = pd.read_csv(raw_path, header=None, names=columns, na_values="?")
+
+    # Binary target: class 1=die, 2=live → 1=die, 0=live
+    df["y"] = (df["class"] == 1).astype(int)
+    df = df.drop(columns=["class"])
+
+    # Convert all to numeric
+    for col in df.columns:
+        if col != "y":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(how="all", subset=[c for c in df.columns if c != "y"]).reset_index(drop=True)
+    df = add_patient_id_and_time(df, seed=45)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (die): {pos} ({pos/len(df)*100:.1f}%) | Negative (live): {neg}")
+
+
+def prepare_spect(output: Path) -> None:
+    """UCI SPECT Heart — ~267 patients, 22 binary features."""
+    print("\n=== UCI SPECT Heart ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/SPECT+Heart")
+    print("  Rows: ~267 | Features: 22 | Task: predict cardiac SPECT diagnosis")
+
+    train_path = output.parent / ".spect_train.data"
+    test_path = output.parent / ".spect_test.data"
+    download_file(URLS["spect"], train_path)
+    download_file(URLS["spect_test"], test_path)
+
+    columns = ["y"] + [f"F{i}" for i in range(1, 23)]
+    df_train = pd.read_csv(train_path, header=None, names=columns)
+    df_test = pd.read_csv(test_path, header=None, names=columns)
+    df = pd.concat([df_train, df_test], ignore_index=True)
+
+    df = add_patient_id_and_time(df, seed=46)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    for p in [train_path, test_path]:
+        if p.exists():
+            p.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (abnormal): {pos} ({pos/len(df)*100:.1f}%) | Negative (normal): {neg}")
+
+
+def prepare_dermatology(output: Path) -> None:
+    """UCI Dermatology — ~366 patients, 34 features (binarized to erythemato-squamous vs rest)."""
+    print("\n=== UCI Dermatology ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/dermatology")
+    print("  Rows: ~366 | Features: 34 | Task: predict psoriasis (class 1 vs rest)")
+
+    raw_path = output.parent / ".dermatology_raw.data"
+    download_file(URLS["dermatology"], raw_path)
+
+    columns = [
+        "erythema", "scaling", "definite_borders", "itching", "koebner_phenomenon",
+        "polygonal_papules", "follicular_papules", "oral_mucosal_involvement",
+        "knee_elbow_involvement", "scalp_involvement", "family_history", "melanin_incontinence",
+        "eosinophils_in_infiltrate", "pnl_infiltrate", "fibrosis_papillary_dermis",
+        "exocytosis", "acanthosis", "hyperkeratosis", "parakeratosis", "clubbing_rete_ridges",
+        "elongation_rete_ridges", "thinning_suprapapillary_epidermis",
+        "spongiform_pustule", "munro_microabcess", "focal_hypergranulosis",
+        "disappearance_granular_layer", "vacuolisation_basal_layer",
+        "spongiosis", "saw_tooth_appearance", "follicular_horn_plug",
+        "perifollicular_parakeratosis", "inflammatory_monoluclear_infiltrate",
+        "band_like_infiltrate", "age", "class",
+    ]
+    df = pd.read_csv(raw_path, header=None, names=columns, na_values="?")
+
+    # Binary target: class 1 (psoriasis) vs rest
+    df["y"] = (df["class"] == 1).astype(int)
+    df = df.drop(columns=["class"])
+
+    for col in df.columns:
+        if col != "y":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(how="all", subset=[c for c in df.columns if c != "y"]).reset_index(drop=True)
+    df = add_patient_id_and_time(df, seed=47)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (psoriasis): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Download and prepare real UCI medical datasets for ml-leakage-guard pipeline.",
@@ -318,8 +438,8 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "all"],
-        help="Which dataset to prepare: heart (303 rows), breast (569 rows), ckd (~400 rows), or all.",
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "all"],
+        help="Which dataset to prepare: heart, breast, ckd, hepatitis, spect, dermatology, or all.",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
     args = parser.parse_args()
@@ -327,19 +447,22 @@ def main() -> int:
     examples_dir = SCRIPT_DIR
     examples_dir.mkdir(parents=True, exist_ok=True)
 
+    PREPARE = {
+        "heart": ("heart_disease.csv", prepare_heart),
+        "breast": ("breast_cancer.csv", prepare_breast),
+        "ckd": ("chronic_kidney_disease.csv", prepare_ckd),
+        "hepatitis": ("hepatitis.csv", prepare_hepatitis),
+        "spect": ("spect_heart.csv", prepare_spect),
+        "dermatology": ("dermatology.csv", prepare_dermatology),
+    }
+
     if args.dataset == "all":
-        prepare_heart(examples_dir / "heart_disease.csv")
-        prepare_breast(examples_dir / "breast_cancer.csv")
-        prepare_ckd(examples_dir / "chronic_kidney_disease.csv")
-    elif args.dataset == "heart":
-        out = Path(args.output) if args.output else examples_dir / "heart_disease.csv"
-        prepare_heart(out)
-    elif args.dataset == "breast":
-        out = Path(args.output) if args.output else examples_dir / "breast_cancer.csv"
-        prepare_breast(out)
-    elif args.dataset == "ckd":
-        out = Path(args.output) if args.output else examples_dir / "chronic_kidney_disease.csv"
-        prepare_ckd(out)
+        for name, (default_file, fn) in PREPARE.items():
+            fn(examples_dir / default_file)
+    else:
+        default_file, fn = PREPARE[args.dataset]
+        out = Path(args.output) if args.output else examples_dir / default_file
+        fn(out)
 
     print("\n✓ Done! Use the commands above to split and run the pipeline.")
     return 0
