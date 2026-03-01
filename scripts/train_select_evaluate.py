@@ -374,8 +374,13 @@ def load_policy(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    if not p.exists():
+        raise FileNotFoundError(f"Performance policy not found: {p}")
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in performance policy: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("performance policy JSON root must be object.")
     return payload
@@ -629,8 +634,13 @@ def load_external_cohort_spec(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    if not p.exists():
+        raise FileNotFoundError(f"External cohort spec not found: {p}")
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in external cohort spec: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("external cohort spec JSON root must be object.")
     return payload
@@ -651,8 +661,13 @@ def load_feature_group_spec(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    if not p.exists():
+        raise FileNotFoundError(f"Feature group spec not found: {p}")
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in feature group spec: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("feature_group_spec JSON root must be object.")
     return payload
@@ -2837,8 +2852,13 @@ def load_missingness_policy(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    if not p.exists():
+        raise FileNotFoundError(f"Missingness policy not found: {p}")
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in missingness policy: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("missingness policy JSON root must be object.")
     return payload
