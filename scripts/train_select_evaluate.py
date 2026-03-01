@@ -1,6 +1,34 @@
 #!/usr/bin/env python3
 """
 Train, select, and evaluate binary models with leakage-safe model-selection evidence.
+
+Pipeline stages:
+    1. Load train/valid/test splits and performance policy.
+    2. Feature engineering: filter by missingness/variance, group preselection,
+       stability frequency analysis.
+    3. Build candidate model pool with hyperparameter search (grid/random/optuna).
+    4. Score candidates via stratified CV (PR-AUC) and select via one-SE rule.
+    5. Fit calibration on leakage-safe split and choose clinical threshold.
+    6. Evaluate on held-out test set with bootstrap CI.
+    7. Optionally evaluate external cohorts and compute distribution/robustness reports.
+
+Usage:
+    python3 scripts/train_select_evaluate.py \\
+        --train data/train.csv --valid data/valid.csv --test data/test.csv \\
+        --model-selection-report-out evidence/model_selection_report.json \\
+        --evaluation-report-out evidence/evaluation_report.json
+
+Output files:
+    - model_selection_report.json: candidate pool, CV scores, selection trace.
+    - evaluation_report.json: test metrics, CI, thresholds, baselines.
+    - prediction_trace.csv.gz: per-row predictions for replay gates.
+    - model.pkl (optional): serialized trained model artifact.
+    - feature_engineering_report.json (optional): feature provenance evidence.
+    - distribution_report.json (optional): feature shift analysis.
+    - ci_matrix_report.json (optional): per-metric CI across all splits.
+    - external_validation_report.json (optional): external cohort metrics.
+    - robustness_report.json (optional): subgroup robustness analysis.
+    - seed_sensitivity_report.json (optional): multi-seed stability analysis.
 """
 
 from __future__ import annotations
@@ -110,6 +138,14 @@ MODEL_ALIASES = {
 
 
 def resolve_device(requested: str) -> str:
+    """Resolve compute device string to an available backend.
+
+    Args:
+        requested: Device preference ('auto', 'cpu', 'gpu', 'mps').
+
+    Returns:
+        Resolved device string ('cpu', 'gpu', or 'mps').
+    """
     requested = str(requested).strip().lower()
     if requested == "auto":
         try:
@@ -144,6 +180,7 @@ def resolve_device(requested: str) -> str:
 
 
 def configure_runtime_warning_filters() -> None:
+    """Suppress known third-party warnings that do not indicate gate failures."""
     # Reduce known third-party warning noise in terminal output without masking
     # gate failures or explicit script validation errors.
     warnings.filterwarnings(
@@ -173,6 +210,11 @@ def configure_runtime_warning_filters() -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the training pipeline.
+
+    Returns:
+        Parsed argument namespace with all CLI parameters.
+    """
     parser = argparse.ArgumentParser(description="Train/select/evaluate leakage-safe medical binary models.")
     parser.add_argument("--train", required=True, help="Path to train CSV.")
     parser.add_argument("--valid", required=True, help="Path to valid CSV.")
@@ -292,10 +334,26 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_parent(path: Path) -> None:
+    """Create parent directories for a file path if they do not exist.
+
+    Args:
+        path: Target file path whose parents should be created.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def load_policy(path: Optional[str]) -> Dict[str, Any]:
+    """Load a performance policy JSON file.
+
+    Args:
+        path: Path to performance policy JSON, or None/empty for defaults.
+
+    Returns:
+        Parsed policy dictionary, or empty dict if path is falsy.
+
+    Raises:
+        ValueError: If JSON root is not an object.
+    """
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
@@ -307,6 +365,14 @@ def load_policy(path: Optional[str]) -> Dict[str, Any]:
 
 
 def sha256_file(path: Path) -> str:
+    """Compute SHA-256 hex digest of a file.
+
+    Args:
+        path: Path to the file to hash.
+
+    Returns:
+        Lowercase hex digest string.
+    """
     h = hashlib.sha256()
     with path.open("rb") as fh:
         while True:
@@ -318,10 +384,27 @@ def sha256_file(path: Path) -> str:
 
 
 def sha256_text(value: str) -> str:
+    """Compute SHA-256 hex digest of a UTF-8 string.
+
+    Args:
+        value: Input string.
+
+    Returns:
+        Lowercase hex digest string.
+    """
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def parse_ignore_cols(raw: str, target_col: str) -> List[str]:
+    """Parse comma-separated ignore columns, always including the target.
+
+    Args:
+        raw: Comma-separated column names to ignore.
+        target_col: Target column name (always included).
+
+    Returns:
+        Sorted deduplicated list of columns to exclude from features.
+    """
     out: List[str] = [target_col]
     for token in raw.split(","):
         key = token.strip()
@@ -331,6 +414,15 @@ def parse_ignore_cols(raw: str, target_col: str) -> List[str]:
 
 
 def parse_seed_list(raw: str, default_seed: int) -> List[int]:
+    """Parse comma-separated integer seeds for multi-seed analysis.
+
+    Args:
+        raw: Comma-separated seed values.
+        default_seed: Fallback seed if parsing yields nothing.
+
+    Returns:
+        Deduplicated list of integer seeds.
+    """
     seeds: List[int] = []
     for token in str(raw).split(","):
         item = token.strip()
@@ -348,6 +440,14 @@ def parse_seed_list(raw: str, default_seed: int) -> List[int]:
 
 
 def _model_tokens_from_raw(raw: Any) -> List[str]:
+    """Extract model family tokens from a string or list.
+
+    Args:
+        raw: Comma-separated string or list of model names.
+
+    Returns:
+        List of stripped non-empty model name tokens.
+    """
     if isinstance(raw, str):
         items = [part.strip() for part in raw.split(",")]
     elif isinstance(raw, list):
@@ -358,11 +458,32 @@ def _model_tokens_from_raw(raw: Any) -> List[str]:
 
 
 def canonical_model_name(token: str) -> str:
+    """Normalize a model name token to its canonical form.
+
+    Args:
+        token: Raw model name (may use aliases like 'rf', 'lr_l1').
+
+    Returns:
+        Canonical model family name.
+    """
     key = str(token).strip().lower().replace("-", "_")
     return MODEL_ALIASES.get(key, key)
 
 
 def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) -> Dict[str, Any]:
+    """Resolve model pool configuration from policy and CLI arguments.
+
+    Args:
+        policy: Performance policy dictionary (may contain model_pool block).
+        args: Parsed CLI arguments.
+
+    Returns:
+        Resolved config dict with keys: model_pool, required_models,
+        max_trials_per_family, search_strategy, n_jobs, etc.
+
+    Raises:
+        SystemExit: If an unsupported model family is requested.
+    """
     default_models = [
         "logistic_l1",
         "logistic_l2",
@@ -458,6 +579,17 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
 
 
 def load_split(path: str) -> pd.DataFrame:
+    """Load a CSV split file into a DataFrame.
+
+    Args:
+        path: Path to the CSV file.
+
+    Returns:
+        Loaded DataFrame.
+
+    Raises:
+        ValueError: If the split is empty.
+    """
     p = Path(path).expanduser().resolve()
     df = pd.read_csv(p)
     if df.empty:
@@ -466,6 +598,17 @@ def load_split(path: str) -> pd.DataFrame:
 
 
 def load_external_cohort_spec(path: Optional[str]) -> Dict[str, Any]:
+    """Load external cohort specification JSON.
+
+    Args:
+        path: Path to external cohort spec JSON, or None.
+
+    Returns:
+        Parsed spec dictionary, or empty dict if path is falsy.
+
+    Raises:
+        ValueError: If JSON root is not an object.
+    """
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
@@ -477,6 +620,17 @@ def load_external_cohort_spec(path: Optional[str]) -> Dict[str, Any]:
 
 
 def load_feature_group_spec(path: Optional[str]) -> Dict[str, Any]:
+    """Load feature group specification JSON.
+
+    Args:
+        path: Path to feature_group_spec JSON, or None.
+
+    Returns:
+        Parsed spec dictionary, or empty dict if path is falsy.
+
+    Raises:
+        ValueError: If JSON root is not an object.
+    """
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
@@ -488,6 +642,15 @@ def load_feature_group_spec(path: Optional[str]) -> Dict[str, Any]:
 
 
 def normalize_feature_groups(payload: Dict[str, Any]) -> Tuple[Dict[str, List[str]], List[str]]:
+    """Parse and normalize feature group spec into groups and forbidden features.
+
+    Args:
+        payload: Feature group spec dictionary.
+
+    Returns:
+        Tuple of (groups dict mapping group name to feature list,
+        sorted list of forbidden feature names).
+    """
     groups_raw = payload.get("groups")
     groups: Dict[str, List[str]] = {}
     if isinstance(groups_raw, dict):
@@ -505,6 +668,15 @@ def normalize_feature_groups(payload: Dict[str, Any]) -> Tuple[Dict[str, List[st
 
 
 def mode_config(mode: str) -> Dict[str, Any]:
+    """Return feature engineering thresholds for a given mode.
+
+    Args:
+        mode: One of 'strict', 'moderate', 'quick'.
+
+    Returns:
+        Dict with max_missing_ratio, min_variance, group_keep_ratio,
+        stability_repeats.
+    """
     token = str(mode).strip().lower()
     if token == "quick":
         return {"max_missing_ratio": 0.80, "min_variance": 1e-10, "group_keep_ratio": 0.85, "stability_repeats": 25}
@@ -519,6 +691,17 @@ def select_features_by_filter(
     max_missing_ratio: float,
     min_variance: float,
 ) -> Tuple[List[str], Dict[str, Any]]:
+    """Filter features by missingness ratio and variance thresholds.
+
+    Args:
+        X_train: Training feature DataFrame.
+        features: Candidate feature names.
+        max_missing_ratio: Drop features with missing ratio above this.
+        min_variance: Drop features with variance at or below this.
+
+    Returns:
+        Tuple of (kept feature names, filter report dict).
+    """
     kept: List[str] = []
     dropped_missing: List[str] = []
     dropped_low_variance: List[str] = []
@@ -545,6 +728,14 @@ def select_features_by_filter(
 
 
 def impute_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Impute all columns with median after coercing to numeric.
+
+    Args:
+        df: Input DataFrame.
+
+    Returns:
+        DataFrame with numeric columns median-imputed.
+    """
     out = df.copy()
     for col in out.columns:
         series = pd.to_numeric(out[col], errors="coerce")
@@ -560,6 +751,18 @@ def feature_stability_frequency(
     repeats: int,
     seed: int,
 ) -> Dict[str, float]:
+    """Estimate feature selection frequency via L1 bootstrap stability.
+
+    Args:
+        X_train: Training feature DataFrame.
+        y_train: Binary target array.
+        features: Feature names to evaluate.
+        repeats: Number of bootstrap repetitions.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Dict mapping feature name to selection frequency in [0, 1].
+    """
     if not features:
         return {}
     rng = np.random.default_rng(seed)
@@ -609,6 +812,19 @@ def group_preselect_features(
     keep_ratio: float,
     stability_frequency: Dict[str, float],
 ) -> Tuple[List[str], Dict[str, Any]]:
+    """Select top features per group using correlation and stability scores.
+
+    Args:
+        X_train: Training feature DataFrame.
+        y_train: Binary target array.
+        features: Candidate feature names (post-filter).
+        groups: Feature group spec mapping group name to feature list.
+        keep_ratio: Fraction of features to keep per group.
+        stability_frequency: Per-feature selection frequency from bootstrap.
+
+    Returns:
+        Tuple of (selected feature names, group selection report dict).
+    """
     if not groups:
         return list(features), {"groups": {}, "fallback": "no_groups_provided"}
 
@@ -670,6 +886,18 @@ def group_preselect_features(
 
 
 def select_feature_columns(train_df: pd.DataFrame, ignore_cols: Sequence[str]) -> List[str]:
+    """Select feature columns by excluding ignore columns.
+
+    Args:
+        train_df: Training DataFrame.
+        ignore_cols: Column names to exclude.
+
+    Returns:
+        List of feature column names.
+
+    Raises:
+        ValueError: If no feature columns remain.
+    """
     ignore = set(ignore_cols)
     out = [c for c in train_df.columns if c not in ignore]
     if not out:
@@ -678,6 +906,19 @@ def select_feature_columns(train_df: pd.DataFrame, ignore_cols: Sequence[str]) -
 
 
 def prepare_xy(df: pd.DataFrame, feature_cols: Sequence[str], target_col: str) -> Tuple[pd.DataFrame, np.ndarray]:
+    """Extract feature matrix X and binary target array y from a DataFrame.
+
+    Args:
+        df: Source DataFrame.
+        feature_cols: Feature column names.
+        target_col: Binary target column name.
+
+    Returns:
+        Tuple of (X DataFrame, y int array).
+
+    Raises:
+        ValueError: If target is missing, non-finite, or not binary (0/1).
+    """
     if target_col not in df.columns:
         raise ValueError(f"Missing target column: {target_col}")
     missing_features = [c for c in feature_cols if c not in df.columns]
@@ -693,6 +934,15 @@ def prepare_xy(df: pd.DataFrame, feature_cols: Sequence[str], target_col: str) -
 
 
 def build_imputer(imputation_strategy: str, seed: int) -> BaseEstimator:
+    """Build an imputer estimator based on the resolved strategy.
+
+    Args:
+        imputation_strategy: 'mice' for IterativeImputer, otherwise median.
+        seed: Random seed for MICE.
+
+    Returns:
+        Configured imputer estimator.
+    """
     if imputation_strategy == "mice":
         return IterativeImputer(
             random_state=seed,
@@ -704,6 +954,15 @@ def build_imputer(imputation_strategy: str, seed: int) -> BaseEstimator:
 
 
 def _deterministic_family_rng_seed(base_seed: int, family: str) -> int:
+    """Derive a deterministic per-family RNG seed from a base seed.
+
+    Args:
+        base_seed: Global random seed.
+        family: Model family name.
+
+    Returns:
+        Integer seed derived via SHA-256.
+    """
     digest = hashlib.sha256(f"{family}|{int(base_seed)}".encode("utf-8")).hexdigest()
     return int(digest[:8], 16)
 
@@ -715,6 +974,18 @@ def _sample_family_params(
     strategy: str,
     sampling_seed: int,
 ) -> List[Dict[str, Any]]:
+    """Sample hyperparameter configurations from a family grid.
+
+    Args:
+        family: Model family name (used for deterministic seed).
+        grid: Full hyperparameter grid.
+        max_trials: Maximum configurations to return.
+        strategy: 'fixed_grid' (prefix) or 'random_subsample'.
+        sampling_seed: Base seed for random subsampling.
+
+    Returns:
+        List of selected hyperparameter dicts.
+    """
     if not grid:
         return []
     if len(grid) <= max_trials:
@@ -739,10 +1010,31 @@ def _optuna_search_family(
     cv_splits: int,
     device: str = "cpu",
 ) -> List[Dict[str, Any]]:
+    """Run Optuna Bayesian search for a single model family.
+
+    Args:
+        family: Model family name.
+        X_train: Training feature DataFrame.
+        y_train: Binary target array.
+        n_trials: Number of Optuna trials.
+        seed: Random seed.
+        imputation_strategy: Imputation method for pipeline.
+        class_weight: 'balanced' or None.
+        n_jobs: Parallel workers for estimator.
+        cv_splits: Number of CV folds for scoring.
+        device: Compute device string.
+
+    Returns:
+        List of top hyperparameter dicts from the study.
+
+    Raises:
+        RuntimeError: If optuna is not installed.
+    """
     if optuna is None:
         raise RuntimeError("optuna is not installed. Install with `pip install optuna`.")
 
     def _suggest_params(trial: "optuna.Trial") -> Dict[str, Any]:
+        """Suggest hyperparameters for the current family via Optuna trial."""
         if family in {"logistic_l1", "logistic_l2"}:
             return {"C": trial.suggest_float("C", 0.001, 10.0, log=True)}
         if family == "logistic_elasticnet":
@@ -806,6 +1098,7 @@ def _optuna_search_family(
         return {}
 
     def objective(trial: "optuna.Trial") -> float:
+        """Optuna objective: return mean CV PR-AUC for trial params."""
         params = _suggest_params(trial)
         if not params:
             return 0.0
@@ -835,6 +1128,14 @@ def _optuna_search_family(
 
 
 def _family_grid(family: str) -> List[Dict[str, Any]]:
+    """Return the full hyperparameter grid for a model family.
+
+    Args:
+        family: Canonical model family name.
+
+    Returns:
+        List of hyperparameter dicts for grid/random search.
+    """
     if family == "logistic_l1":
         return [{"C": c} for c in [0.3, 0.1, 0.03, 1.0, 3.0]]
     if family == "logistic_l2":
@@ -1017,6 +1318,14 @@ def _family_grid(family: str) -> List[Dict[str, Any]]:
 
 
 def _family_base_complexity(family: str) -> int:
+    """Return base complexity order for a model family.
+
+    Args:
+        family: Canonical model family name.
+
+    Returns:
+        Integer complexity rank (lower = simpler).
+    """
     order = {
         "logistic_l1": 1,
         "logistic_l2": 2,
@@ -1036,6 +1345,14 @@ def _family_base_complexity(family: str) -> int:
 
 
 def _family_friendly_name(family: str) -> str:
+    """Map a model family to a human-friendly algorithm name.
+
+    Args:
+        family: Canonical model family name.
+
+    Returns:
+        Friendly display name string.
+    """
     names = {
         "logistic_l1": "logistic_regression",
         "logistic_l2": "logistic_regression",
@@ -1055,6 +1372,15 @@ def _family_friendly_name(family: str) -> str:
 
 
 def _candidate_complexity_rank(family: str, params: Dict[str, Any]) -> int:
+    """Compute a numeric complexity rank for a candidate model.
+
+    Args:
+        family: Canonical model family name.
+        params: Hyperparameter dict.
+
+    Returns:
+        Integer rank combining family base and parameter complexity.
+    """
     base = 1000 * _family_base_complexity(family)
     if family in {"logistic_l1", "logistic_l2"}:
         return int(base + round(float(params.get("C", 1.0)) * 100))
@@ -1120,6 +1446,15 @@ def _candidate_complexity_rank(family: str, params: Dict[str, Any]) -> int:
 
 
 def _regularization_profile(family: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a regularization profile descriptor for a candidate.
+
+    Args:
+        family: Canonical model family name.
+        params: Hyperparameter dict.
+
+    Returns:
+        Dict describing regularization type, strength, and strategy.
+    """
     if family == "logistic_l1":
         return {"type": "l1", "C": float(params["C"]), "target": "sparsity"}
     if family == "logistic_l2":
@@ -1188,6 +1523,18 @@ def _build_adaboost_classifier(
     learning_rate: float,
     max_depth: int,
 ) -> AdaBoostClassifier:
+    """Build an AdaBoost classifier with a depth-limited decision tree base.
+
+    Args:
+        seed: Random seed.
+        class_weight: 'balanced' or None for the base tree.
+        n_estimators: Number of boosting rounds.
+        learning_rate: Shrinkage rate.
+        max_depth: Maximum depth of the base decision tree.
+
+    Returns:
+        Configured AdaBoostClassifier.
+    """
     weak_learner = DecisionTreeClassifier(
         max_depth=int(max_depth),
         min_samples_leaf=10,
@@ -1219,6 +1566,23 @@ def _build_estimator_for_family(
     n_jobs: int,
     device: str = "cpu",
 ) -> BaseEstimator:
+    """Build a scikit-learn Pipeline for a model family and hyperparameters.
+
+    Args:
+        family: Canonical model family name.
+        params: Hyperparameter dict.
+        seed: Random seed.
+        imputation_strategy: Imputation method for pipeline.
+        class_weight: 'balanced' or None.
+        n_jobs: Parallel workers.
+        device: Compute device string.
+
+    Returns:
+        Configured Pipeline (imputer + scaler + classifier).
+
+    Raises:
+        ValueError: If the family is unsupported.
+    """
     imputer = build_imputer(imputation_strategy, seed)
     if family == "logistic_l1":
         return Pipeline(
@@ -1468,6 +1832,20 @@ def build_candidates(
     model_pool_config: Dict[str, Any],
     device: str = "cpu",
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Build the full candidate model pool for selection.
+
+    Args:
+        seed: Random seed.
+        sampling_seed: Seed for hyperparameter sampling.
+        imputation_strategy: Resolved imputation method.
+        class_weight: 'balanced' or None.
+        model_pool_config: Resolved model pool configuration dict.
+        device: Compute device string.
+
+    Returns:
+        Tuple of (list of candidate dicts with estimator/metadata,
+        candidate space metadata dict).
+    """
     requested_pool = [str(x) for x in model_pool_config.get("model_pool", []) if str(x).strip()]
     max_trials = int(model_pool_config.get("max_trials_per_family", 1))
     search_strategy = str(model_pool_config.get("search_strategy", "random_subsample")).strip().lower()
@@ -1616,6 +1994,18 @@ def build_ensemble_candidates(
     top_k: int,
     seed: int,
 ) -> List[Dict[str, Any]]:
+    """Build ensemble candidates from top-K base models.
+
+    Args:
+        candidate_rows: Scored candidate row dicts.
+        estimator_map: Mapping of model_id to fitted estimator.
+        requested_ensembles: Ensemble strategies ('soft_voting', etc.).
+        top_k: Number of top base models to include.
+        seed: Random seed.
+
+    Returns:
+        List of ensemble candidate dicts with estimator/metadata.
+    """
     from sklearn.ensemble import StackingClassifier, VotingClassifier
 
     sorted_rows = sorted(
@@ -1713,6 +2103,20 @@ def build_ensemble_candidates(
 
 
 def predict_proba_1(estimator: BaseEstimator, X: pd.DataFrame) -> np.ndarray:
+    """Extract class-1 probability from an estimator.
+
+    Falls back to sigmoid of decision_function if predict_proba is absent.
+
+    Args:
+        estimator: Fitted estimator.
+        X: Feature DataFrame.
+
+    Returns:
+        1-D float array of positive-class probabilities.
+
+    Raises:
+        ValueError: If estimator exposes neither probabilities nor scores.
+    """
     if hasattr(estimator, "predict_proba"):
         proba = estimator.predict_proba(X)
         if isinstance(proba, np.ndarray) and proba.ndim == 2 and proba.shape[1] >= 2:
@@ -1729,6 +2133,22 @@ def fit_probability_calibrator(
     method: str,
     seed: int,
 ) -> Optional[Any]:
+    """Fit a probability calibrator on raw scores.
+
+    Args:
+        y_true: Binary ground-truth labels.
+        proba_raw: Uncalibrated probability scores.
+        method: Calibration method ('sigmoid', 'isotonic', 'power',
+            'beta', or 'none').
+        seed: Random seed for logistic-based calibrators.
+
+    Returns:
+        Fitted calibrator object/dict, or None if method is 'none'
+        or data is insufficient (<20 samples or single class).
+
+    Raises:
+        ValueError: If method is unsupported or arrays are misaligned.
+    """
     token = str(method).strip().lower()
     if token in {"", "none"}:
         return None
@@ -1755,6 +2175,7 @@ def fit_probability_calibrator(
             n_bins: int = 10,
             min_bin_size: int = 15,
         ) -> float:
+            """Compute local expected calibration error."""
             n = int(labels.shape[0])
             if n <= 0:
                 return 1.0
@@ -1816,6 +2237,19 @@ def fit_probability_calibrator(
 
 
 def apply_probability_calibrator(calibrator: Optional[Any], proba_raw: np.ndarray) -> np.ndarray:
+    """Apply a fitted calibrator to raw probability scores.
+
+    Args:
+        calibrator: Calibrator returned by fit_probability_calibrator,
+            or None for identity pass-through.
+        proba_raw: Uncalibrated probability scores.
+
+    Returns:
+        Calibrated probability array clipped to [1e-6, 1-1e-6].
+
+    Raises:
+        ValueError: If the calibrator kind is unsupported.
+    """
     s = np.asarray(proba_raw, dtype=float)
     s = np.clip(s, 1e-6, 1.0 - 1e-6)
     if calibrator is None:
@@ -1849,6 +2283,22 @@ def cv_score_pr_auc(
     n_splits: int,
     seed: int,
 ) -> Tuple[float, float, int, List[float]]:
+    """Score an estimator by stratified CV PR-AUC.
+
+    Args:
+        estimator: Unfitted estimator (cloned per fold).
+        X: Feature DataFrame.
+        y: Binary target array.
+        n_splits: Number of CV folds.
+        seed: Random seed for fold splitting.
+
+    Returns:
+        Tuple of (mean PR-AUC, std PR-AUC, number of valid folds,
+        list of per-fold scores).
+
+    Raises:
+        ValueError: If fewer than 2 valid folds are produced.
+    """
     splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     fold_scores: List[float] = []
     for tr_idx, va_idx in splitter.split(X, y):
@@ -1866,6 +2316,19 @@ def cv_score_pr_auc(
 
 
 def choose_model_one_se(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Select a model using the one-standard-error rule.
+
+    Picks the simplest model whose mean score is within one SE of
+    the best model's mean score.
+
+    Args:
+        rows: List of dicts with keys 'model_id', 'mean', 'std',
+            'n_folds', 'complexity_rank'.
+
+    Returns:
+        Selection trace dict with best/chosen model IDs, threshold,
+        and eligible models.
+    """
     best = max(rows, key=lambda r: float(r["mean"]))
     best_se = float(best["std"]) / math.sqrt(float(best["n_folds"]))
     threshold = float(best["mean"]) - best_se
@@ -1885,6 +2348,15 @@ def choose_model_one_se(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def confusion_counts(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, int]:
+    """Compute binary confusion matrix counts.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        y_pred: Predicted binary labels.
+
+    Returns:
+        Dict with keys 'tp', 'fp', 'tn', 'fn'.
+    """
     y_true_i = y_true.astype(int)
     y_pred_i = y_pred.astype(int)
     tp = int(np.sum((y_true_i == 1) & (y_pred_i == 1)))
@@ -1895,18 +2367,48 @@ def confusion_counts(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, int]:
 
 
 def safe_ratio(num: float, den: float) -> float:
+    """Compute a ratio, returning 0.0 if the denominator is non-positive.
+
+    Args:
+        num: Numerator.
+        den: Denominator.
+
+    Returns:
+        num / den, or 0.0 if den <= 0.
+    """
     if den <= 0:
         return 0.0
     return float(num) / float(den)
 
 
 def clip01(value: float) -> float:
+    """Clip a value to [0, 1], mapping non-finite to 0.
+
+    Args:
+        value: Input value.
+
+    Returns:
+        Clipped float in [0.0, 1.0].
+    """
     if not math.isfinite(float(value)):
         return 0.0
     return float(min(1.0, max(0.0, float(value))))
 
 
 def metric_panel(y_true: np.ndarray, proba: np.ndarray, threshold: float, beta: float) -> Tuple[Dict[str, float], Dict[str, int]]:
+    """Compute a full panel of binary classification metrics.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        proba: Predicted probabilities.
+        threshold: Decision threshold for binarization.
+        beta: Beta parameter for F-beta score.
+
+    Returns:
+        Tuple of (metrics dict with accuracy/precision/sensitivity/
+        specificity/npv/f1/f2_beta/roc_auc/pr_auc/brier,
+        confusion matrix dict).
+    """
     y_pred = (proba >= threshold).astype(int)
     cm = confusion_counts(y_true, y_pred)
     tp = float(cm["tp"])
@@ -1953,11 +2455,37 @@ def choose_threshold(
     guard_y: Optional[np.ndarray] = None,
     guard_proba: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
+    """Choose an operating threshold subject to clinical floor constraints.
+
+    Searches 299 quantile-based thresholds (plus 0.5) and selects
+    the one maximizing F-beta while satisfying sensitivity, NPV,
+    specificity, and PPV floors. If a guard split is provided,
+    joint feasibility is checked.
+
+    Args:
+        y_valid: Labels on the selection split.
+        proba_valid: Calibrated probabilities on the selection split.
+        beta: Beta for F-beta objective.
+        sensitivity_floor: Minimum required sensitivity.
+        npv_floor: Minimum required NPV.
+        specificity_floor: Minimum required specificity.
+        ppv_floor: Minimum required PPV.
+        guard_y: Optional guard split labels.
+        guard_proba: Optional guard split probabilities.
+
+    Returns:
+        Dict with selected_threshold, constraint satisfaction flags,
+        and selected metrics on both splits.
+
+    Raises:
+        ValueError: If no threshold can be chosen.
+    """
     quantiles = np.linspace(0.01, 0.99, 299)
     thresholds = sorted(set(float(np.quantile(proba_valid, q)) for q in quantiles) | {0.5})
     candidates: List[Dict[str, Any]] = []
 
     def floor_margin(metrics: Dict[str, float]) -> Dict[str, float]:
+        """Compute margin above each clinical floor constraint."""
         sens_margin = float(metrics["sensitivity"]) - float(sensitivity_floor)
         npv_margin = float(metrics["npv"]) - float(npv_floor)
         spec_margin = float(metrics["specificity"]) - float(specificity_floor)
@@ -2149,6 +2677,20 @@ def choose_threshold(
 
 
 def metric_panel_robust(y_true: np.ndarray, proba: np.ndarray, threshold: float, beta: float) -> Dict[str, float]:
+    """Compute a reduced metric panel with fallback for edge cases.
+
+    Unlike metric_panel, catches exceptions in PR-AUC and Brier
+    computation and returns fallback values instead of raising.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        proba: Predicted probabilities.
+        threshold: Decision threshold.
+        beta: Beta for F-beta score.
+
+    Returns:
+        Dict with pr_auc, f2_beta, and brier.
+    """
     y_pred = (proba >= threshold).astype(int)
     cm = confusion_counts(y_true, y_pred)
     tp = float(cm["tp"])
@@ -2182,11 +2724,35 @@ def metric_panel_robust(y_true: np.ndarray, proba: np.ndarray, threshold: float,
 
 
 def stable_group_index(value: str, n_groups: int) -> int:
+    """Map a string to a deterministic group index via SHA-256.
+
+    Args:
+        value: Input string (e.g., patient ID).
+        n_groups: Number of groups.
+
+    Returns:
+        Integer group index in [0, n_groups).
+    """
     digest = hashlib.sha256(value.encode("utf-8")).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=False) % n_groups
 
 
 def cv_oof_proba(estimator: BaseEstimator, X: pd.DataFrame, y: np.ndarray, n_splits: int, seed: int) -> np.ndarray:
+    """Compute out-of-fold probabilities via stratified CV.
+
+    Args:
+        estimator: Estimator to clone and fit per fold.
+        X: Feature DataFrame.
+        y: Binary target array.
+        n_splits: Number of CV folds.
+        seed: Random seed for fold splitting.
+
+    Returns:
+        Array of OOF probabilities aligned with y.
+
+    Raises:
+        ValueError: If any OOF values are non-finite.
+    """
     splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     out = np.full(shape=y.shape[0], fill_value=np.nan, dtype=float)
     for tr_idx, va_idx in splitter.split(X, y):
@@ -2199,6 +2765,17 @@ def cv_oof_proba(estimator: BaseEstimator, X: pd.DataFrame, y: np.ndarray, n_spl
 
 
 def load_missingness_policy(path: Optional[str]) -> Dict[str, Any]:
+    """Load a missingness policy JSON file.
+
+    Args:
+        path: Path to missingness policy JSON, or None.
+
+    Returns:
+        Parsed policy dict, or empty dict if path is falsy.
+
+    Raises:
+        ValueError: If JSON root is not an object.
+    """
     if not path:
         return {}
     p = Path(path).expanduser().resolve()
@@ -2214,6 +2791,20 @@ def resolve_imputation_plan(
     train_rows: int,
     feature_count: int,
 ) -> Dict[str, Any]:
+    """Resolve an imputation execution plan from missingness policy.
+
+    Applies scale-guard logic for MICE to fall back to simple
+    imputation when data dimensions exceed configured thresholds.
+
+    Args:
+        policy: Missingness policy dict.
+        train_rows: Number of training rows.
+        feature_count: Number of features.
+
+    Returns:
+        Plan dict with policy_strategy, executed_strategy,
+        fit_scope, and scale_guard details.
+    """
     strategy = str(policy.get("strategy", "simple_with_indicator")).strip().lower()
     if not strategy:
         strategy = "simple_with_indicator"
@@ -2283,6 +2874,22 @@ def resolve_external_cohorts(
     default_target_col: str,
     default_patient_id_col: str,
 ) -> List[Dict[str, Any]]:
+    """Load and validate external cohort datasets from a spec.
+
+    Args:
+        external_spec: Parsed external cohort spec dict.
+        external_spec_path: Path to the spec file (for relative paths).
+        feature_cols: Feature columns to extract from cohort CSVs.
+        default_target_col: Fallback target column name.
+        default_patient_id_col: Fallback patient ID column name.
+
+    Returns:
+        List of cohort dicts with X, y, patient_ids, metadata.
+
+    Raises:
+        ValueError: If cohort entries are malformed or duplicated.
+        FileNotFoundError: If a cohort data file is missing.
+    """
     cohorts = external_spec.get("cohorts")
     if not isinstance(cohorts, list) or not cohorts:
         return []
@@ -2355,6 +2962,26 @@ def build_prediction_trace_rows(
     threshold: float,
     model_id: str,
 ) -> pd.DataFrame:
+    """Build a prediction trace DataFrame for one split/cohort.
+
+    Args:
+        scope: Split scope ('train', 'valid', 'test', 'external').
+        cohort_id: Cohort identifier string.
+        cohort_type: Cohort type ('' for internal, or cross_period/cross_institution).
+        patient_ids: Per-row patient identifiers.
+        y_true: Ground-truth binary labels.
+        y_score: Calibrated predicted probabilities.
+        threshold: Selected decision threshold.
+        model_id: Selected model identifier.
+
+    Returns:
+        DataFrame with columns: scope, cohort_id, cohort_type,
+        hashed_patient_id, y_true, y_score, y_pred,
+        selected_threshold, model_id.
+
+    Raises:
+        ValueError: If patient_ids length mismatches y_true.
+    """
     y_pred = (y_score >= threshold).astype(int)
     if len(patient_ids) != int(y_true.shape[0]):
         raise ValueError(f"prediction trace patient ID length mismatch for {scope}/{cohort_id}.")
@@ -2373,6 +3000,20 @@ def build_prediction_trace_rows(
 
 
 def bootstrap_ci_pr_auc(y_true: np.ndarray, proba: np.ndarray, n_resamples: int, seed: int) -> Tuple[float, float, int]:
+    """Compute 95% bootstrap CI for PR-AUC.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        proba: Predicted probabilities.
+        n_resamples: Target number of valid bootstrap samples.
+        seed: Random seed.
+
+    Returns:
+        Tuple of (CI lower bound, CI upper bound, actual resample count).
+
+    Raises:
+        ValueError: If fewer than 200 valid resamples are obtained.
+    """
     rng = np.random.default_rng(seed)
     n = int(y_true.shape[0])
     hits: List[float] = []
@@ -2394,6 +3035,16 @@ def bootstrap_ci_pr_auc(y_true: np.ndarray, proba: np.ndarray, n_resamples: int,
 
 
 def stratified_bootstrap_indices(y_true: np.ndarray, rng: np.random.Generator) -> Optional[np.ndarray]:
+    """Generate stratified bootstrap sample indices.
+
+    Args:
+        y_true: Binary labels array.
+        rng: NumPy random Generator.
+
+    Returns:
+        Shuffled index array preserving class ratio, or None if
+        either class is absent.
+    """
     pos = np.where(y_true == 1)[0]
     neg = np.where(y_true == 0)[0]
     if pos.size == 0 or neg.size == 0:
@@ -2413,6 +3064,20 @@ def bootstrap_metric_ci(
     n_resamples: int,
     seed: int,
 ) -> Tuple[Dict[str, Dict[str, float]], int]:
+    """Compute 95% bootstrap CIs for all metric_panel metrics.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        y_score: Predicted probabilities.
+        threshold: Decision threshold.
+        beta: Beta for F-beta score.
+        n_resamples: Target number of valid bootstrap iterations.
+        seed: Random seed.
+
+    Returns:
+        Tuple of (dict mapping metric name to ci_lower/ci_upper/ci_width,
+        effective number of resamples).
+    """
     rng = np.random.default_rng(seed)
     hits: Dict[str, List[float]] = {metric: [] for metric in ("accuracy", "precision", "ppv", "npv", "sensitivity", "specificity", "f1", "f2_beta", "roc_auc", "pr_auc", "brier")}
     attempts = 0
@@ -2449,6 +3114,15 @@ def bootstrap_metric_ci(
 
 
 def js_divergence_from_probs(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute Jensen-Shannon divergence between two probability arrays.
+
+    Args:
+        a: First probability/count array.
+        b: Second probability/count array.
+
+    Returns:
+        JSD value in bits (base-2 log).
+    """
     eps = 1e-12
     a = np.asarray(a, dtype=float) + eps
     b = np.asarray(b, dtype=float) + eps
@@ -2459,6 +3133,19 @@ def js_divergence_from_probs(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def feature_jsd(train: pd.Series, other: pd.Series) -> Optional[float]:
+    """Compute Jensen-Shannon divergence between two feature distributions.
+
+    Uses histogram binning for numeric features and value counts for
+    categorical features.
+
+    Args:
+        train: Training split feature series.
+        other: Comparison split feature series.
+
+    Returns:
+        JSD value, or None if either series is empty or bins are
+        insufficient.
+    """
     tr = train.dropna()
     ot = other.dropna()
     if tr.empty or ot.empty:
@@ -2487,6 +3174,12 @@ def feature_jsd(train: pd.Series, other: pd.Series) -> Optional[float]:
 
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
+    """Atomically write a JSON file via tmp + rename.
+
+    Args:
+        path: Target output path.
+        payload: Dict to serialize as JSON.
+    """
     ensure_parent(path)
     tmp_path = path.with_name(
         f".{path.name}.tmp-{os.getpid()}"
@@ -2500,6 +3193,17 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 
 def summarize_seed_metric(values: Sequence[float]) -> Dict[str, float]:
+    """Compute summary statistics for a list of metric values.
+
+    Args:
+        values: Sequence of float metric values.
+
+    Returns:
+        Dict with mean, std, min, max, range, and n.
+
+    Raises:
+        ValueError: If values is empty.
+    """
     arr = np.asarray(values, dtype=float)
     if arr.size == 0:
         raise ValueError("Cannot summarize empty metric list.")
@@ -2521,6 +3225,23 @@ def build_distribution_report(
     target_col: str,
     feature_cols: Sequence[str],
 ) -> Dict[str, Any]:
+    """Build a feature distribution shift report across splits.
+
+    Computes per-feature JSD, missingness delta, and prevalence delta
+    between training and each comparison split.
+
+    Args:
+        train_df: Training DataFrame.
+        valid_df: Validation DataFrame.
+        test_df: Test DataFrame.
+        external_frames: List of dicts with 'cohort_id' and 'frame'.
+        target_col: Target column name.
+        feature_cols: Feature column names.
+
+    Returns:
+        Distribution report dict with schema_version, distribution_matrix,
+        and metadata.
+    """
     rows: List[Dict[str, Any]] = []
     comparisons: List[Tuple[str, pd.DataFrame]] = [("valid", valid_df), ("test", test_df)]
     for ext in external_frames:
@@ -2575,6 +3296,21 @@ def build_ci_matrix_report(
     n_resamples: int,
     seed: int,
 ) -> Dict[str, Any]:
+    """Build a CI matrix report across all splits and external cohorts.
+
+    Args:
+        split_payloads: Dict mapping split name to dict with
+            y_true, y_score, threshold.
+        external_payloads: List of dicts with cohort_id, cohort_type,
+            y_true, y_score, threshold.
+        beta: Beta for F-beta score.
+        n_resamples: Bootstrap resample count per split.
+        seed: Random seed.
+
+    Returns:
+        CI matrix report dict with split_metrics_ci,
+        transport_drop_ci, and ci_quality_summary.
+    """
     split_metrics_ci: Dict[str, Any] = {}
     for idx, (split_name, payload) in enumerate(split_payloads.items()):
         y_true = payload["y_true"]
@@ -2686,6 +3422,18 @@ def build_ci_matrix_report(
 
 
 def main() -> int:
+    """Entry point for the train-select-evaluate pipeline.
+
+    Orchestrates data loading, feature engineering, candidate building,
+    model selection, calibration, threshold selection, evaluation,
+    and report generation.
+
+    Returns:
+        Exit code (0 for success).
+
+    Raises:
+        SystemExit: On invalid arguments or data issues.
+    """
     configure_runtime_warning_filters()
     args = parse_args()
     fast_diagnostic_mode = bool(args.fast_diagnostic_mode)
@@ -3285,6 +4033,7 @@ def main() -> int:
     }
 
     def _patient_ids_or_fallback(df: pd.DataFrame, default_prefix: str) -> List[str]:
+        """Extract patient IDs or generate sequential fallback IDs."""
         if args.patient_id_col in df.columns:
             return df[args.patient_id_col].astype(str).tolist()
         return [f"{default_prefix}_{i}" for i in range(int(df.shape[0]))]
@@ -3560,6 +4309,7 @@ def main() -> int:
             )
 
         def summarize_block(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+            """Summarize PR-AUC range and drop across robustness slices."""
             values = [float(r["metrics"]["pr_auc"]) for r in rows if isinstance(r, dict) and isinstance(r.get("metrics"), dict)]
             if not values:
                 raise SystemExit("robustness report requires non-empty per-slice/group pr_auc values.")
