@@ -36,6 +36,12 @@ PREVALENCE_SHIFT_WARN_THRESHOLD = 0.10
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the splitting tool.
+
+    Returns:
+        Parsed argument namespace with input path, output dir,
+        column names, strategy, ratios, and seed.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Split a single CSV into train/valid/test with medical safety guarantees. "
@@ -105,6 +111,18 @@ def file_sha256(path: Path) -> str:
 
 
 def load_csv(path: str) -> pd.DataFrame:
+    """Load a CSV file into a DataFrame.
+
+    Args:
+        path: Path to the CSV file.
+
+    Returns:
+        Loaded DataFrame.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the path is not a file or the CSV is empty.
+    """
     p = Path(path).expanduser().resolve()
     if not p.exists():
         raise FileNotFoundError(f"Input CSV not found: {p}")
@@ -117,6 +135,17 @@ def load_csv(path: str) -> pd.DataFrame:
 
 
 def validate_columns(df: pd.DataFrame, patient_id_col: str, target_col: str, time_col: str) -> None:
+    """Validate that required columns exist in the DataFrame.
+
+    Args:
+        df: Input DataFrame.
+        patient_id_col: Patient ID column name.
+        target_col: Binary target column name.
+        time_col: Time column name (empty string to skip).
+
+    Raises:
+        ValueError: If any required column is missing.
+    """
     missing = []
     if patient_id_col not in df.columns:
         missing.append(f"patient_id_col '{patient_id_col}'")
@@ -134,7 +163,19 @@ def validate_columns(df: pd.DataFrame, patient_id_col: str, target_col: str, tim
 
 
 def validate_binary_target(df: pd.DataFrame, target_col: str) -> int:
-    """Validate binary target. Returns count of NaN target rows."""
+    """Validate that the target column contains only binary (0/1) values.
+
+    Args:
+        df: Input DataFrame.
+        target_col: Target column name.
+
+    Returns:
+        Count of NaN target rows (which will be excluded).
+
+    Raises:
+        ValueError: If target contains non-numeric or non-binary values,
+            or has no valid values.
+    """
     na_count = int(df[target_col].isna().sum())
     if na_count > 0:
         print(
@@ -173,6 +214,16 @@ def validate_binary_target(df: pd.DataFrame, target_col: str) -> int:
 
 
 def validate_ratios(train_ratio: float, valid_ratio: float, test_ratio: float) -> None:
+    """Validate that split ratios sum to ~1.0 and each is >= 0.05.
+
+    Args:
+        train_ratio: Training set proportion.
+        valid_ratio: Validation set proportion.
+        test_ratio: Test set proportion.
+
+    Raises:
+        ValueError: If ratios do not sum to ~1.0 or any ratio < 0.05.
+    """
     total = train_ratio + valid_ratio + test_ratio
     if not (0.99 <= total <= 1.01):
         raise ValueError(
@@ -184,7 +235,17 @@ def validate_ratios(train_ratio: float, valid_ratio: float, test_ratio: float) -
 
 
 def get_patient_label(df: pd.DataFrame, patient_id_col: str, target_col: str) -> pd.DataFrame:
-    """Get per-patient majority label for stratification."""
+    """Compute per-patient majority label for stratified splitting.
+
+    Args:
+        df: Input DataFrame.
+        patient_id_col: Patient ID column name.
+        target_col: Binary target column name.
+
+    Returns:
+        DataFrame indexed by patient ID with columns 'mean', 'count',
+        and 'label' (1 if mean >= 0.5, else 0).
+    """
     patient_groups = df.groupby(patient_id_col)[target_col].agg(["mean", "count"])
     patient_groups["label"] = (patient_groups["mean"] >= 0.5).astype(int)
     return patient_groups
@@ -210,7 +271,22 @@ def split_grouped_temporal(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Split by temporal order with patient-level disjoint groups.
 
-    Note: this split is deterministic (sorted by time), so no seed is needed.
+    Patients are sorted by their earliest event time and assigned
+    sequentially to train/valid/test. Deterministic (no seed needed).
+
+    Args:
+        df: Input DataFrame.
+        patient_id_col: Patient ID column name.
+        time_col: Time column name for temporal ordering.
+        target_col: Binary target column name.
+        train_ratio: Proportion of patients for training.
+        valid_ratio: Proportion of patients for validation.
+
+    Returns:
+        Tuple of (train_df, valid_df, test_df).
+
+    Raises:
+        ValueError: If time_col is empty or fully unparseable.
     """
     if not time_col:
         raise ValueError("grouped_temporal strategy requires --time-col.")
@@ -269,7 +345,21 @@ def split_grouped_random(
     valid_ratio: float,
     seed: int,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Split by random patient-level grouping."""
+    """Split by random patient-level grouping.
+
+    Patients are shuffled randomly and assigned to train/valid/test.
+
+    Args:
+        df: Input DataFrame.
+        patient_id_col: Patient ID column name.
+        target_col: Binary target column name.
+        train_ratio: Proportion of patients for training.
+        valid_ratio: Proportion of patients for validation.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple of (train_df, valid_df, test_df).
+    """
     rng = np.random.default_rng(seed)
     patients = df[patient_id_col].unique().tolist()
     rng.shuffle(patients)
@@ -299,7 +389,22 @@ def split_stratified_grouped(
     valid_ratio: float,
     seed: int,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Split with stratification by patient-level majority label, group-disjoint."""
+    """Split with stratification by patient-level majority label.
+
+    Patients are split per-class to preserve positive rate across
+    train/valid/test while maintaining group-disjoint property.
+
+    Args:
+        df: Input DataFrame.
+        patient_id_col: Patient ID column name.
+        target_col: Binary target column name.
+        train_ratio: Proportion of patients for training.
+        valid_ratio: Proportion of patients for validation.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple of (train_df, valid_df, test_df).
+    """
     rng = np.random.default_rng(seed)
     patient_labels = get_patient_label(df, patient_id_col, target_col)
 
@@ -345,7 +450,23 @@ def validate_splits(
     time_col: str,
     min_rows: int,
 ) -> List[Dict[str, Any]]:
-    """Post-split safety validation. Returns list of issues."""
+    """Run post-split safety checks and return any issues found.
+
+    Checks: minimum rows, minimum positive/negative counts, minimum
+    patients, patient-level disjointness, temporal ordering, and
+    prevalence shift.
+
+    Args:
+        splits: Dict mapping split name to DataFrame.
+        patient_id_col: Patient ID column name.
+        target_col: Binary target column name.
+        time_col: Time column name (empty to skip temporal checks).
+        min_rows: Minimum required rows per split.
+
+    Returns:
+        List of issue dicts with 'code', 'message', and context fields.
+        Issues with level='warn' are non-blocking.
+    """
     issues: List[Dict[str, Any]] = []
 
     # Check minimum rows
@@ -454,6 +575,18 @@ def validate_splits(
 
 
 def split_summary(df: pd.DataFrame, target_col: str, time_col: str, patient_id_col: str) -> Dict[str, Any]:
+    """Compute summary statistics for a single split.
+
+    Args:
+        df: Split DataFrame.
+        target_col: Binary target column name.
+        time_col: Time column name (empty to skip time range).
+        patient_id_col: Patient ID column name.
+
+    Returns:
+        Dict with rows, patients, positive/negative counts,
+        positive_rate, and optional time_min/time_max.
+    """
     target = df[target_col].astype(float)
     pos = int((target == 1.0).sum())
     neg = int((target == 0.0).sum())
@@ -479,7 +612,17 @@ def generate_split_protocol(
     time_col: str,
     seed: int,
 ) -> Dict[str, Any]:
-    """Generate split_protocol.json compatible with split_protocol_gate."""
+    """Generate a split_protocol.json compatible with split_protocol_gate.
+
+    Args:
+        strategy: Splitting strategy name.
+        patient_id_col: Patient ID column name.
+        time_col: Time column name (empty string if none).
+        seed: Random seed used for splitting.
+
+    Returns:
+        Protocol dict with strategy, disjoint/temporal flags, and notes.
+    """
     requires_temporal = strategy == "grouped_temporal"
     return {
         "split_strategy": strategy,
@@ -500,6 +643,12 @@ def generate_split_protocol(
 
 
 def save_csv(df: pd.DataFrame, path: Path) -> None:
+    """Atomically write a DataFrame to CSV via tmp + rename.
+
+    Args:
+        df: DataFrame to save.
+        path: Target output path.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(
         f".{path.name}.tmp-{os.getpid()}-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
@@ -509,6 +658,12 @@ def save_csv(df: pd.DataFrame, path: Path) -> None:
 
 
 def write_json(path: Path, payload: Dict[str, Any]) -> None:
+    """Atomically write a JSON file via tmp + rename.
+
+    Args:
+        path: Target output path.
+        payload: Dict to serialize as JSON.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(
         f".{path.name}.tmp-{os.getpid()}-{datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
@@ -522,6 +677,15 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 
 def main() -> int:
+    """Entry point for the split_data pipeline.
+
+    Loads CSV, validates columns and target, splits data using the
+    chosen strategy, runs safety checks, writes split files and
+    protocol, and generates a split report.
+
+    Returns:
+        Exit code (0 for success, 2 for validation/split failure).
+    """
     args = parse_args()
 
     # Validate ratios
