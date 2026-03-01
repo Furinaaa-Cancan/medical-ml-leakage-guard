@@ -52,6 +52,7 @@ os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(_loky_cap))
 
 import joblib
 import numpy as np
+import gc
 import pandas as pd
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.base import BaseEstimator, clone
@@ -330,6 +331,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model-out", help="Optional model artifact output path.")
     parser.add_argument("--permutation-null-out", help="Optional null metric output file (one value per line).")
+    parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        help="Enable low-memory mode: downcast numeric dtypes, release intermediate "
+        "DataFrames early, and call gc.collect() at key pipeline stages.",
+    )
     return parser.parse_args()
 
 
@@ -3560,6 +3567,14 @@ def main() -> int:
     if not stage0_features:
         raise SystemExit("No usable features remain after feature-group and forbidden-feature filtering.")
 
+    low_mem = getattr(args, "low_memory", False)
+    if low_mem:
+        for _df in (train_df, valid_df, test_df):
+            for col in _df.select_dtypes(include=["float64"]).columns:
+                _df[col] = pd.to_numeric(_df[col], downcast="float")
+            for col in _df.select_dtypes(include=["int64"]).columns:
+                _df[col] = pd.to_numeric(_df[col], downcast="integer")
+
     X_train_stage0, y_train = prepare_xy(train_df, stage0_features, args.target_col)
     stage1_features, stage1_report = select_features_by_filter(
         X_train_stage0,
@@ -3587,6 +3602,10 @@ def main() -> int:
     )
     if not selected_features:
         selected_features = list(stage1_features)
+
+    del X_train_stage0
+    if low_mem:
+        gc.collect()
 
     X_train, y_train = prepare_xy(train_df, selected_features, args.target_col)
     X_valid, y_valid = prepare_xy(valid_df, selected_features, args.target_col)
@@ -4262,6 +4281,10 @@ def main() -> int:
             "schema_version": "v4.0",
             "skipped_fast_diagnostic_mode": True,
         }
+
+    if low_mem:
+        del train_df, valid_df, test_df
+        gc.collect()
 
     compute_ci_matrix = bool(args.ci_matrix_report_out) or not fast_diagnostic_mode
     ci_matrix_report_payload: Optional[Dict[str, Any]] = None
