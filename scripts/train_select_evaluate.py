@@ -3795,6 +3795,313 @@ def _net_reclassification_improvement(
     }
 
 
+def _delong_test(
+    y_true: "np.ndarray",
+    proba_a: "np.ndarray",
+    proba_b: "np.ndarray",
+) -> Dict[str, Any]:
+    """DeLong test for comparing two ROC-AUC values.
+
+    DeLong et al. (1988) — standard for AUC comparison in clinical ML.
+    Nature Medicine / Lancet require this when comparing models.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba_a: Predicted probabilities from model A (new).
+        proba_b: Predicted probabilities from model B (reference).
+
+    Returns:
+        Dict with auc_a, auc_b, z_statistic, p_value.
+    """
+    from scipy import stats as _stats
+    n = len(y_true)
+    pos = np.where(y_true == 1)[0]
+    neg = np.where(y_true == 0)[0]
+    m = len(pos)
+    k = len(neg)
+    if m < 2 or k < 2:
+        return {"auc_a": None, "auc_b": None, "z_statistic": None, "p_value": None}
+    # Structural components (Mann-Whitney U-statistic based)
+    def _placements(proba: "np.ndarray") -> "np.ndarray":
+        scores_pos = proba[pos]
+        scores_neg = proba[neg]
+        v = np.zeros(m, dtype=float)
+        for i in range(m):
+            v[i] = np.mean(scores_pos[i] > scores_neg) + 0.5 * np.mean(scores_pos[i] == scores_neg)
+        return v
+    def _placements_neg(proba: "np.ndarray") -> "np.ndarray":
+        scores_pos = proba[pos]
+        scores_neg = proba[neg]
+        v = np.zeros(k, dtype=float)
+        for j in range(k):
+            v[j] = np.mean(scores_neg[j] < scores_pos) + 0.5 * np.mean(scores_neg[j] == scores_pos)
+        return v
+    v10_a = _placements(proba_a)
+    v10_b = _placements(proba_b)
+    v01_a = _placements_neg(proba_a)
+    v01_b = _placements_neg(proba_b)
+    auc_a = float(np.mean(v10_a))
+    auc_b = float(np.mean(v10_b))
+    # Covariance matrix of AUC difference
+    s10 = np.cov(np.column_stack([v10_a, v10_b]), rowvar=False, ddof=1)
+    s01 = np.cov(np.column_stack([v01_a, v01_b]), rowvar=False, ddof=1)
+    s = s10 / m + s01 / k
+    diff = auc_a - auc_b
+    var_diff = float(s[0, 0] + s[1, 1] - 2 * s[0, 1])
+    if var_diff <= 0:
+        return {"auc_a": round(auc_a, 6), "auc_b": round(auc_b, 6),
+                "auc_diff": round(float(diff), 6),
+                "z_statistic": None, "p_value": 1.0, "significant_at_005": False}
+    z = diff / np.sqrt(var_diff)
+    p = float(2 * _stats.norm.sf(abs(z)))
+    return {
+        "auc_a": round(auc_a, 6),
+        "auc_b": round(auc_b, 6),
+        "auc_diff": round(float(diff), 6),
+        "z_statistic": round(float(z), 4),
+        "p_value": round(p, 6),
+        "significant_at_005": bool(p < 0.05),
+    }
+
+
+def _mcnemar_test(
+    y_true: "np.ndarray",
+    pred_a: "np.ndarray",
+    pred_b: "np.ndarray",
+) -> Dict[str, Any]:
+    """McNemar test for comparing two classifiers' disagreements.
+
+    Tests whether the two classifiers make the same types of errors.
+
+    Args:
+        y_true: Binary ground truth labels.
+        pred_a: Binary predictions from model A (new).
+        pred_b: Binary predictions from model B (reference).
+
+    Returns:
+        Dict with contingency table, chi2 statistic, p_value.
+    """
+    from scipy import stats as _stats
+    correct_a = (pred_a == y_true).astype(int)
+    correct_b = (pred_b == y_true).astype(int)
+    # b = A correct, B wrong; c = A wrong, B correct
+    b = int(np.sum((correct_a == 1) & (correct_b == 0)))
+    c = int(np.sum((correct_a == 0) & (correct_b == 1)))
+    if b + c == 0:
+        return {"b": b, "c": c, "chi2": 0.0, "p_value": 1.0, "significant_at_005": False}
+    # Edwards correction
+    chi2 = float((abs(b - c) - 1) ** 2 / (b + c))
+    p = float(_stats.chi2.sf(chi2, df=1))
+    return {
+        "b_a_correct_b_wrong": b,
+        "c_a_wrong_b_correct": c,
+        "chi2": round(chi2, 4),
+        "p_value": round(p, 6),
+        "significant_at_005": bool(p < 0.05),
+    }
+
+
+def _prediction_uncertainty(
+    proba: "np.ndarray",
+) -> Dict[str, Any]:
+    """Compute prediction-level uncertainty statistics.
+
+    Reports entropy distribution and identifies high-uncertainty predictions.
+    ICML/NeurIPS expect uncertainty quantification in clinical ML.
+
+    Args:
+        proba: Predicted probabilities.
+
+    Returns:
+        Dict with entropy statistics and high-uncertainty fraction.
+    """
+    eps = 1e-12
+    p = np.clip(proba, eps, 1.0 - eps)
+    entropy = -(p * np.log2(p) + (1 - p) * np.log2(1 - p))
+    return {
+        "entropy_mean": round(float(np.mean(entropy)), 4),
+        "entropy_std": round(float(np.std(entropy)), 4),
+        "entropy_median": round(float(np.median(entropy)), 4),
+        "entropy_max": round(float(np.max(entropy)), 4),
+        "high_uncertainty_fraction": round(float(np.mean(entropy > 0.9)), 4),
+        "low_confidence_fraction": round(float(np.mean((proba > 0.3) & (proba < 0.7))), 4),
+    }
+
+
+def _subgroup_performance(
+    y_true: "np.ndarray",
+    proba: "np.ndarray",
+    threshold: float,
+    beta: float,
+    feature_df: "pd.DataFrame",
+    max_subgroups: int = 5,
+) -> Dict[str, Any]:
+    """Compute performance metrics across subgroups for fairness assessment.
+
+    NeurIPS/ICML fairness checklist: report performance disparities.
+    Nature Medicine: subgroup analysis required for clinical applicability.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba: Predicted probabilities.
+        threshold: Decision threshold.
+        beta: Beta for F-beta score.
+        feature_df: Feature DataFrame to identify subgroup columns.
+        max_subgroups: Max number of features to analyze.
+
+    Returns:
+        Dict with per-feature subgroup performance breakdown.
+    """
+    results: Dict[str, Any] = {"features_analyzed": 0, "subgroups": {}}
+    # Identify candidate subgroup columns (binary or low-cardinality categorical)
+    candidates = []
+    for col in feature_df.columns:
+        nunique = feature_df[col].nunique()
+        if 2 <= nunique <= 5:
+            candidates.append((col, nunique))
+    candidates.sort(key=lambda x: x[1])
+    candidates = candidates[:max_subgroups]
+    results["features_analyzed"] = len(candidates)
+    for col, _ in candidates:
+        groups = feature_df[col].dropna().unique()
+        group_results = []
+        for g in sorted(groups, key=str):
+            mask = (feature_df[col] == g).values
+            if np.sum(mask) < 10 or np.sum(y_true[mask]) < 2:
+                continue
+            from sklearn.metrics import roc_auc_score as _roc_auc
+            from sklearn.metrics import average_precision_score as _ap
+            y_sub = y_true[mask]
+            p_sub = proba[mask]
+            pred_sub = (p_sub >= threshold).astype(int)
+            tp = int(np.sum((pred_sub == 1) & (y_sub == 1)))
+            fp = int(np.sum((pred_sub == 1) & (y_sub == 0)))
+            fn = int(np.sum((pred_sub == 0) & (y_sub == 1)))
+            sens = tp / max(tp + fn, 1)
+            ppv = tp / max(tp + fp, 1)
+            try:
+                auc = float(_roc_auc(y_sub, p_sub))
+            except Exception:
+                auc = None
+            try:
+                pr_auc = float(_ap(y_sub, p_sub))
+            except Exception:
+                pr_auc = None
+            group_results.append({
+                "group_value": str(g),
+                "n": int(np.sum(mask)),
+                "n_positive": int(np.sum(y_sub)),
+                "prevalence": round(float(np.mean(y_sub)), 4),
+                "sensitivity": round(float(sens), 4),
+                "ppv": round(float(ppv), 4),
+                "roc_auc": round(auc, 4) if auc is not None else None,
+                "pr_auc": round(pr_auc, 4) if pr_auc is not None else None,
+            })
+        if len(group_results) >= 2:
+            aucs = [g["roc_auc"] for g in group_results if g["roc_auc"] is not None]
+            sens_vals = [g["sensitivity"] for g in group_results]
+            results["subgroups"][str(col)] = {
+                "groups": group_results,
+                "auc_range": round(max(aucs) - min(aucs), 4) if len(aucs) >= 2 else None,
+                "sensitivity_range": round(max(sens_vals) - min(sens_vals), 4),
+                "equalized_odds_gap": round(max(sens_vals) - min(sens_vals), 4),
+            }
+    # Disparate impact ratio (overall)
+    if results["subgroups"]:
+        first_feature = list(results["subgroups"].values())[0]
+        groups = first_feature["groups"]
+        positive_rates = []
+        for g in groups:
+            pred_pos_rate = (g["sensitivity"] * g["prevalence"]) + ((1 - g.get("ppv", 0)) * (1 - g["prevalence"])) if g["prevalence"] > 0 else 0
+            positive_rates.append(g.get("sensitivity", 0))
+        if positive_rates and max(positive_rates) > 0:
+            results["disparate_impact_ratio"] = round(min(positive_rates) / max(positive_rates), 4)
+        else:
+            results["disparate_impact_ratio"] = None
+    return results
+
+
+def _inference_benchmark(
+    estimator: Any,
+    X_sample: "pd.DataFrame",
+    n_repeats: int = 5,
+) -> Dict[str, Any]:
+    """Benchmark inference latency and report model size.
+
+    NeurIPS/ICML paper checklist requires computational cost reporting.
+
+    Args:
+        estimator: Fitted estimator.
+        X_sample: Sample of test data for timing.
+        n_repeats: Number of timing repeats.
+
+    Returns:
+        Dict with latency_ms_per_sample, total_inference_ms, model_param_count.
+    """
+    import time
+    sample = X_sample.head(min(100, len(X_sample)))
+    times = []
+    for _ in range(n_repeats):
+        t0 = time.perf_counter()
+        try:
+            if hasattr(estimator, "predict_proba"):
+                estimator.predict_proba(sample)
+            else:
+                estimator.predict(sample)
+        except Exception:
+            break
+        t1 = time.perf_counter()
+        times.append((t1 - t0) * 1000)
+    if not times:
+        return {"latency_ms_per_sample": None, "total_inference_ms": None, "n_samples": 0}
+    avg_total = float(np.mean(times))
+    n = len(sample)
+    # Model parameter count estimation
+    param_count = None
+    try:
+        if hasattr(estimator, "named_steps"):
+            clf = estimator.named_steps.get("clf", estimator)
+        else:
+            clf = estimator
+        if hasattr(clf, "coef_"):
+            param_count = int(np.prod(clf.coef_.shape)) + (int(clf.intercept_.shape[0]) if hasattr(clf, "intercept_") else 0)
+        elif hasattr(clf, "n_estimators") and hasattr(clf, "estimators_"):
+            param_count = sum(t.tree_.node_count for t in (clf.estimators_ if not hasattr(clf.estimators_[0], '__len__') else [e for sub in clf.estimators_ for e in sub]))
+        elif hasattr(clf, "get_booster"):
+            param_count = len(clf.get_booster().get_dump())
+    except Exception:
+        pass
+    return {
+        "inference_latency_ms_per_sample": round(avg_total / max(n, 1), 4),
+        "total_inference_ms": round(avg_total, 2),
+        "n_samples_timed": int(n),
+        "n_repeats": int(n_repeats),
+        "model_param_count": param_count,
+    }
+
+
+def _environment_versions() -> Dict[str, str]:
+    """Capture key package versions for reproducibility.
+
+    NeurIPS reproducibility checklist requires environment specification.
+
+    Returns:
+        Dict mapping package name to version string.
+    """
+    versions: Dict[str, str] = {}
+    for pkg in ("numpy", "pandas", "sklearn", "scipy", "xgboost", "lightgbm", "shap", "joblib"):
+        try:
+            mod = __import__(pkg)
+            versions[pkg] = str(getattr(mod, "__version__", "unknown"))
+        except ImportError:
+            versions[pkg] = "not_installed"
+    import sys as _sys
+    versions["python"] = _sys.version.split()[0]
+    import platform as _plat
+    versions["platform"] = _plat.platform()
+    return versions
+
+
 def _compute_overfit_risk(
     train_metrics: Dict[str, Any],
     valid_metrics: Dict[str, Any],
@@ -4616,6 +4923,21 @@ def main() -> int:
     else:
         perm_imp = {"scoring": "average_precision", "top_features": [], "skipped": True}
 
+    # ── Top-conference supplementary assessments (NeurIPS/ICML/Nature Medicine) ──
+    # DeLong test: AUC comparison vs logistic baseline
+    test_pred = (test_proba >= selected_threshold).astype(int)
+    baseline_logit_pred = (baseline_logit_proba_test >= selected_threshold).astype(int)
+    delong_vs_logistic = _delong_test(y_test, test_proba, baseline_logit_proba_test)
+    mcnemar_vs_logistic = _mcnemar_test(y_test, test_pred, baseline_logit_pred)
+    pred_uncertainty = _prediction_uncertainty(test_proba)
+    subgroup_report = _subgroup_performance(
+        y_true=y_test, proba=test_proba,
+        threshold=selected_threshold, beta=beta,
+        feature_df=X_test,
+    )
+    inference_bench = _inference_benchmark(selected_estimator, X_test)
+    env_versions = _environment_versions()
+
     evaluation_report = {
         "model_id": selected_model_id,
         "split": "test",
@@ -4645,6 +4967,14 @@ def main() -> int:
             "vs_prevalence_baseline": nri_vs_prevalence,
             "vs_logistic_baseline": nri_vs_logistic,
         },
+        "statistical_tests": {
+            "delong_vs_logistic": delong_vs_logistic,
+            "mcnemar_vs_logistic": mcnemar_vs_logistic,
+        },
+        "prediction_uncertainty": pred_uncertainty,
+        "subgroup_performance": subgroup_report,
+        "inference_benchmark": inference_bench,
+        "environment": env_versions,
         "threshold_selection": {
             "selection_split": threshold_selection_split,
             "strategy": "maximize_fbeta_under_floors",

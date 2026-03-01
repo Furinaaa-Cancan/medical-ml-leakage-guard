@@ -1862,6 +1862,47 @@ def step_run(state: Dict) -> Any:
                         print()
                         box("TRIPOD+AI Checks", ta_lines, color="C")
 
+                # Statistical tests + top-conference metrics
+                st_lines = []
+                stat_tests = eval_data.get("statistical_tests", {})
+                dl = stat_tests.get("delong_vs_logistic", {})
+                mn = stat_tests.get("mcnemar_vs_logistic", {})
+                if dl.get("p_value") is not None:
+                    dl_p = float(dl["p_value"])
+                    dl_sig = dl.get("significant_at_005", False)
+                    dl_col = 'G' if dl_sig else 'Y'
+                    sig_s = 'sig' if dl_sig else 'n.s.'
+                    st_lines.append(f"  {'DeLong p-value':<20} {s(dl_col, f'{dl_p:.4f}')}  {s(dl_col, sig_s)}")
+                if mn.get("p_value") is not None:
+                    mn_p = float(mn["p_value"])
+                    mn_sig = mn.get("significant_at_005", False)
+                    mn_col = 'G' if mn_sig else 'Y'
+                    sig_s = 'sig' if mn_sig else 'n.s.'
+                    st_lines.append(f"  {'McNemar p-value':<20} {s(mn_col, f'{mn_p:.4f}')}  {s(mn_col, sig_s)}")
+                pu = eval_data.get("prediction_uncertainty", {})
+                if pu.get("entropy_mean") is not None:
+                    hu = pu.get("high_uncertainty_fraction", 0)
+                    hu_col = 'G' if float(hu) < 0.1 else ('Y' if float(hu) < 0.3 else 'R')
+                    st_lines.append(f"  {'Entropy (mean)':<20} {pu['entropy_mean']:.4f}"
+                                    f"  high-unc={s(hu_col, f'{float(hu):.1%}')}")
+                sg = eval_data.get("subgroup_performance", {})
+                n_sg = sg.get("features_analyzed", 0)
+                if n_sg > 0:
+                    dr = sg.get("disparate_impact_ratio")
+                    if dr is not None:
+                        dr_col = 'G' if float(dr) >= 0.8 else ('Y' if float(dr) >= 0.6 else 'R')
+                        st_lines.append(f"  {'Disparate impact':<20} {s(dr_col, f'{float(dr):.4f}')}"
+                                        f"  ({n_sg} features)")
+                ib = eval_data.get("inference_benchmark", {})
+                lat = ib.get("inference_latency_ms_per_sample")
+                if lat is not None:
+                    pc = ib.get("model_param_count")
+                    pc_s = f"  params={pc}" if pc is not None else ""
+                    st_lines.append(f"  {'Inference latency':<20} {float(lat):.3f} ms/sample{pc_s}")
+                if st_lines:
+                    print()
+                    box("Statistical Tests & Fairness", st_lines, color="C")
+
             # Model selection summary (mean±std from CV)
             ms_path = Path(evidence_dir) / "model_selection_report.json"
             if ms_path.exists():
