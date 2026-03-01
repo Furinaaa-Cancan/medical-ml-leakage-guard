@@ -1034,7 +1034,11 @@ def _optuna_search_family(
         raise RuntimeError("optuna is not installed. Install with `pip install optuna`.")
 
     def _suggest_params(trial: "optuna.Trial") -> Dict[str, Any]:
-        """Suggest hyperparameters for the current family via Optuna trial."""
+        """Suggest hyperparameters for the current family via Optuna trial.
+
+        Args:
+            trial: Optuna trial object for parameter suggestion.
+        """
         if family in {"logistic_l1", "logistic_l2"}:
             return {"C": trial.suggest_float("C", 0.001, 10.0, log=True)}
         if family == "logistic_elasticnet":
@@ -1098,7 +1102,11 @@ def _optuna_search_family(
         return {}
 
     def objective(trial: "optuna.Trial") -> float:
-        """Optuna objective: return mean CV PR-AUC for trial params."""
+        """Optuna objective: return mean CV PR-AUC for trial params.
+
+        Args:
+            trial: Optuna trial object.
+        """
         params = _suggest_params(trial)
         if not params:
             return 0.0
@@ -1135,6 +1143,9 @@ def _family_grid(family: str) -> List[Dict[str, Any]]:
 
     Returns:
         List of hyperparameter dicts for grid/random search.
+
+    Raises:
+        ValueError: If the family is unsupported.
     """
     if family == "logistic_l1":
         return [{"C": c} for c in [0.3, 0.1, 0.03, 1.0, 3.0]]
@@ -1582,6 +1593,7 @@ def _build_estimator_for_family(
 
     Raises:
         ValueError: If the family is unsupported.
+        RuntimeError: If tabpfn backend is requested but not installed.
     """
     imputer = build_imputer(imputation_strategy, seed)
     if family == "logistic_l1":
@@ -1845,6 +1857,9 @@ def build_candidates(
     Returns:
         Tuple of (list of candidate dicts with estimator/metadata,
         candidate space metadata dict).
+
+    Raises:
+        SystemExit: If optuna is requested but not installed.
     """
     requested_pool = [str(x) for x in model_pool_config.get("model_pool", []) if str(x).strip()]
     max_trials = int(model_pool_config.get("max_trials_per_family", 1))
@@ -2175,7 +2190,14 @@ def fit_probability_calibrator(
             n_bins: int = 10,
             min_bin_size: int = 15,
         ) -> float:
-            """Compute local expected calibration error."""
+            """Compute local expected calibration error.
+
+            Args:
+                labels: Binary ground-truth labels.
+                scores: Predicted probability scores.
+                n_bins: Number of calibration bins.
+                min_bin_size: Minimum samples per bin.
+            """
             n = int(labels.shape[0])
             if n <= 0:
                 return 1.0
@@ -2485,7 +2507,11 @@ def choose_threshold(
     candidates: List[Dict[str, Any]] = []
 
     def floor_margin(metrics: Dict[str, float]) -> Dict[str, float]:
-        """Compute margin above each clinical floor constraint."""
+        """Compute margin above each clinical floor constraint.
+
+        Args:
+            metrics: Metric panel dict with sensitivity/npv/specificity/ppv.
+        """
         sens_margin = float(metrics["sensitivity"]) - float(sensitivity_floor)
         npv_margin = float(metrics["npv"]) - float(npv_floor)
         spec_margin = float(metrics["specificity"]) - float(specificity_floor)
@@ -3433,6 +3459,7 @@ def main() -> int:
 
     Raises:
         SystemExit: On invalid arguments or data issues.
+        ValueError: On data validation failures (e.g., empty splits).
     """
     configure_runtime_warning_filters()
     args = parse_args()
@@ -4033,7 +4060,12 @@ def main() -> int:
     }
 
     def _patient_ids_or_fallback(df: pd.DataFrame, default_prefix: str) -> List[str]:
-        """Extract patient IDs or generate sequential fallback IDs."""
+        """Extract patient IDs or generate sequential fallback IDs.
+
+        Args:
+            df: Source DataFrame.
+            default_prefix: Prefix for fallback IDs (e.g., 'train').
+        """
         if args.patient_id_col in df.columns:
             return df[args.patient_id_col].astype(str).tolist()
         return [f"{default_prefix}_{i}" for i in range(int(df.shape[0]))]
@@ -4309,7 +4341,14 @@ def main() -> int:
             )
 
         def summarize_block(rows: List[Dict[str, Any]]) -> Dict[str, float]:
-            """Summarize PR-AUC range and drop across robustness slices."""
+            """Summarize PR-AUC range and drop across robustness slices.
+
+            Args:
+                rows: List of per-slice/group result dicts with 'metrics' key.
+
+            Raises:
+                SystemExit: If no valid pr_auc values found.
+            """
             values = [float(r["metrics"]["pr_auc"]) for r in rows if isinstance(r, dict) and isinstance(r.get("metrics"), dict)]
             if not values:
                 raise SystemExit("robustness report requires non-empty per-slice/group pr_auc values.")

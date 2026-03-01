@@ -2,11 +2,49 @@
 """
 Medical-safe data splitting tool for ml-leakage-guard.
 
-Splits a single CSV into train/valid/test with:
-- Patient-level disjoint splits (no patient appears in multiple splits)
-- Temporal ordering enforcement (train < valid < test when applicable)
-- Prevalence and minimum sample size checks
-- Auto-generated split_protocol.json compatible with split_protocol_gate
+Splits a single CSV into train/valid/test with patient-level disjoint
+splits, temporal ordering enforcement, and prevalence checks.
+
+Strategies:
+    grouped_temporal:
+        Sort patients by earliest event time. Assign the first
+        ``train_ratio`` fraction to train, next ``valid_ratio`` to valid,
+        rest to test. Deterministic (no seed). Requires ``--time-col``.
+    grouped_random:
+        Shuffle patients randomly (seeded), then assign by ratio.
+        Suitable for cross-sectional data without a time axis.
+    stratified_grouped:
+        Split patients per-class (positive/negative majority label)
+        to preserve prevalence across splits while keeping patients
+        group-disjoint. Uses seeded shuffle per class.
+
+Safety checks (post-split):
+    - Minimum rows per split (default 20).
+    - Minimum positive samples per split (default 10).
+    - Minimum negative samples per split (default 10).
+    - Minimum unique patients per split (default 5).
+    - Patient-level disjointness across all split pairs.
+    - Temporal ordering: train.max_time < valid.min_time < test.min_time.
+    - Prevalence shift warning if train vs test delta > 0.10.
+    - Row count preservation (input rows == sum of split rows).
+
+Input:
+    Single CSV with at least a patient ID column and a binary target
+    column (0/1). Optionally a datetime column for temporal splitting.
+
+Output files:
+    - train.csv, valid.csv, test.csv in ``--output-dir``.
+    - split_protocol.json (auto-generated, gate-compatible).
+    - split_report.json (summary, safety check results, SHA-256).
+
+Usage:
+    python3 scripts/split_data.py \\
+        --input data/raw.csv \\
+        --output-dir data \\
+        --patient-id-col patient_id \\
+        --target-col y \\
+        --time-col event_time \\
+        --strategy grouped_temporal
 """
 
 from __future__ import annotations
@@ -102,7 +140,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def file_sha256(path: Path) -> str:
-    """Compute SHA256 hex digest of a file for reproducibility traceability."""
+    """Compute SHA256 hex digest of a file for reproducibility traceability.
+
+    Args:
+        path: Path to the file to hash.
+
+    Returns:
+        Lowercase hex digest string.
+    """
     h = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -252,7 +297,15 @@ def get_patient_label(df: pd.DataFrame, patient_id_col: str, target_col: str) ->
 
 
 def _temp_col_name(df: pd.DataFrame, base: str = "__split_tmp__") -> str:
-    """Generate a temporary column name that doesn't collide with existing columns."""
+    """Generate a temporary column name that doesn't collide with existing columns.
+
+    Args:
+        df: DataFrame to check for column name collisions.
+        base: Base name prefix for the temporary column.
+
+    Returns:
+        Collision-free column name string.
+    """
     name = base
     idx = 0
     while name in df.columns:
