@@ -40,3 +40,7 @@ jobs:
 
       - name: Gate smoke
         run: python3 scripts/test_gate_smoke.py
+
+      - name: Interactive wizard tests (pty)
+        if: runner.os != 'Windows'
+        run: python3 tests/test_wizard_interactive.py
