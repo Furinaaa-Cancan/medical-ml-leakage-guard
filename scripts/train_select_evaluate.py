@@ -3542,6 +3542,22 @@ def _calibration_assessment(
     except Exception:
         result["calibration_slope"] = None
         result["calibration_intercept"] = None
+    # Expected Calibration Error (equal-frequency bins)
+    try:
+        n_samples = len(y_true)
+        ece_bins = min(n_bins, max(2, n_samples // 15))
+        order = np.argsort(proba)
+        blocks = np.array_split(order, ece_bins)
+        ece_total = 0.0
+        for blk in blocks:
+            if len(blk) == 0:
+                continue
+            avg_pred = float(np.mean(proba[blk]))
+            avg_true = float(np.mean(y_true[blk]))
+            ece_total += (len(blk) / n_samples) * abs(avg_true - avg_pred)
+        result["ece"] = round(float(ece_total), 4)
+    except Exception:
+        result["ece"] = None
     # Binned calibration curve
     try:
         frac_pos, mean_pred = _cal_curve(y_true, proba, n_bins=n_bins, strategy="uniform")

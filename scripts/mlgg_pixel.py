@@ -1803,6 +1803,11 @@ def step_run(state: Dict) -> Any:
                         eo_ok = 0.8 <= float(eo) <= 1.2
                         el = s('G', f"{float(eo):.4f}") if eo_ok else s('Y', f"{float(eo):.4f}")
                         ta_lines.append(f"  {'E:O ratio':<18} {el}  {'(ideal=1.0)':>14}")
+                    ece_val = cal.get("ece")
+                    if ece_val is not None:
+                        ece_ok = float(ece_val) <= 0.06
+                        ece_s = s('G', f"{float(ece_val):.4f}") if ece_ok else s('Y', f"{float(ece_val):.4f}")
+                        ta_lines.append(f"  {'ECE':<18} {ece_s}  {'(ideal<0.05)':>14}")
                     # EPV
                     if epv.get("events_per_variable") is not None:
                         epv_v = float(epv["events_per_variable"])
