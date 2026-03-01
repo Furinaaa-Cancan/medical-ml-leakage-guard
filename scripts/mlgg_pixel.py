@@ -102,7 +102,7 @@ _T: Dict[str, Dict[str, str]] = {
     "nav_first":     {"en": "[\u2191\u2193] move  [Enter] next  [\u2190/q] quit",
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u9000\u51fa"},
     "ms_hint":       {"en": "[\u2191\u2193] move  [Space] toggle  [Enter] confirm  [a] all  [\u2190/q] back",
-                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u5207\u6362  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [q] \u8fd4\u56de"},
+                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u5207\u6362  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [\u2190/q] \u8fd4\u56de"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
@@ -1592,9 +1592,10 @@ def _export_cli(state: Dict) -> str:
     ]
     if state.get("time"):
         split_parts.extend(["--time-col", state["time"]])
-    ignore_parts = [state.get("pid", "patient_id")]
+    default_ignore = [state.get("pid", "patient_id")]
     if state.get("time"):
-        ignore_parts.append(state["time"])
+        default_ignore.append(state["time"])
+    ignore_cols = state.get("ignore_cols", ",".join(default_ignore))
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
     max_trials = state.get("max_trials", 20)
@@ -1607,7 +1608,7 @@ def _export_cli(state: Dict) -> str:
         "--test", str(Path(out_data) / "test.csv"),
         "--target-col", state.get("target", "y"),
         "--patient-id-col", state.get("pid", "patient_id"),
-        "--ignore-cols", ",".join(ignore_parts),
+        "--ignore-cols", ignore_cols,
         "--model-pool", state.get("model_pool", ""),
         "--hyperparam-search", state.get("hyperparam_search", "fixed_grid"),
         "--max-trials-per-family", str(max_trials),
@@ -1620,6 +1621,7 @@ def _export_cli(state: Dict) -> str:
         "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
         "--ci-matrix-report-out", str(Path(evidence_dir) / "ci_matrix_report.json"),
         "--model-out", str(Path(models_dir) / "model.pkl"),
+        "--n-jobs", str(state.get("n_jobs", 1)),
         "--random-seed", "20260225",
     ]
     if state.get("hyperparam_search") == "optuna":
@@ -1978,12 +1980,13 @@ def step_run(state: Dict) -> Any:
     Path(evidence_dir).mkdir(parents=True, exist_ok=True)
     Path(models_dir).mkdir(parents=True, exist_ok=True)
 
-    ignore_parts = [state["pid"]]
+    # Use user-customized ignore_cols from step_advanced, or build default
+    default_ignore_parts = [state["pid"]]
     if state.get("time"):
-        ignore_parts.append(state["time"])
-    if source == "download" and "event_time" not in ignore_parts:
-        ignore_parts.append("event_time")
-    ignore_cols = ",".join(ignore_parts)
+        default_ignore_parts.append(state["time"])
+    if source == "download" and "event_time" not in default_ignore_parts:
+        default_ignore_parts.append("event_time")
+    ignore_cols = state.get("ignore_cols", ",".join(default_ignore_parts))
 
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
@@ -2011,6 +2014,7 @@ def step_run(state: Dict) -> Any:
         "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
         "--ci-matrix-report-out", str(Path(evidence_dir) / "ci_matrix_report.json"),
         "--model-out", str(Path(models_dir) / "model.pkl"),
+        "--n-jobs", str(state.get("n_jobs", 1)),
         "--random-seed", "20260225",
     ]
     if state.get("hyperparam_search") == "optuna":
