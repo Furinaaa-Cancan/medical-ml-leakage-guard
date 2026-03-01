@@ -25,7 +25,7 @@ EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 PYTHON = sys.executable
 
 DATASETS = ["heart", "breast", "ckd"]
-SPLIT_STRATEGIES = ["grouped_temporal", "grouped_random", "random"]
+SPLIT_STRATEGIES = ["grouped_temporal", "grouped_random", "stratified_grouped"]
 TUNING_STRATEGIES = ["fixed_grid", "random_search"]
 MINIMAL_MODELS = "logistic_l1,logistic_l2"
 
