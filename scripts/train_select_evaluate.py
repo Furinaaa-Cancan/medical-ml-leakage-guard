@@ -3885,10 +3885,19 @@ def main() -> int:
         ci_lo = float("nan")
         ci_hi = float("nan")
         ci_n = 0
+        all_metric_ci: Dict[str, Any] = {}
     else:
         ci_lo, ci_hi, ci_n = bootstrap_ci_pr_auc(
             y_true=y_test,
             proba=test_proba,
+            n_resamples=int(args.bootstrap_resamples),
+            seed=args.random_seed,
+        )
+        all_metric_ci, _ = bootstrap_metric_ci(
+            y_true=y_test,
+            y_score=test_proba,
+            threshold=selected_threshold,
+            beta=beta,
             n_resamples=int(args.bootstrap_resamples),
             seed=args.random_seed,
         )
@@ -4056,21 +4065,21 @@ def main() -> int:
             else None,
         },
         "uncertainty": {
-            "metrics": {
-                "pr_auc": (
-                    {
-                        "method": "bootstrap",
-                        "n_resamples": ci_n,
-                        "ci_95": [ci_lo, ci_hi],
+            "method": "bootstrap" if not fast_diagnostic_mode else "not_computed_fast_diagnostic",
+            "n_resamples": ci_n,
+            "metrics": (
+                {
+                    metric_name: {
+                        "ci_95": [ci_vals["ci_lower"], ci_vals["ci_upper"]],
+                        "ci_width": ci_vals["ci_width"],
                     }
-                    if not fast_diagnostic_mode
-                    else {
-                        "method": "not_computed_fast_diagnostic",
-                        "n_resamples": 0,
-                        "ci_95": None,
-                    }
-                )
-            }
+                    for metric_name, ci_vals in all_metric_ci.items()
+                }
+                if not fast_diagnostic_mode and all_metric_ci
+                else {
+                    "pr_auc": {"ci_95": None, "ci_width": None},
+                }
+            ),
         },
         "baselines": {
             "prevalence_model": {"metrics": prevalence_baseline},

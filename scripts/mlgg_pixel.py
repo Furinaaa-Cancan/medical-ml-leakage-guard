@@ -1295,7 +1295,9 @@ def _export_cli(state: Dict) -> str:
         "--model-pool", state.get("model_pool", ""),
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
         "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
+        "--ci-matrix-report-out", str(Path(evidence_dir) / "ci_matrix_report.json"),
         "--model-out", str(Path(models_dir) / "model.pkl"),
+        "--random-seed", "20260225",
     ]
     return _shlex.join(split_parts) + "\n" + _shlex.join(train_parts)
 
@@ -1613,7 +1615,9 @@ def step_run(state: Dict) -> Any:
         "--device", state["device"],
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
         "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
+        "--ci-matrix-report-out", str(Path(evidence_dir) / "ci_matrix_report.json"),
         "--model-out", str(Path(models_dir) / "model.pkl"),
+        "--random-seed", "20260225",
     ]
 
     rc, _, err = run_spinner(train_cmd, train_label)
@@ -1661,7 +1665,8 @@ def step_run(state: Dict) -> Any:
                     metric_lines.append(f"  {'Threshold':<14} {float(thresh_val):.4f}")
                 if mid or thresh_val is not None:
                     metric_lines.append("")
-                # Core metrics
+                # Core metrics with 95% CI
+                unc_metrics = eval_data.get("uncertainty", {}).get("metrics", {})
                 for key, label in [("roc_auc", "ROC-AUC"), ("pr_auc", "PR-AUC"),
                                    ("f1", "F1"), ("f2_beta", "F-beta"),
                                    ("accuracy", "Accuracy"),
@@ -1671,13 +1676,16 @@ def step_run(state: Dict) -> Any:
                     val = metrics.get(key)
                     if val is not None:
                         line = f"  {label:<14} {float(val):.4f}"
-                        # Add 95% CI for PR-AUC
-                        if key == "pr_auc":
-                            ci = (eval_data.get("uncertainty", {})
-                                  .get("metrics", {}).get("pr_auc", {}).get("ci_95"))
-                            if isinstance(ci, list) and len(ci) == 2:
-                                line += f"  [95%CI: {float(ci[0]):.4f}-{float(ci[1]):.4f}]"
+                        ci = unc_metrics.get(key, {}).get("ci_95")
+                        if isinstance(ci, list) and len(ci) == 2 and ci[0] is not None:
+                            line += f"  [{float(ci[0]):.4f}-{float(ci[1]):.4f}]"
                         metric_lines.append(line)
+                # CI method note
+                unc_method = eval_data.get("uncertainty", {}).get("method", "")
+                unc_n = eval_data.get("uncertainty", {}).get("n_resamples", 0)
+                if unc_method == "bootstrap" and unc_n:
+                    metric_lines.append("")
+                    metric_lines.append(f"  {DIM}95% CI: bootstrap, n={unc_n}{RST}")
                 # Constraints status
                 constraints_ok = thresh_block.get("constraints_satisfied_overall")
                 if constraints_ok is not None:
