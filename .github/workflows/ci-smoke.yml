@@ -28,19 +28,33 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install -r requirements.txt
+          python3 -m pip install coverage
 
       - name: CLI help sanity
         run: python3 scripts/mlgg.py --help
 
       - name: Onboarding smoke
-        run: python3 scripts/test_onboarding_smoke.py
+        run: python3 -m coverage run --append scripts/test_onboarding_smoke.py
 
       - name: Split smoke
-        run: python3 scripts/test_split_smoke.py
+        run: python3 -m coverage run --append scripts/test_split_smoke.py
 
       - name: Gate smoke
-        run: python3 scripts/test_gate_smoke.py
+        run: python3 -m coverage run --append scripts/test_gate_smoke.py
 
       - name: Interactive wizard tests (pty)
         if: runner.os != 'Windows'
-        run: python3 tests/test_wizard_interactive.py
+        run: python3 -m coverage run --append tests/test_wizard_interactive.py
+
+      - name: Coverage report
+        if: always()
+        run: |
+          python3 -m coverage xml
+          python3 -m coverage report --skip-empty
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: coverage.xml

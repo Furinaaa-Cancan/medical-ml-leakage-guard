@@ -1,0 +1,17 @@
+[run]
+source = scripts
+omit =
+    scripts/test_*.py
+    scripts/__pycache__/*
+    experiments/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+
+show_missing = true
+
+[xml]
+output = coverage.xml
