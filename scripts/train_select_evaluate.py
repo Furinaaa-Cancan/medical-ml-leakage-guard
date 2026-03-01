@@ -4015,6 +4015,28 @@ def main() -> int:
         for w in overfit_warnings:
             print(f"  - {w}")
 
+    # Classify overfitting risk level and generate recommendations
+    max_auc_gap = max(
+        (float(overfit_gaps.get(k, {}).get("train_test_gap", 0.0))
+         for k in ("pr_auc", "roc_auc")),
+        default=0.0,
+    )
+    brier_gap = float(overfit_gaps.get("brier", {}).get("train_test_gap", 0.0))
+    if max_auc_gap > 0.20 or brier_gap < -0.10:
+        overfit_risk = "high"
+    elif max_auc_gap > 0.10 or brier_gap < -0.05:
+        overfit_risk = "medium"
+    else:
+        overfit_risk = "low"
+    overfit_recommendations: List[str] = []
+    if overfit_risk in ("medium", "high"):
+        overfit_recommendations.append("Increase regularization (higher C penalty, lower max_depth).")
+        overfit_recommendations.append("Reduce feature count or apply stricter feature selection.")
+        overfit_recommendations.append("Collect more training samples if possible.")
+    if overfit_risk == "high":
+        overfit_recommendations.append("Consider a simpler model family (e.g., logistic regression).")
+        overfit_recommendations.append("Use stronger cross-validation (more folds, repeated CV).")
+
     evaluation_report = {
         "model_id": selected_model_id,
         "split": "test",
@@ -4029,6 +4051,8 @@ def main() -> int:
             "gaps": overfit_gaps,
             "warnings": overfit_warnings,
             "overfit_detected": bool(overfit_warnings),
+            "risk_level": overfit_risk,
+            "recommendations": overfit_recommendations,
         },
         "threshold_selection": {
             "selection_split": threshold_selection_split,

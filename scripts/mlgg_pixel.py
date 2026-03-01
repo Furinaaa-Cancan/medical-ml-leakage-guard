@@ -1726,14 +1726,23 @@ def step_run(state: Dict) -> Any:
                                 gap_f = float(tv) - float(ev)
                                 flag = f"{gap_f:>+8.4f}"
                             cmp_lines.append(f"  {label:<14} {float(tv):>8.4f}  {vv_str:>8}  {float(ev):>8.4f}  {flag}")
+                    # Risk level + warnings + recommendations
+                    risk = overfit.get("risk_level", "low")
                     warnings = overfit.get("warnings", [])
-                    if warnings:
+                    recs = overfit.get("recommendations", [])
+                    cmp_lines.append("")
+                    if risk == "high":
+                        cmp_lines.append(f"  {s('R', f'Risk: {risk.upper()}', bold=True)}")
+                    elif risk == "medium":
+                        cmp_lines.append(f"  {s('Y', f'Risk: {risk.upper()}', bold=True)}")
+                    else:
+                        cmp_lines.append(f"  {s('G', 'Risk: LOW — No overfitting detected')}")
+                    for w in warnings:
+                        cmp_lines.append(f"  {s('Y', w)}")
+                    if recs:
                         cmp_lines.append("")
-                        for w in warnings:
-                            cmp_lines.append(f"  {s('Y', w)}")
-                    elif not overfit.get("overfit_detected", False):
-                        cmp_lines.append("")
-                        cmp_lines.append(f"  {s('G', 'No overfitting detected')}")
+                        for r in recs:
+                            cmp_lines.append(f"  {DIM}> {r}{RST}")
                     if len(cmp_lines) > 1:
                         print()
                         box("Train / Valid / Test", cmp_lines, color="C")
