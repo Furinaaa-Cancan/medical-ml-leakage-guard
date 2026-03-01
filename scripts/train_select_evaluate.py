@@ -4172,7 +4172,7 @@ def main() -> int:
             _ckpt_payload = {"candidate_rows": candidate_rows, "completed_count": len(candidate_rows)}
             _ckpt_tmp = checkpoint_path.with_suffix(".tmp")
             with _ckpt_tmp.open("w", encoding="utf-8") as _cfh:
-                json.dump(_ckpt_payload, _cfh, indent=2)
+                json.dump(_ckpt_payload, _cfh, ensure_ascii=True, indent=2)
             _ckpt_tmp.replace(checkpoint_path)
 
     estimator_map = {cand["model_id"]: cand["estimator"] for cand in candidates}
