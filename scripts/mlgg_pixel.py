@@ -265,6 +265,8 @@ _T: Dict[str, Dict[str, str]] = {
     "r_saved":       {"en": "Saved to:", "zh": "\u4fdd\u5b58\u81f3\uff1a"},
     "r_next":        {"en": "All done! Results saved to output directory.",
                       "zh": "\u5168\u90e8\u5b8c\u6210\uff01\u7ed3\u679c\u5df2\u4fdd\u5b58\u81f3\u8f93\u51fa\u76ee\u5f55\u3002"},
+    "r_dry_done":    {"en": "Dry-run complete. Remove --dry-run to execute.",
+                      "zh": "\u5f69\u6392\u5b8c\u6210\u3002\u79fb\u9664 --dry-run \u5373\u53ef\u6267\u884c\u3002"},
 
     "rows":          {"en": "rows", "zh": "\u884c"},
     "patients":      {"en": "patients", "zh": "\u60a3\u8005"},
@@ -1661,7 +1663,8 @@ def step_run(state: Dict) -> Any:
         for line in cli_str.split("\n"):
             print(f"  {s('W', line)}")
         print()
-        print(f"  {DIM}{t('r_next')}{RST}")
+        print(f"  {s('G', t('r_dry_done'))}")
+        print(f"  {DIM}{t('c_output')} {state.get('out_dir', '')}/{RST}")
         return True
 
     # ── Demo: run full onboarding pipeline ──
