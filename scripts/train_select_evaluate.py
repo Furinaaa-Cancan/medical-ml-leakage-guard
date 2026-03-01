@@ -734,7 +734,7 @@ def impute_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
         df: Input DataFrame.
 
     Returns:
-        DataFrame with numeric columns median-imputed.
+        DataFrame with all columns coerced to numeric and median-imputed.
     """
     out = df.copy()
     for col in out.columns:
@@ -917,7 +917,8 @@ def prepare_xy(df: pd.DataFrame, feature_cols: Sequence[str], target_col: str) -
         Tuple of (X DataFrame, y int array).
 
     Raises:
-        ValueError: If target is missing, non-finite, or not binary (0/1).
+        ValueError: If target or feature columns are missing, target
+            contains non-finite values, or target is not binary (0/1).
     """
     if target_col not in df.columns:
         raise ValueError(f"Missing target column: {target_col}")
@@ -937,7 +938,8 @@ def build_imputer(imputation_strategy: str, seed: int) -> BaseEstimator:
     """Build an imputer estimator based on the resolved strategy.
 
     Args:
-        imputation_strategy: 'mice' for IterativeImputer, otherwise median.
+        imputation_strategy: 'mice' for IterativeImputer, otherwise
+            SimpleImputer with median strategy and missing indicator.
         seed: Random seed for MICE.
 
     Returns:
