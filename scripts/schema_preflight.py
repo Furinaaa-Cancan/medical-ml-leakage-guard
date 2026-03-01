@@ -308,6 +308,8 @@ def main() -> int:
     split_stats: Dict[str, Any] = {}
     if all(isinstance(x, str) and x for x in (target_col, patient_id_col, time_col)):
         for split_name, df in (("train", train_df), ("valid", valid_df), ("test", test_df)):
+            if df is None:
+                continue
             stats = split_summary(df, str(target_col), str(patient_id_col), str(time_col))
             split_stats[split_name] = stats
             if isinstance(stats.get("target_parse_error"), str):
@@ -364,9 +366,9 @@ def main() -> int:
 
     summary = {
         "split_paths": {
-            "train": str(Path(args.train).expanduser().resolve()),
-            "valid": str(Path(args.valid).expanduser().resolve()),
-            "test": str(Path(args.test).expanduser().resolve()),
+            name: str(Path(path).expanduser().resolve())
+            for name, path in (("train", args.train), ("valid", args.valid), ("test", args.test))
+            if path
         },
         "common_column_count": int(len(common_columns)),
         "resolved_mapping": resolved,
