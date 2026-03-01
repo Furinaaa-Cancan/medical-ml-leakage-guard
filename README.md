@@ -86,7 +86,7 @@ This repository:
 ### 2. Requirements
 - Python `3.10+`
 - `openssl` in PATH (required for execution attestation)
-- Python packages: `numpy`, `pandas`, `scikit-learn`, `joblib`
+- Python packages: `numpy`, `pandas`, `scikit-learn`, `scipy`, `joblib`
 - Optional model backends: `xgboost`, `catboost`
 
 Install core dependencies:
