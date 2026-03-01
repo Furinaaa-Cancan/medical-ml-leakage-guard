@@ -50,6 +50,7 @@ PYTHON = sys.executable
 
 app = Flask(__name__)
 app.secret_key = os.urandom(32)
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload limit
 
 # ── session state ──────────────────────────────────────────────────────────────
 _sessions: Dict[str, Dict[str, Any]] = {}

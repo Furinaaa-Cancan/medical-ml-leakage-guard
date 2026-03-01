@@ -66,7 +66,7 @@ _TEST_MODE = bool(os.environ.get("MLGG_TEST"))
 def _clear() -> None:
     if _TEST_MODE:
         return
-    os.system("cls" if platform.system() == "Windows" else "clear")
+    sys.stdout.write("\033[2J\033[H"); sys.stdout.flush()
 
 def _trunc(text: str, maxw: int) -> str:
     if _wlen(text) <= maxw:
