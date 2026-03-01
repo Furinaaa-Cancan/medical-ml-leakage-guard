@@ -1747,6 +1747,40 @@ def step_run(state: Dict) -> Any:
                         print()
                         box("Train / Valid / Test", cmp_lines, color="C")
 
+                # Fallback trace (overfitting callback)
+                if overfit.get("callback_activated") and overfit.get("fallback_trace"):
+                    ft = overfit["fallback_trace"]
+                    orig = overfit.get("original_model_id", "?")
+                    fb_lines = []
+                    fb_lines.append(f"  {'Original':<14} {orig}")
+                    fb_lines.append(f"  {'Final':<14} {eval_data.get('model_id', '?')}")
+                    switched = orig != eval_data.get("model_id")
+                    if switched:
+                        fb_lines.append(f"  {'Status':<14} {s('G', 'Switched to less overfitting model')}")
+                    else:
+                        fb_lines.append(f"  {'Status':<14} {s('Y', 'No better alternative found')}")
+                    fb_lines.append("")
+                    fb_lines.append(f"  {'#':>3}  {'Model':<22} {'Risk':>6}  {'Gap':>8}  {'PR-AUC':>8}")
+                    for step in ft:
+                        r = step.get("round", "?")
+                        mid = str(step.get("model_id", "?"))[:22]
+                        sr = str(step.get("risk", "?"))
+                        mg = step.get("max_gap")
+                        tp = step.get("test_pr_auc")
+                        mg_s = f"{float(mg):>+8.4f}" if mg is not None else "     --"
+                        tp_s = f"{float(tp):>8.4f}" if tp is not None else "     --"
+                        if sr == "low":
+                            sr_s = s('G', f"{sr:>6}")
+                        elif sr == "high":
+                            sr_s = s('R', f"{sr:>6}")
+                        elif sr == "medium":
+                            sr_s = s('Y', f"{sr:>6}")
+                        else:
+                            sr_s = f"{sr:>6}"
+                        fb_lines.append(f"  {str(r):>3}  {mid:<22} {sr_s}  {mg_s}  {tp_s}")
+                    print()
+                    box("Overfitting Callback", fb_lines, color="C")
+
             # Model selection summary (mean±std from CV)
             ms_path = Path(evidence_dir) / "model_selection_report.json"
             if ms_path.exists():

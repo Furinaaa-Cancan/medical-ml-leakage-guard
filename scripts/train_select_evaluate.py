@@ -3499,6 +3499,158 @@ def build_ci_matrix_report(
     }
 
 
+def _compute_overfit_risk(
+    train_metrics: Dict[str, Any],
+    valid_metrics: Dict[str, Any],
+    test_metrics: Dict[str, Any],
+) -> Tuple[str, Dict[str, Any], List[str]]:
+    """Compute overfitting risk level from train/valid/test metric gaps.
+
+    Args:
+        train_metrics: Metric dict from training split.
+        valid_metrics: Metric dict from validation split.
+        test_metrics: Metric dict from test split.
+
+    Returns:
+        Tuple of (risk_level, gaps_dict, warning_messages).
+    """
+    gaps: Dict[str, Any] = {}
+    warnings: List[str] = []
+    for mk in ("pr_auc", "roc_auc", "brier"):
+        tr = float(train_metrics.get(mk, 0.0))
+        va = float(valid_metrics.get(mk, 0.0))
+        te = float(test_metrics.get(mk, 0.0))
+        tv_gap = tr - va
+        tt_gap = tr - te
+        gaps[mk] = {
+            "train": tr, "valid": va, "test": te,
+            "train_valid_gap": round(tv_gap, 6),
+            "train_test_gap": round(tt_gap, 6),
+        }
+        if mk == "brier":
+            if tv_gap < -0.05:
+                warnings.append(f"Brier score gap (train-valid): {tv_gap:.4f} — possible overfitting.")
+        else:
+            if tv_gap > 0.10:
+                warnings.append(f"{mk} gap (train-valid): {tv_gap:.4f} — possible overfitting.")
+            if tt_gap > 0.15:
+                warnings.append(f"{mk} gap (train-test): {tt_gap:.4f} — likely overfitting or distribution shift.")
+    max_auc_gap = max(
+        (float(gaps.get(k, {}).get("train_test_gap", 0.0)) for k in ("pr_auc", "roc_auc")),
+        default=0.0,
+    )
+    brier_gap = float(gaps.get("brier", {}).get("train_test_gap", 0.0))
+    if max_auc_gap > 0.20 or brier_gap < -0.10:
+        risk = "high"
+    elif max_auc_gap > 0.10 or brier_gap < -0.05:
+        risk = "medium"
+    else:
+        risk = "low"
+    return risk, gaps, warnings
+
+
+def _full_candidate_eval(
+    model_id: str,
+    estimator_map: Dict[str, Any],
+    X_train: "pd.DataFrame",
+    y_train: "np.ndarray",
+    X_valid: "pd.DataFrame",
+    y_valid: "np.ndarray",
+    X_test: "pd.DataFrame",
+    y_test: "np.ndarray",
+    threshold_selection_split: str,
+    calibration_fit_split: str,
+    calibration_method: str,
+    beta: float,
+    sensitivity_floor: float,
+    npv_floor: float,
+    specificity_floor: float,
+    ppv_floor: float,
+    cv_splits: int,
+    random_seed: int,
+) -> Dict[str, Any]:
+    """Full train-calibrate-threshold-evaluate-risk pipeline for one candidate.
+
+    Used by the overfitting callback to evaluate alternative candidates without
+    duplicating the main pipeline logic.
+
+    Args:
+        model_id: Identifier of the candidate model.
+        estimator_map: Map from model_id to sklearn estimator.
+        X_train, y_train: Training features and labels.
+        X_valid, y_valid: Validation features and labels.
+        X_test, y_test: Test features and labels.
+        threshold_selection_split: Split used for threshold ('valid' or 'cv_inner').
+        calibration_fit_split: Split used for calibration ('valid' or 'cv_inner').
+        calibration_method: Calibration method name.
+        beta: Beta for F-beta threshold scoring.
+        sensitivity_floor, npv_floor, specificity_floor, ppv_floor: Clinical floors.
+        cv_splits: Number of CV folds.
+        random_seed: Random seed.
+
+    Returns:
+        Dict with model_id, risk, gaps, warnings, test_metrics, threshold,
+        estimator, calibrator, and all per-split metrics/confusion matrices.
+    """
+    est = clone(estimator_map[model_id])
+    est.fit(X_train, y_train)
+    # Threshold data
+    if threshold_selection_split == "valid":
+        t_y, t_raw = y_valid, predict_proba_1(est, X_valid)
+    else:
+        t_y = y_train
+        t_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed)
+    # Calibration data
+    if calibration_fit_split == "valid":
+        c_y, c_raw = y_valid, predict_proba_1(est, X_valid)
+    else:
+        c_y = y_train
+        c_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed)
+    cal = fit_probability_calibrator(c_y, c_raw, calibration_method, int(random_seed))
+    t_proba = apply_probability_calibrator(cal, t_raw)
+    # Guard split
+    if threshold_selection_split == "cv_inner":
+        g_y = y_valid
+        g_proba = apply_probability_calibrator(cal, predict_proba_1(est, X_valid))
+    else:
+        g_y = y_train
+        g_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed)
+        g_proba = apply_probability_calibrator(cal, g_raw)
+    info = choose_threshold(
+        t_y, t_proba, beta, sensitivity_floor, npv_floor,
+        specificity_floor, ppv_floor, g_y, g_proba,
+    )
+    thresh = float(info["selected_threshold"])
+    # Metrics on all splits
+    tr_p = apply_probability_calibrator(cal, predict_proba_1(est, X_train))
+    va_p = apply_probability_calibrator(cal, predict_proba_1(est, X_valid))
+    te_p = apply_probability_calibrator(cal, predict_proba_1(est, X_test))
+    tr_m, tr_cm = metric_panel(y_train, tr_p, thresh, beta=beta)
+    va_m, va_cm = metric_panel(y_valid, va_p, thresh, beta=beta)
+    te_m, te_cm = metric_panel(y_test, te_p, thresh, beta=beta)
+    risk, gaps, warns = _compute_overfit_risk(tr_m, va_m, te_m)
+    max_gap = max(
+        float(gaps.get(k, {}).get("train_test_gap", 0.0))
+        for k in ("pr_auc", "roc_auc")
+    )
+    return {
+        "model_id": model_id,
+        "risk": risk,
+        "max_gap": max_gap,
+        "gaps": gaps,
+        "warnings": warns,
+        "threshold": thresh,
+        "threshold_info": info,
+        "test_pr_auc": float(te_m.get("pr_auc", 0.0)),
+        "estimator": est,
+        "calibrator": cal,
+        "train_metrics": tr_m, "train_cm": tr_cm,
+        "valid_metrics": va_m, "valid_cm": va_cm,
+        "test_metrics": te_m, "test_cm": te_cm,
+        "train_proba": tr_p, "valid_proba": va_p, "test_proba": te_p,
+    }
+
+
 def main() -> int:
     """Entry point for the train-select-evaluate pipeline.
 
@@ -3990,44 +4142,141 @@ def main() -> int:
         },
     }
 
-    overfit_warnings: List[str] = []
-    overfit_gaps: Dict[str, Any] = {}
-    for metric_key in ("pr_auc", "roc_auc", "brier"):
-        train_val = float(train_metrics.get(metric_key, 0.0))
-        valid_val = float(valid_metrics.get(metric_key, 0.0))
-        test_val = float(test_metrics.get(metric_key, 0.0))
-        if metric_key == "brier":
-            tv_gap = train_val - valid_val
-            tt_gap = train_val - test_val
-            overfit_gaps[metric_key] = {"train": train_val, "valid": valid_val, "test": test_val, "train_valid_gap": round(tv_gap, 6), "train_test_gap": round(tt_gap, 6)}
-            if tv_gap < -0.05:
-                overfit_warnings.append(f"Brier score gap (train-valid): {tv_gap:.4f} — possible overfitting.")
-        else:
-            tv_gap = train_val - valid_val
-            tt_gap = train_val - test_val
-            overfit_gaps[metric_key] = {"train": train_val, "valid": valid_val, "test": test_val, "train_valid_gap": round(tv_gap, 6), "train_test_gap": round(tt_gap, 6)}
-            if tv_gap > 0.10:
-                overfit_warnings.append(f"{metric_key} gap (train-valid): {tv_gap:.4f} — possible overfitting.")
-            if tt_gap > 0.15:
-                overfit_warnings.append(f"{metric_key} gap (train-test): {tt_gap:.4f} — likely overfitting or distribution shift.")
+    overfit_risk, overfit_gaps, overfit_warnings = _compute_overfit_risk(
+        train_metrics, valid_metrics, test_metrics,
+    )
     if overfit_warnings:
         print(f"[WARN] Overfitting detected ({len(overfit_warnings)} signal(s)):")
         for w in overfit_warnings:
             print(f"  - {w}")
 
-    # Classify overfitting risk level and generate recommendations
-    max_auc_gap = max(
-        (float(overfit_gaps.get(k, {}).get("train_test_gap", 0.0))
-         for k in ("pr_auc", "roc_auc")),
-        default=0.0,
-    )
-    brier_gap = float(overfit_gaps.get("brier", {}).get("train_test_gap", 0.0))
-    if max_auc_gap > 0.20 or brier_gap < -0.10:
-        overfit_risk = "high"
-    elif max_auc_gap > 0.10 or brier_gap < -0.05:
-        overfit_risk = "medium"
-    else:
-        overfit_risk = "low"
+    # ── Overfitting callback: try alternative candidates when risk >= medium ──
+    fallback_trace: List[Dict[str, Any]] = []
+    original_model_id = selected_model_id
+    callback_activated = overfit_risk in ("medium", "high")
+    if callback_activated:
+        print(f"[CALLBACK] Overfitting risk={overfit_risk} — evaluating alternative candidates...")
+        initial_max_gap = max(
+            float(overfit_gaps.get(k, {}).get("train_test_gap", 0.0))
+            for k in ("pr_auc", "roc_auc")
+        )
+        fallback_trace.append({
+            "round": 0, "model_id": selected_model_id,
+            "risk": overfit_risk, "max_gap": round(initial_max_gap, 6),
+            "test_pr_auc": float(test_metrics.get("pr_auc", 0.0)),
+            "action": "initial_selection",
+        })
+        # Sort candidates by complexity (simplest first)
+        alt_candidates = sorted(
+            [r for r in candidate_rows if r["model_id"] != selected_model_id],
+            key=lambda r: (int(r.get("complexity_rank", 999)), str(r["model_id"])),
+        )
+        eval_kwargs = dict(
+            estimator_map=estimator_map,
+            X_train=X_train, y_train=y_train,
+            X_valid=X_valid, y_valid=y_valid,
+            X_test=X_test, y_test=y_test,
+            threshold_selection_split=threshold_selection_split,
+            calibration_fit_split=calibration_fit_split,
+            calibration_method=calibration_method,
+            beta=beta, sensitivity_floor=sensitivity_floor,
+            npv_floor=npv_floor, specificity_floor=specificity_floor,
+            ppv_floor=ppv_floor, cv_splits=args.cv_splits,
+            random_seed=args.random_seed,
+        )
+        best_alt: Optional[Dict[str, Any]] = None
+        for rnd, alt_row in enumerate(alt_candidates, start=1):
+            alt_id = str(alt_row["model_id"])
+            try:
+                result = _full_candidate_eval(model_id=alt_id, **eval_kwargs)
+            except Exception as exc:
+                print(f"  [CALLBACK] round {rnd}: {alt_id} — error: {exc}")
+                fallback_trace.append({
+                    "round": rnd, "model_id": alt_id,
+                    "risk": "error", "max_gap": None,
+                    "test_pr_auc": None, "action": f"error: {exc}",
+                })
+                continue
+            fallback_trace.append({
+                "round": rnd, "model_id": alt_id,
+                "risk": result["risk"],
+                "max_gap": round(result["max_gap"], 6),
+                "test_pr_auc": round(result["test_pr_auc"], 4),
+                "action": "evaluated",
+            })
+            print(f"  [CALLBACK] round {rnd}: {alt_id} — risk={result['risk']}, "
+                  f"PR-AUC={result['test_pr_auc']:.4f}, gap={result['max_gap']:.4f}")
+            if result["risk"] == "low":
+                best_alt = result
+                break
+            if best_alt is None or result["max_gap"] < best_alt["max_gap"]:
+                best_alt = result
+
+        # Accept alternative if it has strictly lower risk or smaller gap
+        if best_alt is not None:
+            accept = (
+                best_alt["risk"] == "low"
+                or (best_alt["risk"] == "medium" and overfit_risk == "high")
+                or best_alt["max_gap"] < initial_max_gap - 0.02
+            )
+            if accept:
+                alt_id = best_alt["model_id"]
+                print(f"  [CALLBACK] Switching to {alt_id} (risk={best_alt['risk']}, "
+                      f"gap={best_alt['max_gap']:.4f})")
+                selected_model_id = alt_id
+                selected_estimator = best_alt["estimator"]
+                calibrator = best_alt["calibrator"]
+                selected_threshold = best_alt["threshold"]
+                threshold_info = best_alt["threshold_info"]
+                train_metrics = best_alt["train_metrics"]
+                valid_metrics = best_alt["valid_metrics"]
+                test_metrics = best_alt["test_metrics"]
+                train_cm = best_alt["train_cm"]
+                valid_cm = best_alt["valid_cm"]
+                test_cm = best_alt["test_cm"]
+                train_proba = best_alt["train_proba"]
+                valid_proba = best_alt["valid_proba"]
+                test_proba = best_alt["test_proba"]
+                overfit_risk = best_alt["risk"]
+                overfit_gaps = best_alt["gaps"]
+                overfit_warnings = best_alt["warnings"]
+                # Update candidate selection flags
+                for row in candidate_rows:
+                    row["selected"] = bool(row["model_id"] == selected_model_id)
+                selected_candidate_row = next(
+                    (r for r in candidate_rows if bool(r.get("selected"))), None
+                )
+                # Recompute bootstrap CI for the new model
+                if not fast_diagnostic_mode:
+                    ci_lo, ci_hi, ci_n = bootstrap_ci_pr_auc(
+                        y_true=y_test, proba=test_proba,
+                        n_resamples=int(args.bootstrap_resamples),
+                        seed=args.random_seed,
+                    )
+                    all_metric_ci, _ = bootstrap_metric_ci(
+                        y_true=y_test, y_score=test_proba,
+                        threshold=selected_threshold, beta=beta,
+                        n_resamples=int(args.bootstrap_resamples),
+                        seed=args.random_seed,
+                    )
+                fallback_trace.append({
+                    "round": "final", "model_id": alt_id,
+                    "risk": best_alt["risk"],
+                    "max_gap": round(best_alt["max_gap"], 6),
+                    "test_pr_auc": round(best_alt["test_pr_auc"], 4),
+                    "action": "accepted",
+                })
+            else:
+                print(f"  [CALLBACK] No better alternative found — keeping {selected_model_id}")
+                fallback_trace.append({
+                    "round": "final", "model_id": selected_model_id,
+                    "risk": overfit_risk,
+                    "max_gap": round(initial_max_gap, 6),
+                    "test_pr_auc": round(float(test_metrics.get("pr_auc", 0.0)), 4),
+                    "action": "kept_original",
+                })
+
+    # Generate recommendations based on final risk
     overfit_recommendations: List[str] = []
     if overfit_risk in ("medium", "high"):
         overfit_recommendations.append("Increase regularization (higher C penalty, lower max_depth).")
@@ -4053,6 +4302,9 @@ def main() -> int:
             "overfit_detected": bool(overfit_warnings),
             "risk_level": overfit_risk,
             "recommendations": overfit_recommendations,
+            "callback_activated": callback_activated,
+            "original_model_id": original_model_id if callback_activated else None,
+            "fallback_trace": fallback_trace if fallback_trace else None,
         },
         "threshold_selection": {
             "selection_split": threshold_selection_split,
