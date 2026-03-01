@@ -1430,6 +1430,30 @@ def step_run(state: Dict) -> Any:
                 "  models/    -- trained model",
                 "  data/      -- split datasets",
             ], color="G")
+            # Show metrics from demo evaluation report
+            try:
+                import json as _json
+                demo_eval = Path(state["out_dir"]) / "evidence" / "evaluation_report.json"
+                if demo_eval.exists():
+                    ed = _json.loads(demo_eval.read_text())
+                    dm = ed.get("metrics", {})
+                    if isinstance(dm, dict):
+                        dl = []
+                        mid = ed.get("model_id")
+                        if mid:
+                            dl.append(f"  {'Model':<14} {mid}")
+                            dl.append("")
+                        for k, lb in [("roc_auc", "ROC-AUC"), ("pr_auc", "PR-AUC"),
+                                      ("f1", "F1"), ("sensitivity", "Sensitivity"),
+                                      ("specificity", "Specificity"), ("accuracy", "Accuracy")]:
+                            v = dm.get(k)
+                            if v is not None:
+                                dl.append(f"  {lb:<14} {float(v):.4f}")
+                        if dl:
+                            print()
+                            box(t("r_metrics"), dl, color="C")
+            except Exception:
+                pass
         else:
             print(f"  {s('R', t('x_fail'))}")
             if err:
@@ -1626,15 +1650,21 @@ def step_run(state: Dict) -> Any:
             metrics = eval_data.get("metrics", {})
             if isinstance(metrics, dict):
                 metric_lines = []
+                # Model ID
+                mid = eval_data.get("model_id")
+                if mid:
+                    metric_lines.append(f"  {'Model':<14} {mid}")
                 # Threshold
                 thresh_block = eval_data.get("threshold_selection", {})
                 thresh_val = thresh_block.get("selected_threshold")
                 if thresh_val is not None:
                     metric_lines.append(f"  {'Threshold':<14} {float(thresh_val):.4f}")
+                if mid or thresh_val is not None:
                     metric_lines.append("")
                 # Core metrics
                 for key, label in [("roc_auc", "ROC-AUC"), ("pr_auc", "PR-AUC"),
-                                   ("f2_beta", "F-beta"), ("accuracy", "Accuracy"),
+                                   ("f1", "F1"), ("f2_beta", "F-beta"),
+                                   ("accuracy", "Accuracy"),
                                    ("sensitivity", "Sensitivity"), ("specificity", "Specificity"),
                                    ("ppv", "PPV"), ("npv", "NPV"),
                                    ("brier", "Brier")]:
@@ -1657,6 +1687,31 @@ def step_run(state: Dict) -> Any:
                 if metric_lines:
                     print()
                     box(t("r_metrics"), metric_lines, color="C")
+
+                # Per-split comparison (overfitting check)
+                split_metrics = eval_data.get("split_metrics", {})
+                train_m = split_metrics.get("train", {}).get("metrics", {})
+                valid_m = split_metrics.get("valid", {}).get("metrics", {})
+                test_m = split_metrics.get("test", {}).get("metrics", {})
+                if train_m and test_m:
+                    cmp_lines = []
+                    header = f"  {'':14} {'Train':>8}  {'Valid':>8}  {'Test':>8}"
+                    cmp_lines.append(header)
+                    for key, label in [("pr_auc", "PR-AUC"), ("roc_auc", "ROC-AUC"),
+                                       ("f1", "F1"), ("brier", "Brier")]:
+                        tv = train_m.get(key)
+                        vv = valid_m.get(key)
+                        ev = test_m.get(key)
+                        if tv is not None and ev is not None:
+                            vv_str = f"{float(vv):.4f}" if vv is not None else "  --  "
+                            cmp_lines.append(f"  {label:<14} {float(tv):>8.4f}  {vv_str:>8}  {float(ev):>8.4f}")
+                    overfit = eval_data.get("overfitting_analysis", {})
+                    if overfit.get("overfit_detected"):
+                        cmp_lines.append("")
+                        cmp_lines.append(f"  {s('Y', 'Overfitting detected', bold=True)}")
+                    if len(cmp_lines) > 1:
+                        print()
+                        box("Train / Valid / Test", cmp_lines, color="C")
     except Exception:
         pass
 
