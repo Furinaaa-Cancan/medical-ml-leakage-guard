@@ -177,6 +177,7 @@ _T: Dict[str, Dict[str, str]] = {
     "m_ada":         {"en": "AdaBoost", "zh": "AdaBoost"},
     "m_xgb":         {"en": "XGBoost (optional)", "zh": "XGBoost\uff08\u53ef\u9009\uff09"},
     "m_cat":         {"en": "CatBoost (optional)", "zh": "CatBoost\uff08\u53ef\u9009\uff09"},
+    "m_lgbm":        {"en": "LightGBM (optional)", "zh": "LightGBM\uff08\u53ef\u9009\uff09"},
 
     "pick_tuning":   {"en": "Hyperparameter search", "zh": "\u8d85\u53c2\u6570\u641c\u7d22\u7b56\u7565"},
     "tune_fixed":    {"en": "Fixed Grid", "zh": "\u56fa\u5b9a\u7f51\u683c"},
@@ -684,6 +685,7 @@ MODEL_POOL = [
     ("adaboost",                  "m_ada"),
     ("xgboost",                   "m_xgb"),
     ("catboost",                  "m_cat"),
+    ("lightgbm",                  "m_lgbm"),
 ]
 DEFAULT_MODELS = [0, 1, 3, 5]  # L1, L2, RF, HGB
 
