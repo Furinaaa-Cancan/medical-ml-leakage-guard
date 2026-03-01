@@ -132,6 +132,9 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_kidney_d":   {"en": "UCI CKD -- 399 patients, 24 features",
                       "zh": "UCI CKD -- 399 \u4f8b, 24 \u7279\u5f81"},
 
+    "src_full":      {"en": "Full Publication-Grade Pipeline", "zh": "\u5b8c\u6574\u51fa\u7248\u7ea7\u7ba1\u7ebf"},
+    "src_full_d":    {"en": "28-gate strict pipeline with all specs",
+                      "zh": "28 \u5173 gate \u4e25\u683c\u7ba1\u7ebf\uff0c\u5305\u542b\u6240\u6709\u914d\u7f6e"},
     "src_repeat":    {"en": "Repeat last run", "zh": "\u91cd\u590d\u4e0a\u6b21\u8fd0\u884c"},
     "src_repeat_d":  {"en": "Reload previous configuration", "zh": "\u52a0\u8f7d\u4e0a\u6b21\u914d\u7f6e"},
     "hist_saved":    {"en": "Run saved to history.", "zh": "\u8fd0\u884c\u5df2\u4fdd\u5b58\u5230\u5386\u53f2\u8bb0\u5f55\u3002"},
@@ -754,21 +757,21 @@ def step_source(state: Dict) -> Any:
     _clear()
     step_header(2, TOTAL_STEPS, t("s_source"))
     hist = _load_history()
-    opts = [t("src_download"), t("src_csv"), t("src_demo")]
-    descs = [t("src_download_d"), t("src_csv_d"), t("src_demo_d")]
+    opts = [t("src_download"), t("src_csv"), t("src_demo"), t("src_full")]
+    descs = [t("src_download_d"), t("src_csv_d"), t("src_demo_d"), t("src_full_d")]
     if hist:
         opts.append(t("src_repeat"))
         descs.append(t("src_repeat_d"))
     ci = select(opts, descs)
     if ci < 0:
         return BACK
-    if hist and ci == 3:
+    if hist and ci == 4:
         for k, v in hist.items():
             if not k.startswith("_"):
                 state[k] = v
         state["_from_history"] = True
         return True
-    state["source"] = ["download", "csv", "demo"][ci]
+    state["source"] = ["download", "csv", "demo", "full"][ci]
     return True
 
 
@@ -792,6 +795,29 @@ def step_dataset(state: Dict) -> Any:
         state["calibration"] = "none"
         state["device"] = "auto"
         state["out_dir"] = str(DEFAULT_OUT / "pipeline")
+        return SKIP
+
+    if source == "full":
+        _clear()
+        step_header(3, TOTAL_STEPS, t("s_dataset"))
+        print(f"\n  {s('W', 'Full Publication-Grade Pipeline')}")
+        print(f"  {s('D', 'Requires a project directory with request.json and all spec files.')}\n")
+        project_root = prompt("Project root (with request.json)")
+        if not project_root:
+            return BACK
+        p = Path(project_root).expanduser().resolve()
+        req = p / "evidence" / "request.json"
+        if not req.exists():
+            req = p / "request.json"
+        if not req.exists():
+            print(f"\n  {s('R', 'request.json not found in')} {p}")
+            print(f"  {s('D', 'Run mlgg.py onboarding first to generate it.')}\n")
+            prompt("Press Enter to go back")
+            return BACK
+        state["_full_project_root"] = str(p)
+        state["_full_request_json"] = str(req)
+        state["out_dir"] = str(p)
+        state["dataset_key"] = "full_pipeline"
         return SKIP
 
     _clear()
@@ -1376,6 +1402,36 @@ def step_run(state: Dict) -> Any:
                 "  evidence/  -- audit artifacts",
                 "  models/    -- trained model",
                 "  data/      -- split datasets",
+            ], color="G")
+        else:
+            print(f"  {s('R', t('x_fail'))}")
+            if err:
+                for l in err.strip().split("\n")[-5:]:
+                    print(f"  {DIM}{l}{RST}")
+        return True
+
+    # ── Full Publication-Grade Pipeline ──
+    if source == "full":
+        project_root = state.get("_full_project_root", state["out_dir"])
+        request_json = state.get("_full_request_json", "")
+        evidence_dir = str(Path(project_root) / "evidence")
+        workflow_script = SCRIPTS_DIR / "run_productized_workflow.py"
+        if not workflow_script.exists():
+            workflow_script = SCRIPTS_DIR / "run_strict_pipeline.py"
+        cmd = [
+            sys.executable, str(workflow_script),
+            "--request", request_json,
+            "--evidence-dir", evidence_dir,
+            "--strict",
+            "--allow-missing-compare",
+            "--report", str(Path(evidence_dir) / "strict_pipeline_report.json"),
+        ]
+        rc, _, err = run_spinner(cmd, "Running 28-gate publication pipeline...")
+        print()
+        if rc == 0:
+            box(t("r_done"), [
+                f"{t('c_output')} {project_root}/",
+                "  evidence/  -- all gate reports",
             ], color="G")
         else:
             print(f"  {s('R', t('x_fail'))}")
