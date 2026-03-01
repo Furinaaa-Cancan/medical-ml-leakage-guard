@@ -26,7 +26,7 @@ PYTHON = sys.executable
 
 DATASETS = ["heart", "breast", "ckd"]
 SPLIT_STRATEGIES = ["grouped_temporal", "grouped_random", "stratified_grouped"]
-TUNING_STRATEGIES = ["fixed_grid", "random_search"]
+TUNING_STRATEGIES = ["fixed_grid", "random_subsample"]
 MINIMAL_MODELS = "logistic_l1,logistic_l2"
 
 
@@ -129,7 +129,7 @@ def test_full_pipeline(dataset, strategy, tuning, dataset_cache, tmp_path):
     with eval_report.open() as f:
         eval_data = json.load(f)
     assert isinstance(eval_data, dict), "evaluation_report.json is not a dict"
-    assert eval_data.get("status") is not None or eval_data.get("selected_model") is not None, \
+    assert eval_data.get("model_id") is not None or eval_data.get("primary_metric") is not None, \
         "evaluation_report.json missing expected fields"
 
     with ms_report.open() as f:
