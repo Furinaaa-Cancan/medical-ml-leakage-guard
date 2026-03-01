@@ -1038,6 +1038,9 @@ def _optuna_search_family(
 
         Args:
             trial: Optuna trial object for parameter suggestion.
+
+        Returns:
+            Hyperparameter dict for the current family.
         """
         if family in {"logistic_l1", "logistic_l2"}:
             return {"C": trial.suggest_float("C", 0.001, 10.0, log=True)}
@@ -1106,6 +1109,9 @@ def _optuna_search_family(
 
         Args:
             trial: Optuna trial object.
+
+        Returns:
+            Mean CV PR-AUC score, or 0.0 on failure.
         """
         params = _suggest_params(trial)
         if not params:
@@ -2197,6 +2203,9 @@ def fit_probability_calibrator(
                 scores: Predicted probability scores.
                 n_bins: Number of calibration bins.
                 min_bin_size: Minimum samples per bin.
+
+            Returns:
+                ECE value in [0, 1].
             """
             n = int(labels.shape[0])
             if n <= 0:
@@ -2270,7 +2279,8 @@ def apply_probability_calibrator(calibrator: Optional[Any], proba_raw: np.ndarra
         Calibrated probability array clipped to [1e-6, 1-1e-6].
 
     Raises:
-        ValueError: If the calibrator kind is unsupported.
+        ValueError: If the calibrator dict kind is unsupported, or if
+            the calibrator object exposes neither predict_proba nor predict.
     """
     s = np.asarray(proba_raw, dtype=float)
     s = np.clip(s, 1e-6, 1.0 - 1e-6)
@@ -2511,6 +2521,9 @@ def choose_threshold(
 
         Args:
             metrics: Metric panel dict with sensitivity/npv/specificity/ppv.
+
+        Returns:
+            Dict with per-constraint margins and feasibility flags.
         """
         sens_margin = float(metrics["sensitivity"]) - float(sensitivity_floor)
         npv_margin = float(metrics["npv"]) - float(npv_floor)
@@ -4065,6 +4078,9 @@ def main() -> int:
         Args:
             df: Source DataFrame.
             default_prefix: Prefix for fallback IDs (e.g., 'train').
+
+        Returns:
+            List of patient ID strings.
         """
         if args.patient_id_col in df.columns:
             return df[args.patient_id_col].astype(str).tolist()
@@ -4345,6 +4361,10 @@ def main() -> int:
 
             Args:
                 rows: List of per-slice/group result dicts with 'metrics' key.
+
+            Returns:
+                Dict with pr_auc_min, pr_auc_max, pr_auc_range,
+                pr_auc_worst_drop_from_overall.
 
             Raises:
                 SystemExit: If no valid pr_auc values found.
