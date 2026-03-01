@@ -18,6 +18,11 @@ import shutil
 import subprocess
 import sys
 import threading
+
+try:
+    import readline  # noqa: F401 -- enables arrow-key editing in input()
+except ImportError:
+    pass
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -295,18 +300,18 @@ _T: Dict[str, Dict[str, str]] = {
     "imb_weight_d":      {"en": "Always apply class_weight=balanced to all models",
                           "zh": "\u59cb\u7ec8\u5bf9\u6240\u6709\u6a21\u578b\u5e94\u7528 class_weight=balanced"},
     "imb_smote":         {"en": "SMOTE oversampling", "zh": "SMOTE \u8fc7\u91c7\u6837"},
-    "imb_smote_d":       {"en": "Synthetic minority oversampling, train only (needs imbalanced-learn)",
-                          "zh": "\u5408\u6210\u5c11\u6570\u7c7b\u8fc7\u91c7\u6837\uff0c\u4ec5\u8bad\u7ec3\u96c6\uff08\u9700 imbalanced-learn\uff09"},
+    "imb_smote_d":       {"en": "Planned \u2014 falls back to auto class_weight for now",
+                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
     "imb_ros":           {"en": "Random oversampling", "zh": "\u968f\u673a\u8fc7\u91c7\u6837"},
-    "imb_ros_d":         {"en": "Duplicate minority samples, train only",
-                          "zh": "\u590d\u5236\u5c11\u6570\u7c7b\u6837\u672c\uff0c\u4ec5\u8bad\u7ec3\u96c6"},
+    "imb_ros_d":         {"en": "Planned \u2014 falls back to auto class_weight for now",
+                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
     "imb_rus":           {"en": "Random undersampling", "zh": "\u968f\u673a\u6b20\u91c7\u6837"},
-    "imb_rus_d":         {"en": "Remove majority samples, train only",
-                          "zh": "\u79fb\u9664\u591a\u6570\u7c7b\u6837\u672c\uff0c\u4ec5\u8bad\u7ec3\u96c6"},
+    "imb_rus_d":         {"en": "Planned \u2014 falls back to auto class_weight for now",
+                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
     "imb_adasyn":        {"en": "ADASYN adaptive oversampling",
                           "zh": "ADASYN \u81ea\u9002\u5e94\u8fc7\u91c7\u6837"},
-    "imb_adasyn_d":      {"en": "Adaptive synthetic sampling, train only (needs imbalanced-learn)",
-                          "zh": "\u81ea\u9002\u5e94\u5408\u6210\u91c7\u6837\uff0c\u4ec5\u8bad\u7ec3\u96c6\uff08\u9700 imbalanced-learn\uff09"},
+    "imb_adasyn_d":      {"en": "Planned \u2014 falls back to auto class_weight for now",
+                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
 
     "c_imbalance":       {"en": "Imbalance:", "zh": "\u4e0d\u5e73\u8861\uff1a"},
     "c_validation":      {"en": "Validation:", "zh": "\u9a8c\u8bc1\u65b9\u5f0f\uff1a"},
@@ -1456,6 +1461,8 @@ def _export_cli(state: Dict) -> str:
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
     max_trials = state.get("max_trials", 20)
+    _imb = state.get("imbalance_strategy", "auto")
+    cw_override = {"auto": "auto", "none": "none", "class_weight": "balanced"}.get(_imb, "auto")
     train_parts = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
         "--train", str(Path(out_data) / "train.csv"),
@@ -1469,6 +1476,7 @@ def _export_cli(state: Dict) -> str:
         "--max-trials-per-family", str(max_trials),
         "--cv-splits", str(cv_folds),
         "--selection-data", selection_data,
+        "--class-weight-override", cw_override,
         "--calibration-method", state.get("calibration", "none"),
         "--device", state.get("device", "auto"),
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
@@ -1798,6 +1806,8 @@ def step_run(state: Dict) -> Any:
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
     max_trials = state.get("max_trials", 20)
+    _imb = state.get("imbalance_strategy", "auto")
+    cw_override = {"auto": "auto", "none": "none", "class_weight": "balanced"}.get(_imb, "auto")
 
     train_cmd = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
@@ -1812,6 +1822,7 @@ def step_run(state: Dict) -> Any:
         "--max-trials-per-family", str(max_trials),
         "--cv-splits", str(cv_folds),
         "--selection-data", selection_data,
+        "--class-weight-override", cw_override,
         "--calibration-method", state["calibration"],
         "--device", state["device"],
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),

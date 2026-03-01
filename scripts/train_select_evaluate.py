@@ -292,6 +292,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--npv-floor", type=float, default=0.70, help="Minimum NPV for threshold choice.")
     parser.add_argument("--specificity-floor", type=float, default=0.60, help="Minimum specificity for threshold choice.")
     parser.add_argument("--ppv-floor", type=float, default=0.50, help="Minimum PPV for threshold choice.")
+    parser.add_argument(
+        "--class-weight-override",
+        default="auto",
+        choices=["auto", "none", "balanced"],
+        help="Override class weight strategy. 'auto' uses balanced when imbalance ratio >= 1.5. "
+        "'none' disables class weighting. 'balanced' always enables it.",
+    )
     parser.add_argument("--random-seed", type=int, default=20260225, help="Random seed.")
     parser.add_argument("--primary-metric", default="pr_auc", help="Primary optimization metric.")
     parser.add_argument("--bootstrap-resamples", type=int, default=500, help="Bootstrap samples for CI.")
@@ -4568,7 +4575,13 @@ def main() -> int:
     minority_count = int(min(positive_count, negative_count))
     majority_count = int(max(positive_count, negative_count))
     imbalance_ratio = (float(majority_count) / float(minority_count)) if minority_count > 0 else float("inf")
-    effective_class_weight: Optional[str] = "balanced" if imbalance_ratio >= 1.5 else None
+    _cw_override = str(getattr(args, 'class_weight_override', 'auto')).strip().lower()
+    if _cw_override == "balanced":
+        effective_class_weight: Optional[str] = "balanced"
+    elif _cw_override == "none":
+        effective_class_weight = None
+    else:
+        effective_class_weight = "balanced" if imbalance_ratio >= 1.5 else None
 
     resolved_dev = resolve_device(str(getattr(args, 'device', 'cpu')))
     model_pool_config["train_rows"] = int(X_train.shape[0])
