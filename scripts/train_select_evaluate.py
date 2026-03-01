@@ -4102,6 +4102,148 @@ def _environment_versions() -> Dict[str, str]:
     return versions
 
 
+def _feature_ablation_study(
+    estimator: Any,
+    X_test: "pd.DataFrame",
+    y_test: "np.ndarray",
+    proba_full: "np.ndarray",
+    threshold: float,
+    beta: float,
+    top_k: int = 10,
+) -> Dict[str, Any]:
+    """Leave-one-feature-out ablation study.
+
+    NeurIPS/ICML require ablation studies to justify model components.
+    Measures performance drop when each feature is individually shuffled.
+
+    Args:
+        estimator: Fitted estimator.
+        X_test: Test feature DataFrame.
+        y_test: Test labels.
+        proba_full: Full-model predictions on test set.
+        threshold: Decision threshold.
+        beta: Beta for F-beta.
+        top_k: Number of top impactful features to report.
+
+    Returns:
+        Dict with feature-level ablation results sorted by impact.
+    """
+    from sklearn.metrics import average_precision_score as _ap
+    full_pr_auc = float(_ap(y_test, proba_full))
+    rng = np.random.RandomState(42)
+    results = []
+    cols = list(X_test.columns)
+    for col in cols:
+        X_ablated = X_test.copy()
+        X_ablated[col] = rng.permutation(X_ablated[col].values)
+        try:
+            if hasattr(estimator, "predict_proba"):
+                p_abl = estimator.predict_proba(X_ablated)
+                if p_abl.ndim == 2 and p_abl.shape[1] >= 2:
+                    p_abl = p_abl[:, 1]
+                else:
+                    p_abl = p_abl.ravel()
+            else:
+                p_abl = estimator.predict(X_ablated).ravel()
+            abl_pr_auc = float(_ap(y_test, p_abl))
+        except Exception:
+            abl_pr_auc = full_pr_auc
+        drop = full_pr_auc - abl_pr_auc
+        results.append({
+            "feature": str(col),
+            "pr_auc_full": round(full_pr_auc, 6),
+            "pr_auc_ablated": round(abl_pr_auc, 6),
+            "pr_auc_drop": round(float(drop), 6),
+        })
+    results.sort(key=lambda r: r["pr_auc_drop"], reverse=True)
+    return {
+        "method": "leave_one_feature_out",
+        "metric": "pr_auc",
+        "full_model_pr_auc": round(full_pr_auc, 6),
+        "feature_count": len(cols),
+        "top_features": results[:top_k],
+    }
+
+
+def _error_analysis(
+    y_true: "np.ndarray",
+    proba: "np.ndarray",
+    threshold: float,
+    feature_df: "pd.DataFrame",
+    top_k: int = 5,
+) -> Dict[str, Any]:
+    """Analyze false positives and false negatives for error patterns.
+
+    Nature Medicine requires understanding of model failure modes.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba: Predicted probabilities.
+        threshold: Decision threshold.
+        feature_df: Feature DataFrame for characterization.
+        top_k: Number of features to report for error characterization.
+
+    Returns:
+        Dict with FP/FN counts, confidence distributions, and feature diffs.
+    """
+    pred = (proba >= threshold).astype(int)
+    tp_mask = (pred == 1) & (y_true == 1)
+    fp_mask = (pred == 1) & (y_true == 0)
+    tn_mask = (pred == 0) & (y_true == 0)
+    fn_mask = (pred == 0) & (y_true == 1)
+
+    def _confidence_stats(mask: "np.ndarray") -> Optional[Dict[str, float]]:
+        p_sub = proba[mask]
+        if len(p_sub) == 0:
+            return None
+        return {
+            "count": int(len(p_sub)),
+            "prob_mean": round(float(np.mean(p_sub)), 4),
+            "prob_std": round(float(np.std(p_sub)), 4),
+            "prob_median": round(float(np.median(p_sub)), 4),
+        }
+
+    # Feature means comparison: FP vs TN, FN vs TP
+    feature_diffs: Dict[str, Any] = {}
+    numeric_cols = []
+    for col in feature_df.columns:
+        try:
+            vals = pd.to_numeric(feature_df[col], errors="coerce")
+            if vals.notna().sum() > 10:
+                numeric_cols.append(col)
+        except Exception:
+            pass
+    for col in numeric_cols[:top_k]:
+        vals = pd.to_numeric(feature_df[col], errors="coerce").values.astype(float)
+        fp_vals = vals[fp_mask]
+        tn_vals = vals[tn_mask]
+        fn_vals = vals[fn_mask]
+        tp_vals = vals[tp_mask]
+        entry: Dict[str, Any] = {}
+        if len(fp_vals) > 0 and len(tn_vals) > 0:
+            fp_m = float(np.nanmean(fp_vals))
+            tn_m = float(np.nanmean(tn_vals))
+            entry["fp_mean"] = round(fp_m, 4)
+            entry["tn_mean"] = round(tn_m, 4)
+            entry["fp_tn_diff"] = round(fp_m - tn_m, 4)
+        if len(fn_vals) > 0 and len(tp_vals) > 0:
+            fn_m = float(np.nanmean(fn_vals))
+            tp_m = float(np.nanmean(tp_vals))
+            entry["fn_mean"] = round(fn_m, 4)
+            entry["tp_mean"] = round(tp_m, 4)
+            entry["fn_tp_diff"] = round(fn_m - tp_m, 4)
+        if entry:
+            feature_diffs[str(col)] = entry
+
+    return {
+        "true_positives": _confidence_stats(tp_mask),
+        "false_positives": _confidence_stats(fp_mask),
+        "true_negatives": _confidence_stats(tn_mask),
+        "false_negatives": _confidence_stats(fn_mask),
+        "feature_characterization": feature_diffs,
+    }
+
+
 def _compute_overfit_risk(
     train_metrics: Dict[str, Any],
     valid_metrics: Dict[str, Any],
@@ -4937,6 +5079,16 @@ def main() -> int:
     )
     inference_bench = _inference_benchmark(selected_estimator, X_test)
     env_versions = _environment_versions()
+    error_analysis_report = _error_analysis(y_test, test_proba, selected_threshold, X_test)
+    if not fast_diagnostic_mode:
+        ablation_report = _feature_ablation_study(
+            estimator=selected_estimator,
+            X_test=X_test, y_test=y_test,
+            proba_full=test_proba,
+            threshold=selected_threshold, beta=beta,
+        )
+    else:
+        ablation_report = {"method": "leave_one_feature_out", "skipped": True, "top_features": []}
 
     evaluation_report = {
         "model_id": selected_model_id,
@@ -4974,6 +5126,8 @@ def main() -> int:
         "prediction_uncertainty": pred_uncertainty,
         "subgroup_performance": subgroup_report,
         "inference_benchmark": inference_bench,
+        "error_analysis": error_analysis_report,
+        "feature_ablation": ablation_report,
         "environment": env_versions,
         "threshold_selection": {
             "selection_split": threshold_selection_split,
