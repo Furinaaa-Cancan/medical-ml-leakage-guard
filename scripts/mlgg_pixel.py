@@ -1696,15 +1696,16 @@ def step_run(state: Dict) -> Any:
                     print()
                     box(t("r_metrics"), metric_lines, color="C")
 
-                # Per-split comparison (overfitting check)
+                # Per-split comparison with Gap (overfitting check)
                 split_metrics = eval_data.get("split_metrics", {})
                 train_m = split_metrics.get("train", {}).get("metrics", {})
                 valid_m = split_metrics.get("valid", {}).get("metrics", {})
                 test_m = split_metrics.get("test", {}).get("metrics", {})
+                overfit = eval_data.get("overfitting_analysis", {})
+                gaps = overfit.get("gaps", {})
                 if train_m and test_m:
                     cmp_lines = []
-                    header = f"  {'':14} {'Train':>8}  {'Valid':>8}  {'Test':>8}"
-                    cmp_lines.append(header)
+                    cmp_lines.append(f"  {'':14} {'Train':>8}  {'Valid':>8}  {'Test':>8}  {'Gap':>8}")
                     for key, label in [("pr_auc", "PR-AUC"), ("roc_auc", "ROC-AUC"),
                                        ("f1", "F1"), ("brier", "Brier")]:
                         tv = train_m.get(key)
@@ -1712,11 +1713,27 @@ def step_run(state: Dict) -> Any:
                         ev = test_m.get(key)
                         if tv is not None and ev is not None:
                             vv_str = f"{float(vv):.4f}" if vv is not None else "  --  "
-                            cmp_lines.append(f"  {label:<14} {float(tv):>8.4f}  {vv_str:>8}  {float(ev):>8.4f}")
-                    overfit = eval_data.get("overfitting_analysis", {})
-                    if overfit.get("overfit_detected"):
+                            # Gap = train - test (for Brier: lower is better, so negative gap = overfitting)
+                            gap_val = gaps.get(key, {}).get("train_test_gap")
+                            if gap_val is not None:
+                                gap_f = float(gap_val)
+                                # Flag: for AUC/F1 gap>0.10 is concerning; for Brier gap<-0.05
+                                if key == "brier":
+                                    flag = s('Y', f"{gap_f:>+8.4f}") if gap_f < -0.05 else f"{gap_f:>+8.4f}"
+                                else:
+                                    flag = s('Y', f"{gap_f:>+8.4f}") if gap_f > 0.10 else f"{gap_f:>+8.4f}"
+                            else:
+                                gap_f = float(tv) - float(ev)
+                                flag = f"{gap_f:>+8.4f}"
+                            cmp_lines.append(f"  {label:<14} {float(tv):>8.4f}  {vv_str:>8}  {float(ev):>8.4f}  {flag}")
+                    warnings = overfit.get("warnings", [])
+                    if warnings:
                         cmp_lines.append("")
-                        cmp_lines.append(f"  {s('Y', 'Overfitting detected', bold=True)}")
+                        for w in warnings:
+                            cmp_lines.append(f"  {s('Y', w)}")
+                    elif not overfit.get("overfit_detected", False):
+                        cmp_lines.append("")
+                        cmp_lines.append(f"  {s('G', 'No overfitting detected')}")
                     if len(cmp_lines) > 1:
                         print()
                         box("Train / Valid / Test", cmp_lines, color="C")
