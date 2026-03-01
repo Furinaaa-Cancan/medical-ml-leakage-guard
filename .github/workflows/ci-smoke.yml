@@ -35,6 +35,11 @@ jobs:
           python3 -m pip install ruff
           ruff check scripts/
 
+      - name: Type check (mypy)
+        run: |
+          python3 -m pip install mypy
+          mypy scripts/_gate_utils.py scripts/split_data.py
+
       - name: CLI help sanity
         run: python3 scripts/mlgg.py --help
 
