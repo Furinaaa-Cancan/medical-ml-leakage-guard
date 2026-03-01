@@ -893,6 +893,9 @@ python3 scripts/test_gate_smoke.py
 # onboarding 冒烟测试
 python3 scripts/test_onboarding_smoke.py
 
+# split 冒烟测试（单 CSV 流程）
+python3 scripts/test_split_smoke.py
+
 # authority 基准
 python3 scripts/mlgg.py authority
 
