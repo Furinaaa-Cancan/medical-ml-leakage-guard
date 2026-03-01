@@ -1623,15 +1623,37 @@ def step_run(state: Dict) -> Any:
         if eval_path.exists():
             import json as _json
             eval_data = _json.loads(eval_path.read_text())
-            metrics = eval_data.get("test", eval_data.get("metrics", {}))
+            metrics = eval_data.get("metrics", {})
             if isinstance(metrics, dict):
                 metric_lines = []
+                # Threshold
+                thresh_block = eval_data.get("threshold_selection", {})
+                thresh_val = thresh_block.get("selected_threshold")
+                if thresh_val is not None:
+                    metric_lines.append(f"  {'Threshold':<14} {float(thresh_val):.4f}")
+                    metric_lines.append("")
+                # Core metrics
                 for key, label in [("roc_auc", "ROC-AUC"), ("pr_auc", "PR-AUC"),
-                                   ("sensitivity", "Sensitivity"), ("specificity", "Specificity"),
+                                   ("sensitivity", "Sensitivity"), ("npv", "NPV"),
+                                   ("specificity", "Specificity"), ("ppv", "PPV"),
+                                   ("f2_beta", "F2-beta"), ("brier", "Brier"),
                                    ("accuracy", "Accuracy")]:
                     val = metrics.get(key)
                     if val is not None:
-                        metric_lines.append(f"  {label:<14} {float(val):.4f}")
+                        line = f"  {label:<14} {float(val):.4f}"
+                        # Add 95% CI for PR-AUC
+                        if key == "pr_auc":
+                            ci = (eval_data.get("uncertainty", {})
+                                  .get("metrics", {}).get("pr_auc", {}).get("ci_95"))
+                            if isinstance(ci, list) and len(ci) == 2:
+                                line += f"  [95%CI: {float(ci[0]):.4f}-{float(ci[1]):.4f}]"
+                        metric_lines.append(line)
+                # Constraints status
+                constraints_ok = thresh_block.get("constraints_satisfied_overall")
+                if constraints_ok is not None:
+                    status = s('G', 'PASS') if constraints_ok else s('R', 'FAIL')
+                    metric_lines.append("")
+                    metric_lines.append(f"  {'Constraints':<14} {status}")
                 if metric_lines:
                     print()
                     box(t("r_metrics"), metric_lines, color="C")
