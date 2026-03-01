@@ -3499,6 +3499,222 @@ def build_ci_matrix_report(
     }
 
 
+def _calibration_assessment(
+    y_true: "np.ndarray",
+    proba: "np.ndarray",
+    n_bins: int = 10,
+) -> Dict[str, Any]:
+    """Compute calibration slope, intercept, E:O ratio, and binned curve.
+
+    TRIPOD+AI Item 15d: calibration plot, slope, intercept.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba: Predicted probabilities.
+        n_bins: Number of bins for calibration curve.
+
+    Returns:
+        Dict with slope, intercept, expected_observed_ratio, and bin data.
+    """
+    from sklearn.calibration import calibration_curve as _cal_curve
+
+    result: Dict[str, Any] = {}
+    # E:O ratio (expected / observed)
+    observed = float(np.sum(y_true))
+    expected = float(np.sum(proba))
+    result["expected_observed_ratio"] = round(expected / max(observed, 1e-12), 4)
+    # Calibration slope & intercept via logistic regression on logit(proba)
+    eps = 1e-7
+    proba_clip = np.clip(proba, eps, 1.0 - eps)
+    logit_p = np.log(proba_clip / (1.0 - proba_clip))
+    try:
+        from sklearn.linear_model import LogisticRegression as _LR
+        cal_lr = _LR(max_iter=2000, solver="lbfgs", penalty=None)
+        cal_lr.fit(logit_p.reshape(-1, 1), y_true)
+        result["calibration_slope"] = round(float(cal_lr.coef_[0, 0]), 4)
+        result["calibration_intercept"] = round(float(cal_lr.intercept_[0]), 4)
+    except Exception:
+        result["calibration_slope"] = None
+        result["calibration_intercept"] = None
+    # Binned calibration curve
+    try:
+        frac_pos, mean_pred = _cal_curve(y_true, proba, n_bins=n_bins, strategy="uniform")
+        result["calibration_curve"] = {
+            "n_bins": int(n_bins),
+            "fraction_of_positives": [round(float(v), 4) for v in frac_pos],
+            "mean_predicted_value": [round(float(v), 4) for v in mean_pred],
+        }
+    except Exception:
+        result["calibration_curve"] = None
+    return result
+
+
+def _decision_curve_analysis(
+    y_true: "np.ndarray",
+    proba: "np.ndarray",
+    thresholds: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Compute net benefit at various threshold probabilities for DCA.
+
+    TRIPOD+AI Item 15e: decision curve analysis.
+
+    Net benefit = TP/N - FP/N * (pt / (1 - pt))
+    where pt is the threshold probability.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba: Predicted probabilities.
+        thresholds: Threshold probabilities to evaluate.
+
+    Returns:
+        Dict with threshold, net_benefit_model, net_benefit_treat_all.
+    """
+    if thresholds is None:
+        thresholds = [round(t, 2) for t in np.arange(0.01, 0.99, 0.01).tolist()]
+    n = len(y_true)
+    prevalence = float(np.mean(y_true))
+    results = []
+    for pt in thresholds:
+        pred = (proba >= pt).astype(int)
+        tp = int(np.sum((pred == 1) & (y_true == 1)))
+        fp = int(np.sum((pred == 1) & (y_true == 0)))
+        weight = pt / max(1.0 - pt, 1e-12)
+        nb_model = (tp / n) - (fp / n) * weight
+        nb_all = prevalence - (1.0 - prevalence) * weight
+        results.append({
+            "threshold": round(pt, 2),
+            "net_benefit_model": round(float(nb_model), 6),
+            "net_benefit_treat_all": round(float(nb_all), 6),
+            "net_benefit_treat_none": 0.0,
+        })
+    return {"thresholds": results}
+
+
+def _sample_size_adequacy(
+    n_events: int,
+    n_features: int,
+    n_total: int,
+) -> Dict[str, Any]:
+    """Report sample size adequacy using events-per-variable (EPV).
+
+    PROBAST domain 3: EPV >= 10 is minimum, >= 20 is recommended.
+    Riley et al. (2020) criteria also considered.
+
+    Args:
+        n_events: Number of positive-class events.
+        n_features: Number of predictor features used.
+        n_total: Total sample size.
+
+    Returns:
+        Dict with EPV, adequacy flags, and recommendations.
+    """
+    epv = float(n_events) / max(n_features, 1)
+    if epv >= 20:
+        adequacy = "adequate"
+    elif epv >= 10:
+        adequacy = "marginal"
+    else:
+        adequacy = "insufficient"
+    return {
+        "n_events": int(n_events),
+        "n_non_events": int(n_total - n_events),
+        "n_features": int(n_features),
+        "n_total": int(n_total),
+        "events_per_variable": round(epv, 2),
+        "adequacy": adequacy,
+        "threshold_minimum": 10,
+        "threshold_recommended": 20,
+    }
+
+
+def _multicollinearity_check(
+    X: "pd.DataFrame",
+    max_features: int = 50,
+) -> Dict[str, Any]:
+    """Compute Variance Inflation Factors for feature multicollinearity.
+
+    PROBAST domain 3 signalling question: collinearity among predictors.
+
+    Args:
+        X: Feature DataFrame (imputed, no NaNs).
+        max_features: Skip VIF if more features than this (too slow).
+
+    Returns:
+        Dict with per-feature VIF and flags for high collinearity.
+    """
+    cols = list(X.columns)
+    if len(cols) > max_features or len(cols) < 2:
+        return {"skipped": True, "reason": f"n_features={len(cols)}", "vif": []}
+    from numpy.linalg import LinAlgError
+    try:
+        X_arr = X.values.astype(float)
+        X_mean = X_arr - X_arr.mean(axis=0)
+        xtx = X_mean.T @ X_mean
+        try:
+            xtx_inv = np.linalg.inv(xtx)
+        except LinAlgError:
+            xtx_inv = np.linalg.pinv(xtx)
+        vifs = [round(float(xtx_inv[i, i] * xtx[i, i]), 2) for i in range(len(cols))]
+    except Exception:
+        return {"skipped": True, "reason": "computation_error", "vif": []}
+    vif_records = [{"feature": str(c), "vif": v} for c, v in zip(cols, vifs)]
+    high_vif = [r for r in vif_records if r["vif"] > 10.0]
+    return {
+        "skipped": False,
+        "vif": vif_records,
+        "high_vif_count": len(high_vif),
+        "high_vif_features": [r["feature"] for r in high_vif],
+        "max_vif": round(max(vifs) if vifs else 0.0, 2),
+    }
+
+
+def _permutation_importance_report(
+    estimator: Any,
+    X_test: "pd.DataFrame",
+    y_test: "np.ndarray",
+    scoring: str = "average_precision",
+    n_repeats: int = 10,
+    seed: int = 42,
+    top_k: int = 20,
+) -> Dict[str, Any]:
+    """Compute permutation feature importance on the test set.
+
+    Complements SHAP with a model-agnostic importance measure.
+
+    Args:
+        estimator: Fitted estimator.
+        X_test: Test feature DataFrame.
+        y_test: Test labels.
+        scoring: Scoring metric.
+        n_repeats: Number of permutation repeats.
+        seed: Random seed.
+        top_k: Number of top features to report.
+
+    Returns:
+        Dict with feature importance rankings.
+    """
+    from sklearn.inspection import permutation_importance as _perm_imp
+    try:
+        result = _perm_imp(
+            estimator, X_test, y_test,
+            scoring=scoring, n_repeats=n_repeats,
+            random_state=seed, n_jobs=-1,
+        )
+        importances = result.importances_mean
+        order = np.argsort(importances)[::-1]
+        cols = list(X_test.columns)
+        records = []
+        for idx in order[:top_k]:
+            records.append({
+                "feature": str(cols[idx]),
+                "importance_mean": round(float(importances[idx]), 6),
+                "importance_std": round(float(result.importances_std[idx]), 6),
+            })
+        return {"scoring": scoring, "n_repeats": n_repeats, "top_features": records}
+    except Exception as exc:
+        return {"scoring": scoring, "error": str(exc), "top_features": []}
+
+
 def _compute_overfit_risk(
     train_metrics: Dict[str, Any],
     valid_metrics: Dict[str, Any],
@@ -4086,6 +4302,27 @@ def main() -> int:
         "brier": float(brier_score_loss(y_test, baseline_logit_proba_test)),
     }
 
+    # ── TRIPOD+AI / PROBAST supplementary assessments ──
+    calibration_test = _calibration_assessment(y_test, test_proba)
+    dca_test = _decision_curve_analysis(y_test, test_proba)
+    epv_report = _sample_size_adequacy(
+        n_events=int(np.sum(y_train)),
+        n_features=int(X_train.shape[1]),
+        n_total=int(X_train.shape[0]),
+    )
+    vif_report = _multicollinearity_check(X_train)
+    if not fast_diagnostic_mode:
+        perm_imp = _permutation_importance_report(
+            estimator=selected_estimator,
+            X_test=X_test,
+            y_test=y_test,
+            scoring="average_precision",
+            n_repeats=10,
+            seed=args.random_seed,
+        )
+    else:
+        perm_imp = {"scoring": "average_precision", "top_features": [], "skipped": True}
+
     split_fingerprints = {
         "train": {
             "path": str(Path(args.train).expanduser().resolve()),
@@ -4306,6 +4543,11 @@ def main() -> int:
             "original_model_id": original_model_id if callback_activated else None,
             "fallback_trace": fallback_trace if fallback_trace else None,
         },
+        "calibration_assessment": calibration_test,
+        "decision_curve_analysis": dca_test,
+        "sample_size_adequacy": epv_report,
+        "multicollinearity": vif_report,
+        "permutation_importance": perm_imp,
         "threshold_selection": {
             "selection_split": threshold_selection_split,
             "strategy": "maximize_fbeta_under_floors",

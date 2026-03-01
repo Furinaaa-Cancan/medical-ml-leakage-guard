@@ -1781,6 +1781,51 @@ def step_run(state: Dict) -> Any:
                     print()
                     box("Overfitting Callback", fb_lines, color="C")
 
+                # TRIPOD+AI supplementary assessments
+                cal = eval_data.get("calibration_assessment", {})
+                epv = eval_data.get("sample_size_adequacy", {})
+                vif = eval_data.get("multicollinearity", {})
+                if cal or epv:
+                    ta_lines = []
+                    # Calibration
+                    slope = cal.get("calibration_slope")
+                    intercept = cal.get("calibration_intercept")
+                    eo = cal.get("expected_observed_ratio")
+                    if slope is not None:
+                        slope_ok = 0.8 <= float(slope) <= 1.2
+                        sl = s('G', f"{float(slope):.4f}") if slope_ok else s('Y', f"{float(slope):.4f}")
+                        ta_lines.append(f"  {'Cal. slope':<18} {sl}  {'(ideal=1.0)':>14}")
+                    if intercept is not None:
+                        int_ok = abs(float(intercept)) < 0.1
+                        il = s('G', f"{float(intercept):.4f}") if int_ok else s('Y', f"{float(intercept):.4f}")
+                        ta_lines.append(f"  {'Cal. intercept':<18} {il}  {'(ideal=0.0)':>14}")
+                    if eo is not None:
+                        eo_ok = 0.8 <= float(eo) <= 1.2
+                        el = s('G', f"{float(eo):.4f}") if eo_ok else s('Y', f"{float(eo):.4f}")
+                        ta_lines.append(f"  {'E:O ratio':<18} {el}  {'(ideal=1.0)':>14}")
+                    # EPV
+                    if epv.get("events_per_variable") is not None:
+                        epv_v = float(epv["events_per_variable"])
+                        adq = str(epv.get("adequacy", "?"))
+                        if adq == "adequate":
+                            epv_s = s('G', f"{epv_v:.1f} ({adq})")
+                        elif adq == "marginal":
+                            epv_s = s('Y', f"{epv_v:.1f} ({adq})")
+                        else:
+                            epv_s = s('R', f"{epv_v:.1f} ({adq})")
+                        ta_lines.append(f"  {'EPV':<18} {epv_s}")
+                    # VIF
+                    if not vif.get("skipped", True):
+                        max_vif = vif.get("max_vif", 0)
+                        hvc = vif.get("high_vif_count", 0)
+                        if hvc > 0:
+                            ta_lines.append(f"  {'VIF max':<18} {s('Y', f'{float(max_vif):.1f}')}  {s('Y', f'{hvc} features >10')}")
+                        else:
+                            ta_lines.append(f"  {'VIF max':<18} {s('G', f'{float(max_vif):.1f}')}")
+                    if ta_lines:
+                        print()
+                        box("TRIPOD+AI Checks", ta_lines, color="C")
+
             # Model selection summary (mean±std from CV)
             ms_path = Path(evidence_dir) / "model_selection_report.json"
             if ms_path.exists():
