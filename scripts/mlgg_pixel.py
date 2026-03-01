@@ -131,6 +131,15 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_kidney":     {"en": "Kidney Disease", "zh": "\u6162\u6027\u80be\u75c5"},
     "ds_kidney_d":   {"en": "UCI CKD -- 399 patients, 24 features",
                       "zh": "UCI CKD -- 399 \u4f8b, 24 \u7279\u5f81"},
+    "ds_hepatitis":  {"en": "Hepatitis", "zh": "\u809d\u708e"},
+    "ds_hepatitis_d":{"en": "UCI Hepatitis -- 155 patients, 19 features",
+                      "zh": "UCI \u809d\u708e -- 155 \u4f8b, 19 \u7279\u5f81"},
+    "ds_spect":      {"en": "SPECT Heart", "zh": "SPECT \u5fc3\u810f"},
+    "ds_spect_d":    {"en": "UCI SPECT -- 267 patients, 22 features",
+                      "zh": "UCI SPECT -- 267 \u4f8b, 22 \u7279\u5f81"},
+    "ds_dermatology":{"en": "Dermatology", "zh": "\u76ae\u80a4\u75c5"},
+    "ds_dermatology_d":{"en": "UCI Dermatology -- 366 patients, 34 features",
+                        "zh": "UCI \u76ae\u80a4\u75c5 -- 366 \u4f8b, 34 \u7279\u5f81"},
 
     "src_full":      {"en": "Full Publication-Grade Pipeline", "zh": "\u5b8c\u6574\u51fa\u7248\u7ea7\u7ba1\u7ebf"},
     "src_full_d":    {"en": "28-gate strict pipeline with all specs",
@@ -825,13 +834,16 @@ def step_dataset(state: Dict) -> Any:
 
     if source == "download":
         ci = select(
-            [t("ds_heart"), t("ds_breast"), t("ds_kidney")],
-            [t("ds_heart_d"), t("ds_breast_d"), t("ds_kidney_d")],
+            [t("ds_heart"), t("ds_breast"), t("ds_kidney"),
+             t("ds_hepatitis"), t("ds_spect"), t("ds_dermatology")],
+            [t("ds_heart_d"), t("ds_breast_d"), t("ds_kidney_d"),
+             t("ds_hepatitis_d"), t("ds_spect_d"), t("ds_dermatology_d")],
         )
         if ci < 0:
             return BACK
-        keys = ["heart", "breast", "ckd"]
-        files = ["heart_disease", "breast_cancer", "chronic_kidney_disease"]
+        keys = ["heart", "breast", "ckd", "hepatitis", "spect", "dermatology"]
+        files = ["heart_disease", "breast_cancer", "chronic_kidney_disease",
+                 "hepatitis", "spect_heart", "dermatology"]
         state["dataset_key"] = keys[ci]
         state["dataset_file"] = files[ci]
         state["csv_path"] = str(EXAMPLES_DIR / f"{files[ci]}.csv")

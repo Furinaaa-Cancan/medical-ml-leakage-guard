@@ -472,7 +472,6 @@ def _start_train(sid: str, session: Dict[str, Any]) -> None:
         PYTHON,
         str(SCRIPTS_DIR / "train_select_evaluate.py"),
         "--train", str(data_dir / "train.csv"),
-        "--valid", str(data_dir / "valid.csv"),
         "--test", str(data_dir / "test.csv"),
         "--target-col", session["target_col"],
         "--patient-id-col", session["patient_id_col"],
@@ -482,6 +481,9 @@ def _start_train(sid: str, session: Dict[str, Any]) -> None:
         "--model-selection-report-out", str(evidence_dir / "model_selection_report.json"),
         "--evaluation-report-out", str(evidence_dir / "evaluation_report.json"),
     ]
+    valid_csv = data_dir / "valid.csv"
+    if valid_csv.exists():
+        cmd.extend(["--valid", str(valid_csv)])
     threading.Thread(
         target=_run_cmd_with_logs, args=(sid, cmd, project), daemon=True
     ).start()
