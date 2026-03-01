@@ -551,10 +551,19 @@ class Spinner:
             self._stop.wait(0.08)
 
 
-def run_spinner(cmd: List[str], label: str, cwd: str = "") -> Tuple[int, str, str]:
+def run_spinner(cmd: List[str], label: str, cwd: str = "",
+                timeout: int = 1800) -> Tuple[int, str, str]:
     with Spinner(label):
-        p = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT),
-                           capture_output=True, text=True)
+        try:
+            p = subprocess.run(cmd, cwd=cwd or str(REPO_ROOT),
+                               capture_output=True, text=True,
+                               timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            return (
+                124,
+                exc.stdout or "",
+                (exc.stderr or "") + f"\n[TIMEOUT] Process killed after {timeout}s.\n",
+            )
     return p.returncode, p.stdout, p.stderr
 
 
