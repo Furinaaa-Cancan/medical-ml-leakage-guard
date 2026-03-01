@@ -115,6 +115,7 @@ _T: Dict[str, Dict[str, str]] = {
     "s_split":       {"en": "Split", "zh": "\u5206\u5272\u914d\u7f6e"},
     "s_models":      {"en": "Models", "zh": "\u6a21\u578b\u9009\u62e9"},
     "s_tuning":      {"en": "Tuning", "zh": "\u8c03\u4f18\u914d\u7f6e"},
+    "s_advanced":   {"en": "Advanced", "zh": "\u9ad8\u7ea7\u8bbe\u7f6e"},
     "s_confirm":     {"en": "Confirm", "zh": "\u786e\u8ba4"},
     "s_run":         {"en": "Execute", "zh": "\u6267\u884c"},
 
@@ -1655,16 +1656,60 @@ def step_run(state: Dict) -> Any:
 
     source = state["source"]
 
-    # ── Dry-run: print commands, no execution ──
+    # ── Dry-run: print config summary + commands, save history ──
     if state.get("_dry_run"):
         import shlex as _shlex
-        print(f"\n  {s('Y', '[DRY RUN]', bold=True)} — commands NOT executed:\n")
+        # Config summary box
+        dk = state.get("dataset_key", "custom")
+        if dk != "demo":
+            fname = Path(state.get("csv_path", "")).name or "?"
+            ratio_str = f"{int(state.get('train_ratio',0.6)*100)}/{int(state.get('valid_ratio',0.2)*100)}/{int(state.get('test_ratio',0.2)*100)}"
+            models_str = ", ".join(state.get("_model_labels", ["?"]))
+            vm = state.get('validation_method', 'holdout')
+            valid_str = f"CV {state.get('cv_folds', 5)}-fold" if vm == 'cv' else t('valid_holdout')
+            imb_str = state.get('imbalance_strategy', 'auto')
+            trials_str = str(state.get('max_trials', 20))
+            if state.get('hyperparam_search') == 'optuna':
+                trials_str += f" (optuna={state.get('optuna_trials', 50)})"
+            all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_time'),
+                          t('c_strat'), t('c_ratio'), t('c_validation'),
+                          t('c_imbalance'), t('c_models'), t('c_tuning'),
+                          t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
+            col_w = max(_wlen(l) for l in all_labels) + 2
+            def _p(label: str) -> str:
+                return label + " " * max(col_w - _wlen(label), 1)
+            summary_lines = [
+                f"{_p(t('c_file'))}{fname}",
+                f"{_p(t('c_pid'))}{state.get('pid', '?')}",
+                f"{_p(t('c_target'))}{state.get('target', '?')}",
+                f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
+                f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
+                f"{_p(t('c_ratio'))}{ratio_str}",
+                f"{_p(t('c_validation'))}{valid_str}",
+                "",
+                f"{_p(t('c_imbalance'))}{imb_str}",
+                f"{_p(t('c_models'))}{models_str}",
+                f"{_p(t('c_tuning'))}{state.get('hyperparam_search', '?')}",
+                f"{_p(t('c_trials'))}{trials_str}",
+                f"{_p(t('c_calib'))}{state.get('calibration', '?')}",
+                f"{_p(t('c_device'))}{state.get('device', '?')}",
+                "",
+                f"{_p(t('c_output'))}{state['out_dir']}/",
+            ]
+            box(t("s_confirm"), summary_lines, color="C")
+            print()
+
+        # CLI commands
+        print(f"  {s('Y', '[DRY RUN]', bold=True)} — commands NOT executed:\n")
         cli_str = _export_cli(state)
         for line in cli_str.split("\n"):
             print(f"  {s('W', line)}")
         print()
         print(f"  {s('G', t('r_dry_done'))}")
-        print(f"  {DIM}{t('c_output')} {state.get('out_dir', '')}/{RST}")
+
+        # Save history even in dry-run
+        state.pop("_from_history", None)
+        _save_history(state)
         return True
 
     # ── Demo: run full onboarding pipeline ──
