@@ -30,6 +30,11 @@ jobs:
           python3 -m pip install -r requirements.txt
           python3 -m pip install coverage
 
+      - name: Lint (ruff)
+        run: |
+          python3 -m pip install ruff
+          ruff check scripts/
+
       - name: CLI help sanity
         run: python3 scripts/mlgg.py --help
 
