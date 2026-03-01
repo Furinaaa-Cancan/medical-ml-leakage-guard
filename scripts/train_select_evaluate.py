@@ -5091,6 +5091,7 @@ def main() -> int:
         ablation_report = {"method": "leave_one_feature_out", "skipped": True, "top_features": []}
 
     evaluation_report = {
+        "schema_version": 2,
         "model_id": selected_model_id,
         "split": "test",
         "primary_metric": "pr_auc",
@@ -5816,7 +5817,16 @@ def main() -> int:
     if args.model_out:
         model_out = Path(args.model_out).expanduser().resolve()
         ensure_parent(model_out)
-        joblib.dump(selected_estimator, model_out)
+        model_bundle = {
+            "estimator": selected_estimator,
+            "calibrator": calibrator,
+            "threshold": selected_threshold,
+            "calibration_method": calibration_method,
+            "model_id": selected_model_id,
+            "features": selected_features,
+            "schema_version": 2,
+        }
+        joblib.dump(model_bundle, model_out)
 
     if args.permutation_null_out:
         rng = np.random.default_rng(args.random_seed)

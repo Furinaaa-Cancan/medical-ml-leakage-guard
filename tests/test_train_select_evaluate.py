@@ -488,6 +488,220 @@ class TestPredictProba1:
         assert all(0 <= v <= 1 for v in proba)
 
 
+# ── TRIPOD+AI / Top-conference helper functions ──────────────────────────────
+
+
+class TestCalibrationAssessment:
+    def test_basic(self):
+        y = np.array([0]*50 + [1]*50)
+        p = np.clip(y * 0.7 + 0.15 + np.random.RandomState(42).normal(0, 0.1, 100), 0.01, 0.99)
+        result = tse._calibration_assessment(y, p)
+        assert result["calibration_slope"] is not None
+        assert result["calibration_intercept"] is not None
+        assert result["expected_observed_ratio"] is not None
+        assert result["ece"] is not None
+        assert 0 <= result["ece"] <= 1
+
+    def test_single_class(self):
+        result = tse._calibration_assessment(np.ones(10), np.full(10, 0.9))
+        assert result["calibration_slope"] is None
+
+
+class TestDecisionCurveAnalysis:
+    def test_basic(self):
+        y = np.array([0]*50 + [1]*50)
+        p = np.clip(y + np.random.RandomState(42).normal(0, 0.3, 100), 0.01, 0.99)
+        result = tse._decision_curve_analysis(y, p)
+        assert "thresholds" in result
+        assert len(result["thresholds"]) == 19
+
+    def test_custom_thresholds(self):
+        y = np.array([0]*20 + [1]*20)
+        p = np.random.RandomState(42).uniform(0, 1, 40)
+        result = tse._decision_curve_analysis(y, p, thresholds=[0.2, 0.5, 0.8])
+        assert len(result["thresholds"]) == 3
+
+
+class TestSampleSizeAdequacy:
+    def test_adequate(self):
+        result = tse._sample_size_adequacy(n_events=200, n_features=10, n_total=500)
+        assert result["adequacy"] == "adequate"
+        assert result["events_per_variable"] == 20.0
+
+    def test_insufficient(self):
+        result = tse._sample_size_adequacy(n_events=5, n_features=10, n_total=50)
+        assert result["adequacy"] == "insufficient"
+
+    def test_zero_features(self):
+        result = tse._sample_size_adequacy(n_events=100, n_features=0, n_total=200)
+        assert result["events_per_variable"] == 100.0
+        assert result["adequacy"] == "adequate"
+
+
+class TestMulticollinearityCheck:
+    def test_basic(self):
+        df = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 4, 6, 8, 10], "c": [1, 3, 2, 5, 4]})
+        result = tse._multicollinearity_check(df)
+        assert not result.get("skipped", False)
+        assert "max_vif" in result
+
+    def test_nan_input(self):
+        df = pd.DataFrame({"a": [1, np.nan, 3], "b": [4, 5, np.nan]})
+        result = tse._multicollinearity_check(df)
+        assert result.get("skipped") is True
+
+    def test_too_many_features(self):
+        df = pd.DataFrame(np.random.RandomState(42).normal(0, 1, (10, 60)))
+        result = tse._multicollinearity_check(df)
+        assert result.get("skipped") is True
+
+
+class TestNRI:
+    def test_basic(self):
+        y = np.array([0]*50 + [1]*50)
+        p_new = np.clip(y * 0.8 + 0.1, 0.01, 0.99)
+        p_ref = np.full(100, 0.5)
+        result = tse._net_reclassification_improvement(y, p_new, p_ref, 0.5)
+        assert result["nri_total"] > 0
+        assert "continuous_nri_total" in result
+        assert "reclassification_table" in result
+
+    def test_identical_models(self):
+        y = np.array([0]*20 + [1]*20)
+        p = np.random.RandomState(42).uniform(0, 1, 40)
+        result = tse._net_reclassification_improvement(y, p, p, 0.5)
+        assert result["nri_total"] == 0.0
+
+
+class TestDeLong:
+    def test_significant(self):
+        rng = np.random.RandomState(42)
+        y = np.array([0]*100 + [1]*100)
+        p_good = np.clip(y * 0.8 + 0.1, 0.01, 0.99)
+        p_weak = np.clip(rng.uniform(0.3, 0.7, 200), 0.01, 0.99)
+        result = tse._delong_test(y, p_good, p_weak)
+        assert result["p_value"] is not None
+        assert result["auc_a"] > result["auc_b"]
+
+    def test_identical(self):
+        y = np.array([0]*50 + [1]*50)
+        p = np.random.RandomState(42).uniform(0, 1, 100)
+        result = tse._delong_test(y, p, p)
+        assert result["auc_diff"] == 0.0
+
+    def test_too_few(self):
+        result = tse._delong_test(np.array([1]), np.array([0.5]), np.array([0.3]))
+        assert result["p_value"] is None
+
+
+class TestMcNemar:
+    def test_basic(self):
+        y = np.array([0]*50 + [1]*50)
+        pred_a = np.array([0]*40 + [1]*10 + [1]*45 + [0]*5)
+        pred_b = np.array([0]*50 + [1]*50)
+        result = tse._mcnemar_test(y, pred_a, pred_b)
+        assert "chi2" in result
+        assert "p_value" in result
+
+    def test_identical(self):
+        y = np.array([0]*20 + [1]*20)
+        pred = np.array([0]*20 + [1]*20)
+        result = tse._mcnemar_test(y, pred, pred)
+        assert result["p_value"] == 1.0
+
+
+class TestPredictionUncertainty:
+    def test_basic(self):
+        p = np.array([0.01, 0.1, 0.5, 0.9, 0.99])
+        result = tse._prediction_uncertainty(p)
+        assert 0 <= result["entropy_mean"] <= 1
+        assert result["entropy_max"] > 0.9
+
+    def test_confident(self):
+        p = np.array([0.01, 0.02, 0.98, 0.99])
+        result = tse._prediction_uncertainty(p)
+        assert result["high_uncertainty_fraction"] == 0.0
+
+
+class TestSubgroupPerformance:
+    def test_basic(self):
+        y = np.array([0]*100 + [1]*100)
+        p = np.clip(y * 0.7 + 0.15, 0.01, 0.99)
+        X = pd.DataFrame({"gender": np.random.RandomState(42).choice([0, 1], 200)})
+        result = tse._subgroup_performance(y, p, 0.5, 2.0, X)
+        assert result["features_analyzed"] >= 1
+        assert "gender" in result["subgroups"]
+
+    def test_no_subgroup_cols(self):
+        y = np.array([0]*50 + [1]*50)
+        p = np.random.RandomState(42).uniform(0, 1, 100)
+        X = pd.DataFrame({"continuous": np.random.RandomState(42).normal(0, 1, 100)})
+        result = tse._subgroup_performance(y, p, 0.5, 2.0, X)
+        assert result["features_analyzed"] == 0
+
+
+class TestInferenceBenchmark:
+    def test_basic(self):
+        from sklearn.linear_model import LogisticRegression
+        X = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 3, 4, 5, 6]})
+        y = np.array([0, 0, 1, 1, 1])
+        lr = LogisticRegression(random_state=42, max_iter=1000).fit(X, y)
+        result = tse._inference_benchmark(lr, X)
+        assert result["inference_latency_ms_per_sample"] is not None
+        assert result["model_param_count"] is not None
+
+
+class TestFeatureAblation:
+    def test_basic(self):
+        from sklearn.linear_model import LogisticRegression
+        np.random.seed(42)
+        X = pd.DataFrame({"important": np.random.normal(0, 1, 100), "noise": np.random.normal(0, 0.01, 100)})
+        y = (X["important"] > 0).astype(int).values
+        lr = LogisticRegression(random_state=42, max_iter=1000).fit(X, y)
+        p = lr.predict_proba(X)[:, 1]
+        result = tse._feature_ablation_study(lr, X, y, p, 0.5, 2.0)
+        assert result["feature_count"] == 2
+        assert result["top_features"][0]["feature"] == "important"
+
+
+class TestErrorAnalysis:
+    def test_basic(self):
+        y = np.array([0]*50 + [1]*50)
+        p = np.clip(y * 0.7 + 0.15 + np.random.RandomState(42).normal(0, 0.1, 100), 0.01, 0.99)
+        X = pd.DataFrame({"f1": np.random.RandomState(42).normal(0, 1, 100)})
+        result = tse._error_analysis(y, p, 0.5, X)
+        assert result["true_positives"] is not None
+        assert "feature_characterization" in result
+
+    def test_no_errors(self):
+        y = np.array([0, 0, 1, 1])
+        p = np.array([0.1, 0.2, 0.8, 0.9])
+        X = pd.DataFrame({"f1": [1, 2, 3, 4]})
+        result = tse._error_analysis(y, p, 0.5, X)
+        fp = result["false_positives"]
+        fn = result["false_negatives"]
+        assert (fp is None or fp["count"] == 0) and (fn is None or fn["count"] == 0)
+
+
+class TestEnvironmentVersions:
+    def test_basic(self):
+        result = tse._environment_versions()
+        assert "python" in result
+        assert "numpy" in result
+        assert "platform" in result
+
+
+class TestPermutationImportance:
+    def test_basic(self):
+        from sklearn.linear_model import LogisticRegression
+        X = pd.DataFrame({"a": [1, 2, 3, 4, 5, 6, 7, 8], "b": [2, 3, 4, 5, 6, 7, 8, 9]})
+        y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+        lr = LogisticRegression(random_state=42, max_iter=1000).fit(X, y)
+        result = tse._permutation_importance_report(lr, X, y, scoring="accuracy", n_repeats=3, seed=42)
+        assert "top_features" in result
+        assert len(result["top_features"]) <= 2
+
+
 # ── CLI integration ──────────────────────────────────────────────────────────
 
 class TestCLIMissingFile:
