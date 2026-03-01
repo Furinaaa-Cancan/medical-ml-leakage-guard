@@ -48,7 +48,7 @@ UP_LINE = "\033[A"
 # ── sentinel ──────────────────────────────────────────────────────────────────
 BACK = type("BACK", (), {"__repr__": lambda self: "BACK"})()
 SKIP = type("SKIP", (), {"__repr__": lambda self: "SKIP"})()
-TOTAL_STEPS = 10
+TOTAL_STEPS = 11
 
 def s(fg: str, text: str, bold: bool = False) -> str:
     return f"{BOLD if bold else ''}{FG.get(fg, '')}{text}{RST}"
@@ -177,6 +177,7 @@ _T: Dict[str, Dict[str, str]] = {
     "pick_ratio":    {"en": "Train / Valid / Test ratio", "zh": "\u8bad\u7ec3 / \u9a8c\u8bc1 / \u6d4b\u8bd5 \u6bd4\u4f8b"},
     "ratio_60":      {"en": "60 / 20 / 20  (standard)", "zh": "60 / 20 / 20  \uff08\u6807\u51c6\uff09"},
     "ratio_70":      {"en": "70 / 15 / 15  (more training)", "zh": "70 / 15 / 15  \uff08\u66f4\u591a\u8bad\u7ec3\uff09"},
+    "ratio_70_20_10": {"en": "70 / 20 / 10  (large valid)", "zh": "70 / 20 / 10  \uff08\u5927\u9a8c\u8bc1\u96c6\uff09"},
     "ratio_80":      {"en": "80 / 10 / 10  (small datasets)", "zh": "80 / 10 / 10  \uff08\u5c0f\u6570\u636e\u96c6\uff09"},
 
     "pick_models":   {"en": "Select models to train", "zh": "\u9009\u62e9\u8981\u8bad\u7ec3\u7684\u6a21\u578b"},
@@ -194,19 +195,21 @@ _T: Dict[str, Dict[str, str]] = {
 
     "pick_tuning":   {"en": "Hyperparameter search", "zh": "\u8d85\u53c2\u6570\u641c\u7d22\u7b56\u7565"},
     "tune_fixed":    {"en": "Fixed Grid", "zh": "\u56fa\u5b9a\u7f51\u683c"},
-    "tune_fixed_d":  {"en": "Fast, predefined hyperparameters",
-                      "zh": "\u5feb\u901f\uff0c\u9884\u5b9a\u4e49\u8d85\u53c2\u6570"},
+    "tune_fixed_d":  {"en": "Predefined hyperparameters, fastest",
+                      "zh": "\u9884\u5b9a\u4e49\u8d85\u53c2\u6570\uff0c\u6700\u5feb"},
     "tune_random":   {"en": "Random Search", "zh": "\u968f\u673a\u641c\u7d22"},
-    "tune_random_d": {"en": "Sample random combinations",
-                      "zh": "\u968f\u673a\u91c7\u6837\u8d85\u53c2\u6570\u7ec4\u5408"},
-    "tune_optuna":   {"en": "Optuna (Bayesian)", "zh": "Optuna\uff08\u8d1d\u53f6\u65af\u4f18\u5316\uff09"},
-    "tune_optuna_d": {"en": "Smart search, needs optuna package",
-                      "zh": "\u667a\u80fd\u641c\u7d22\uff0c\u9700\u5b89\u88c5 optuna"},
+    "tune_random_d": {"en": "Sample N random combinations per family",
+                      "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf\u968f\u673a\u91c7\u6837 N \u7ec4\u8d85\u53c2\u6570"},
+    "tune_optuna":   {"en": "Bayesian Optimization (Optuna)", "zh": "\u8d1d\u53f6\u65af\u4f18\u5316\uff08Optuna\uff09"},
+    "tune_optuna_d": {"en": "Smart sequential search, needs optuna package",
+                      "zh": "\u667a\u80fd\u5e8f\u8d2f\u641c\u7d22\uff0c\u9700\u5b89\u88c5 optuna"},
 
     "pick_calib":    {"en": "Probability calibration", "zh": "\u6982\u7387\u6821\u51c6\u65b9\u6cd5"},
     "calib_none":    {"en": "None", "zh": "\u65e0"},
     "calib_sig":     {"en": "Sigmoid (Platt)", "zh": "Sigmoid (Platt)"},
     "calib_iso":     {"en": "Isotonic", "zh": "Isotonic\uff08\u4fdd\u5e8f\uff09"},
+    "calib_power":   {"en": "Power calibration", "zh": "Power \u6821\u51c6"},
+    "calib_beta":    {"en": "Beta calibration", "zh": "Beta \u6821\u51c6"},
 
     "pick_device":   {"en": "Compute device", "zh": "\u8ba1\u7b97\u8bbe\u5907"},
     "dev_auto":      {"en": "Auto", "zh": "\u81ea\u52a8"},
@@ -261,6 +264,56 @@ _T: Dict[str, Dict[str, str]] = {
     "rows":          {"en": "rows", "zh": "\u884c"},
     "patients":      {"en": "patients", "zh": "\u60a3\u8005"},
     "columns":       {"en": "columns", "zh": "\u5217"},
+
+    "pick_valid_method": {"en": "Validation method", "zh": "\u9a8c\u8bc1\u65b9\u5f0f"},
+    "valid_holdout":     {"en": "Hold-out validation set", "zh": "\u7559\u51fa\u9a8c\u8bc1\u96c6"},
+    "valid_holdout_d":   {"en": "Separate fixed validation split",
+                          "zh": "\u56fa\u5b9a\u7684\u72ec\u7acb\u9a8c\u8bc1\u96c6\u5206\u5272"},
+    "valid_cv":          {"en": "K-fold Cross-Validation", "zh": "K \u6298\u4ea4\u53c9\u9a8c\u8bc1"},
+    "valid_cv_d":        {"en": "Recommended for small datasets (<1000 rows)",
+                          "zh": "\u5c0f\u6570\u636e\u96c6\u63a8\u8350\uff08<1000 \u884c\uff09"},
+    "pick_cv_folds":     {"en": "Number of CV folds", "zh": "\u4ea4\u53c9\u9a8c\u8bc1\u6298\u6570"},
+    "cv_3":              {"en": "3-fold  (fastest)", "zh": "3 \u6298\uff08\u6700\u5feb\uff09"},
+    "cv_5":              {"en": "5-fold  (recommended)", "zh": "5 \u6298\uff08\u63a8\u8350\uff09"},
+    "cv_10":             {"en": "10-fold  (most stable)", "zh": "10 \u6298\uff08\u6700\u7a33\u5b9a\uff09"},
+    "pick_tt_ratio":     {"en": "Train / Test ratio (valid from CV)",
+                          "zh": "\u8bad\u7ec3 / \u6d4b\u8bd5 \u6bd4\u4f8b\uff08\u9a8c\u8bc1\u7528\u4ea4\u53c9\u9a8c\u8bc1\uff09"},
+    "tt_70_30":          {"en": "70 / 30  (60+10 valid / 30 test)", "zh": "70 / 30\uff0860+10\u9a8c\u8bc1 / 30\u6d4b\u8bd5\uff09"},
+    "tt_80_20":          {"en": "80 / 20  (70+10 valid / 20 test)", "zh": "80 / 20\uff0870+10\u9a8c\u8bc1 / 20\u6d4b\u8bd5\uff09"},
+
+    "s_imbalance":       {"en": "Class Imbalance", "zh": "\u7c7b\u522b\u4e0d\u5e73\u8861"},
+    "pick_imbalance":    {"en": "Imbalance handling strategy",
+                          "zh": "\u4e0d\u5e73\u8861\u5904\u7406\u7b56\u7565"},
+    "imb_none":          {"en": "No special handling", "zh": "\u4e0d\u505a\u7279\u6b8a\u5904\u7406"},
+    "imb_none_d":        {"en": "Use raw class distribution",
+                          "zh": "\u4f7f\u7528\u539f\u59cb\u7c7b\u522b\u5206\u5e03"},
+    "imb_auto":          {"en": "Auto (balanced when ratio \u22651.5)",
+                          "zh": "\u81ea\u52a8\uff08\u6bd4\u4f8b\u22651.5 \u65f6\u5e73\u8861\uff09"},
+    "imb_auto_d":        {"en": "Auto-detect imbalance and apply class_weight=balanced",
+                          "zh": "\u81ea\u52a8\u68c0\u6d4b\u4e0d\u5e73\u8861\u5e76\u5e94\u7528 class_weight=balanced"},
+    "imb_weight":        {"en": "Class weight balancing", "zh": "\u7c7b\u522b\u6743\u91cd\u5e73\u8861"},
+    "imb_weight_d":      {"en": "Always apply class_weight=balanced to all models",
+                          "zh": "\u59cb\u7ec8\u5bf9\u6240\u6709\u6a21\u578b\u5e94\u7528 class_weight=balanced"},
+    "imb_smote":         {"en": "SMOTE oversampling", "zh": "SMOTE \u8fc7\u91c7\u6837"},
+    "imb_smote_d":       {"en": "Synthetic minority oversampling, train only (needs imbalanced-learn)",
+                          "zh": "\u5408\u6210\u5c11\u6570\u7c7b\u8fc7\u91c7\u6837\uff0c\u4ec5\u8bad\u7ec3\u96c6\uff08\u9700 imbalanced-learn\uff09"},
+    "imb_ros":           {"en": "Random oversampling", "zh": "\u968f\u673a\u8fc7\u91c7\u6837"},
+    "imb_ros_d":         {"en": "Duplicate minority samples, train only",
+                          "zh": "\u590d\u5236\u5c11\u6570\u7c7b\u6837\u672c\uff0c\u4ec5\u8bad\u7ec3\u96c6"},
+    "imb_rus":           {"en": "Random undersampling", "zh": "\u968f\u673a\u6b20\u91c7\u6837"},
+    "imb_rus_d":         {"en": "Remove majority samples, train only",
+                          "zh": "\u79fb\u9664\u591a\u6570\u7c7b\u6837\u672c\uff0c\u4ec5\u8bad\u7ec3\u96c6"},
+    "imb_adasyn":        {"en": "ADASYN adaptive oversampling",
+                          "zh": "ADASYN \u81ea\u9002\u5e94\u8fc7\u91c7\u6837"},
+    "imb_adasyn_d":      {"en": "Adaptive synthetic sampling, train only (needs imbalanced-learn)",
+                          "zh": "\u81ea\u9002\u5e94\u5408\u6210\u91c7\u6837\uff0c\u4ec5\u8bad\u7ec3\u96c6\uff08\u9700 imbalanced-learn\uff09"},
+
+    "c_imbalance":       {"en": "Imbalance:", "zh": "\u4e0d\u5e73\u8861\uff1a"},
+    "c_validation":      {"en": "Validation:", "zh": "\u9a8c\u8bc1\u65b9\u5f0f\uff1a"},
+    "c_cv_folds":        {"en": "CV Folds:", "zh": "CV \u6298\u6570\uff1a"},
+    "c_trials":          {"en": "Trials/family:", "zh": "\u8bd5\u9a8c\u6b21\u6570/\u65cf\uff1a"},
+    "pick_optuna_trials":{"en": "Optuna trials per model family:",
+                          "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf Optuna \u8bd5\u9a8c\u6b21\u6570\uff1a"},
 }
 
 
@@ -716,9 +769,10 @@ _HISTORY_PATH = Path.home() / ".mlgg" / "history.json"
 _HISTORY_KEYS = [
     "source", "dataset_key", "csv_path", "pid", "target", "time",
     "strategy", "train_ratio", "valid_ratio", "test_ratio",
+    "validation_method", "cv_folds", "imbalance_strategy",
     "model_pool", "hyperparam_search", "calibration", "device",
     "out_dir", "ignore_cols", "n_jobs", "max_trials",
-    "include_optional_models",
+    "optuna_trials", "include_optional_models",
 ]
 
 
@@ -936,7 +990,7 @@ def step_config(state: Dict) -> Any:
     """Column selection -- Patient ID + Target (CSV mode only)."""
     if state.get("_from_history"):
         return SKIP
-    if state.get("source") in ("demo", "download"):
+    if state.get("source") in ("demo", "download", "full"):
         return SKIP
 
     csv_path = state["csv_path"]
@@ -1016,10 +1070,10 @@ def step_config(state: Dict) -> Any:
 
 
 def step_split(state: Dict) -> Any:
-    """Strategy + time column (if temporal) + split ratio."""
+    """Strategy + validation method + time column (if temporal) + split ratio."""
     if state.get("_from_history"):
         return SKIP
-    if state.get("source") == "demo":
+    if state.get("source") in ("demo", "full"):
         return SKIP
 
     source = state["source"]
@@ -1081,28 +1135,112 @@ def step_split(state: Dict) -> Any:
             if tcol:
                 print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
             print()
+            vi = select(
+                [t("valid_holdout"), t("valid_cv")],
+                [t("valid_holdout_d"), t("valid_cv_d")],
+                title=t("pick_valid_method"),
+            )
+            if vi < 0:
+                sub = 1 if (strat == "grouped_temporal" and source == "csv") else 0
+                continue
+            state["validation_method"] = "holdout" if vi == 0 else "cv"
+            if vi == 1:
+                sub = 3
+            else:
+                sub = 4
+
+        elif sub == 3:
+            _clear()
+            step_header(5, TOTAL_STEPS, t("s_split"))
+            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            if tcol:
+                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+            print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', t('valid_cv'))}")
+            print()
+            fi = select(
+                [t("cv_3"), t("cv_5"), t("cv_10")],
+                title=t("pick_cv_folds"),
+            )
+            if fi < 0:
+                sub = 2; continue
+            state["cv_folds"] = [3, 5, 10][fi]
+            sub = 5
+
+        elif sub == 4:
+            _clear()
+            step_header(5, TOTAL_STEPS, t("s_split"))
+            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            if tcol:
+                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+            print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', t('valid_holdout'))}")
+            print()
             ri = select(
-                [t("ratio_60"), t("ratio_70"), t("ratio_80")],
+                [t("ratio_60"), t("ratio_70"), t("ratio_70_20_10"), t("ratio_80")],
                 title=t("pick_ratio"),
             )
             if ri < 0:
-                sub = 1 if (strat == "grouped_temporal" and source == "csv") else 0
-                continue
-            ratios = [(0.6, 0.2, 0.2), (0.7, 0.15, 0.15), (0.8, 0.1, 0.1)]
+                sub = 2; continue
+            ratios = [(0.6, 0.2, 0.2), (0.7, 0.15, 0.15), (0.7, 0.2, 0.1), (0.8, 0.1, 0.1)]
             state["train_ratio"], state["valid_ratio"], state["test_ratio"] = ratios[ri]
+            state.setdefault("cv_folds", 5)
+            break
+
+        elif sub == 5:
+            _clear()
+            step_header(5, TOTAL_STEPS, t("s_split"))
+            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            if tcol:
+                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+            cv_label = t("valid_cv")
+            folds = state["cv_folds"]
+            print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', f'{cv_label} ({folds}-fold)')}")
+            print()
+            ri = select(
+                [t("tt_70_30"), t("tt_80_20")],
+                title=t("pick_tt_ratio"),
+            )
+            if ri < 0:
+                sub = 3; continue
+            if ri == 0:
+                state["train_ratio"], state["valid_ratio"], state["test_ratio"] = 0.6, 0.1, 0.3
+            else:
+                state["train_ratio"], state["valid_ratio"], state["test_ratio"] = 0.7, 0.1, 0.2
             break
 
     state["time"] = tcol
     return True
 
 
-def step_models(state: Dict) -> Any:
-    """Multi-select model families."""
-    if state.get("source") == "demo" or state.get("_from_history"):
+def step_imbalance(state: Dict) -> Any:
+    """Class imbalance handling strategy."""
+    if state.get("source") in ("demo", "full") or state.get("_from_history"):
         return SKIP
 
     _clear()
-    step_header(6, TOTAL_STEPS, t("s_models"))
+    step_header(6, TOTAL_STEPS, t("s_imbalance"))
+
+    ci = select(
+        [t("imb_auto"), t("imb_none"), t("imb_weight"),
+         t("imb_smote"), t("imb_ros"), t("imb_rus"), t("imb_adasyn")],
+        [t("imb_auto_d"), t("imb_none_d"), t("imb_weight_d"),
+         t("imb_smote_d"), t("imb_ros_d"), t("imb_rus_d"), t("imb_adasyn_d")],
+        title=t("pick_imbalance"),
+    )
+    if ci < 0:
+        return BACK
+    strategies = ["auto", "none", "class_weight", "smote",
+                  "random_oversample", "random_undersample", "adasyn"]
+    state["imbalance_strategy"] = strategies[ci]
+    return True
+
+
+def step_models(state: Dict) -> Any:
+    """Multi-select model families."""
+    if state.get("source") in ("demo", "full") or state.get("_from_history"):
+        return SKIP
+
+    _clear()
+    step_header(7, TOTAL_STEPS, t("s_models"))
 
     labels = [t(key) for _, key in MODEL_POOL]
     selected = multi_select(labels, title=t("pick_models"), defaults=DEFAULT_MODELS)
@@ -1116,15 +1254,15 @@ def step_models(state: Dict) -> Any:
 
 
 def step_tuning(state: Dict) -> Any:
-    """Tuning strategy + calibration + device."""
-    if state.get("source") == "demo" or state.get("_from_history"):
+    """Tuning strategy + trials + calibration + device."""
+    if state.get("source") in ("demo", "full") or state.get("_from_history"):
         return SKIP
 
     sub = 0
     while True:
         if sub == 0:
             _clear()
-            step_header(7, TOTAL_STEPS, t("s_tuning"))
+            step_header(8, TOTAL_STEPS, t("s_tuning"))
             ti = select(
                 [t("tune_fixed"), t("tune_random"), t("tune_optuna")],
                 [t("tune_fixed_d"), t("tune_random_d"), t("tune_optuna_d")],
@@ -1132,66 +1270,113 @@ def step_tuning(state: Dict) -> Any:
             )
             if ti < 0: return BACK
             state["hyperparam_search"] = ["fixed_grid", "random_subsample", "optuna"][ti]
-            sub = 1
+            if state["hyperparam_search"] == "optuna":
+                sub = 1
+            else:
+                sub = 2
 
         elif sub == 1:
             _clear()
-            step_header(7, TOTAL_STEPS, t("s_tuning"))
+            step_header(8, TOTAL_STEPS, t("s_tuning"))
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
-            ci = select(
-                [t("calib_none"), t("calib_sig"), t("calib_iso")],
-                title=t("pick_calib"),
-            )
-            if ci < 0:
+            print(f"  {s('W', t('pick_optuna_trials'))}")
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            try:
+                raw = input(f"  {s('C','>')} [{state.get('optuna_trials', 50)}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
                 sub = 0; continue
-            state["calibration"] = ["none", "sigmoid", "isotonic"][ci]
+            try:
+                state["optuna_trials"] = int(raw) if raw else 50
+            except ValueError:
+                state["optuna_trials"] = 50
             sub = 2
 
         elif sub == 2:
             _clear()
-            step_header(7, TOTAL_STEPS, t("s_tuning"))
+            step_header(8, TOTAL_STEPS, t("s_tuning"))
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
-            print(f"  {s('G', '\u2713')} {t('c_calib')} {s('W', state['calibration'])}\n")
+            if state["hyperparam_search"] == "optuna":
+                print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
+            print()
+            print(f"  {s('W', t('adv_trials'))}")
+            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+            try:
+                raw = input(f"  {s('C','>')} [{state.get('max_trials', 20)}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                sub = 1 if state["hyperparam_search"] == "optuna" else 0
+                continue
+            try:
+                state["max_trials"] = int(raw) if raw else state.get("max_trials", 20)
+            except ValueError:
+                state["max_trials"] = 20
+            sub = 3
+
+        elif sub == 3:
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_tuning"))
+            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+            if state["hyperparam_search"] == "optuna":
+                print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
+            print(f"  {s('G', '\u2713')} {t('c_trials')} {s('W', str(state['max_trials']))}")
+            print()
+            ci = select(
+                [t("calib_none"), t("calib_sig"), t("calib_iso"),
+                 t("calib_power"), t("calib_beta")],
+                title=t("pick_calib"),
+            )
+            if ci < 0:
+                sub = 2; continue
+            state["calibration"] = ["none", "sigmoid", "isotonic", "power", "beta"][ci]
+            sub = 4
+
+        elif sub == 4:
+            _clear()
+            step_header(8, TOTAL_STEPS, t("s_tuning"))
+            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+            if state["hyperparam_search"] == "optuna":
+                print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
+            print(f"  {s('G', '\u2713')} {t('c_trials')} {s('W', str(state['max_trials']))}")
+            print(f"  {s('G', '\u2713')} {t('c_calib')} {s('W', state['calibration'])}")
+            print()
             di = select(
                 [t("dev_auto"), t("dev_cpu"), t("dev_gpu")],
                 [t("dev_auto_d"), "", ""],
                 title=t("pick_device"),
             )
             if di < 0:
-                sub = 1; continue
+                sub = 3; continue
             state["device"] = ["auto", "cpu", "gpu"][di]
             break
     return True
 
 
 def step_advanced(state: Dict) -> Any:
-    """Advanced settings — ignore-cols, n-jobs, max-trials, optional backends."""
-    if state.get("source") == "demo" or state.get("_from_history"):
+    """Advanced settings — ignore-cols, n-jobs, optional backends."""
+    if state.get("source") in ("demo", "full") or state.get("_from_history"):
         return SKIP
 
     _clear()
-    step_header(8, TOTAL_STEPS, t("s_advanced"))
+    step_header(9, TOTAL_STEPS, t("s_advanced"))
 
     ci = select([t("adv_no"), t("adv_yes")], title=t("adv_ask"))
     if ci < 0:
         return BACK
     if ci == 0:
-        # Use defaults
         ignore_parts = [state.get("pid", "patient_id")]
         if state.get("time"):
             ignore_parts.append(state["time"])
         state.setdefault("ignore_cols", ",".join(ignore_parts))
         state.setdefault("n_jobs", 1)
-        state.setdefault("max_trials", 20)
         state.setdefault("include_optional_models", False)
         return True
 
-    # Customize
     sub = 0
     while True:
         if sub == 0:
             _clear()
-            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            step_header(9, TOTAL_STEPS, t("s_advanced"))
             ignore_parts = [state.get("pid", "patient_id")]
             if state.get("time"):
                 ignore_parts.append(state["time"])
@@ -1208,7 +1393,7 @@ def step_advanced(state: Dict) -> Any:
 
         elif sub == 1:
             _clear()
-            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            step_header(9, TOTAL_STEPS, t("s_advanced"))
             print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}\n")
             print(f"  {s('W', t('adv_njobs'))}")
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
@@ -1225,34 +1410,15 @@ def step_advanced(state: Dict) -> Any:
 
         elif sub == 2:
             _clear()
-            step_header(8, TOTAL_STEPS, t("s_advanced"))
+            step_header(9, TOTAL_STEPS, t("s_advanced"))
             print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}")
             print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state['n_jobs']))}\n")
-            print(f"  {s('W', t('adv_trials'))}")
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-            try:
-                raw = input(f"  {s('C','>')} [{state.get('max_trials', 20)}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                sub = 1; continue
-            try:
-                state["max_trials"] = int(raw) if raw else state.get("max_trials", 20)
-            except ValueError:
-                state["max_trials"] = 20
-            sub = 3
-
-        elif sub == 3:
-            _clear()
-            step_header(8, TOTAL_STEPS, t("s_advanced"))
-            print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}")
-            print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state['n_jobs']))}")
-            print(f"  {s('G', '\u2713')} max_trials = {s('W', str(state['max_trials']))}\n")
             oi = select(
                 [t("adv_no"), t("adv_yes")],
                 title=t("adv_optional"),
             )
             if oi < 0:
-                sub = 2; continue
+                sub = 1; continue
             state["include_optional_models"] = (oi == 1)
             break
 
@@ -1278,12 +1444,18 @@ def _export_cli(state: Dict) -> str:
         "--patient-id-col", state.get("pid", "patient_id"),
         "--target-col", state.get("target", "y"),
         "--strategy", state.get("strategy", "grouped_temporal"),
+        "--train-ratio", str(state.get("train_ratio", 0.6)),
+        "--valid-ratio", str(state.get("valid_ratio", 0.2)),
+        "--test-ratio", str(state.get("test_ratio", 0.2)),
     ]
     if state.get("time"):
         split_parts.extend(["--time-col", state["time"]])
     ignore_parts = [state.get("pid", "patient_id")]
     if state.get("time"):
         ignore_parts.append(state["time"])
+    cv_folds = state.get("cv_folds", 5)
+    selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
+    max_trials = state.get("max_trials", 20)
     train_parts = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
         "--train", str(Path(out_data) / "train.csv"),
@@ -1293,12 +1465,20 @@ def _export_cli(state: Dict) -> str:
         "--patient-id-col", state.get("pid", "patient_id"),
         "--ignore-cols", ",".join(ignore_parts),
         "--model-pool", state.get("model_pool", ""),
+        "--hyperparam-search", state.get("hyperparam_search", "fixed_grid"),
+        "--max-trials-per-family", str(max_trials),
+        "--cv-splits", str(cv_folds),
+        "--selection-data", selection_data,
+        "--calibration-method", state.get("calibration", "none"),
+        "--device", state.get("device", "auto"),
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
         "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
         "--ci-matrix-report-out", str(Path(evidence_dir) / "ci_matrix_report.json"),
         "--model-out", str(Path(models_dir) / "model.pkl"),
         "--random-seed", "20260225",
     ]
+    if state.get("hyperparam_search") == "optuna":
+        train_parts.extend(["--optuna-trials", str(state.get("optuna_trials", 50))])
     return _shlex.join(split_parts) + "\n" + _shlex.join(train_parts)
 
 
@@ -1307,7 +1487,7 @@ def step_confirm(state: Dict) -> Any:
     title = t("s_confirm")
     if state.get("_dry_run"):
         title += f"  {s('Y', '[DRY RUN]', bold=True)}"
-    step_header(9, TOTAL_STEPS, title)
+    step_header(10, TOTAL_STEPS, title)
 
     if state["dataset_key"] == "demo":
         box("Demo Pipeline", [
@@ -1320,9 +1500,20 @@ def step_confirm(state: Dict) -> Any:
         ratio_str = f"{int(state.get('train_ratio',0.6)*100)}/{int(state.get('valid_ratio',0.2)*100)}/{int(state.get('test_ratio',0.2)*100)}"
         models_str = ", ".join(state.get("_model_labels", ["?"]))
 
+        valid_method = state.get('validation_method', 'holdout')
+        if valid_method == 'cv':
+            valid_str = f"CV {state.get('cv_folds', 5)}-fold"
+        else:
+            valid_str = t('valid_holdout')
+        imb_str = state.get('imbalance_strategy', 'auto')
+        trials_str = str(state.get('max_trials', 20))
+        if state.get('hyperparam_search') == 'optuna':
+            trials_str += f" (optuna={state.get('optuna_trials', 50)})"
+
         all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_time'),
-                      t('c_strat'), t('c_ratio'), t('c_models'), t('c_tuning'),
-                      t('c_calib'), t('c_device'), t('c_output')]
+                      t('c_strat'), t('c_ratio'), t('c_validation'),
+                      t('c_imbalance'), t('c_models'), t('c_tuning'),
+                      t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
         col_w = max(_wlen(l) for l in all_labels) + 2
         def _p(label: str) -> str:
             return label + " " * max(col_w - _wlen(label), 1)
@@ -1334,9 +1525,12 @@ def step_confirm(state: Dict) -> Any:
             f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
             f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
             f"{_p(t('c_ratio'))}{ratio_str}",
+            f"{_p(t('c_validation'))}{valid_str}",
             "",
+            f"{_p(t('c_imbalance'))}{imb_str}",
             f"{_p(t('c_models'))}{models_str}",
             f"{_p(t('c_tuning'))}{state.get('hyperparam_search', '?')}",
+            f"{_p(t('c_trials'))}{trials_str}",
             f"{_p(t('c_calib'))}{state.get('calibration', '?')}",
             f"{_p(t('c_device'))}{state.get('device', '?')}",
             "",
@@ -1357,7 +1551,7 @@ def step_confirm(state: Dict) -> Any:
             except (EOFError, KeyboardInterrupt):
                 pass
             _clear()
-            step_header(9, TOTAL_STEPS, t("s_confirm"))
+            step_header(10, TOTAL_STEPS, t("s_confirm"))
             continue
         break
     return True
@@ -1402,7 +1596,7 @@ def _friendly_error(err: str) -> str:
 
 def step_run(state: Dict) -> Any:
     _clear()
-    step_header(10, TOTAL_STEPS, t("s_run"))
+    step_header(11, TOTAL_STEPS, t("s_run"))
 
     source = state["source"]
 
@@ -1523,7 +1717,7 @@ def step_run(state: Dict) -> Any:
         )
         if rc != 0:
             completed.append((dl_label, "fail"))
-            _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
+            _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
             print(f"\n  {s('R', t('x_fail'))}")
             hint = _friendly_error(err) if err else ""
             if hint:
@@ -1536,7 +1730,7 @@ def step_run(state: Dict) -> Any:
         completed.append((dl_label, "done"))
 
     # ── Phase 2: Split ──
-    _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
+    _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
     split_label = t("x_split")
     csv_path = state["csv_path"]
 
@@ -1555,7 +1749,7 @@ def step_run(state: Dict) -> Any:
     rc, _, err = run_spinner(cmd, split_label)
     if rc != 0:
         completed.append((split_label, "fail"))
-        _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
+        _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
         print(f"\n  {s('R', t('x_fail'))}")
         hint = _friendly_error(err) if err else ""
         if hint:
@@ -1568,7 +1762,7 @@ def step_run(state: Dict) -> Any:
     completed.append((split_label, "done"))
 
     # Show split results
-    _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
+    _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
     try:
         import pandas as pd
         tr = pd.read_csv(Path(out_data) / "train.csv")
@@ -1601,6 +1795,10 @@ def step_run(state: Dict) -> Any:
         ignore_parts.append("event_time")
     ignore_cols = ",".join(ignore_parts)
 
+    cv_folds = state.get("cv_folds", 5)
+    selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
+    max_trials = state.get("max_trials", 20)
+
     train_cmd = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
         "--train", str(Path(out_data) / "train.csv"),
@@ -1611,6 +1809,9 @@ def step_run(state: Dict) -> Any:
         "--ignore-cols", ignore_cols,
         "--model-pool", state["model_pool"],
         "--hyperparam-search", state["hyperparam_search"],
+        "--max-trials-per-family", str(max_trials),
+        "--cv-splits", str(cv_folds),
+        "--selection-data", selection_data,
         "--calibration-method", state["calibration"],
         "--device", state["device"],
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
@@ -1619,11 +1820,13 @@ def step_run(state: Dict) -> Any:
         "--model-out", str(Path(models_dir) / "model.pkl"),
         "--random-seed", "20260225",
     ]
+    if state.get("hyperparam_search") == "optuna":
+        train_cmd.extend(["--optuna-trials", str(state.get("optuna_trials", 50))])
 
     rc, _, err = run_spinner(train_cmd, train_label)
     if rc != 0:
         completed.append((train_label, "fail"))
-        _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
+        _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
         print(f"\n  {s('R', t('x_fail'))}")
         hint = _friendly_error(err) if err else ""
         if hint:
@@ -1636,7 +1839,7 @@ def step_run(state: Dict) -> Any:
     completed.append((train_label, "done"))
 
     # Show final results
-    _clear(); step_header(10, TOTAL_STEPS, t("s_run")); _progress()
+    _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
     print()
     box(t("r_train_ok"), [
         f"{t('c_output')} {state['out_dir']}/",
@@ -1953,8 +2156,8 @@ def wizard(force_lang: str = "", dry_run: bool = False) -> int:
 
     state: Dict[str, Any] = {"_dry_run": dry_run}
     steps = [step_lang, step_source, step_dataset, step_config,
-             step_split, step_models, step_tuning, step_advanced,
-             step_confirm, step_run]
+             step_split, step_imbalance, step_models, step_tuning,
+             step_advanced, step_confirm, step_run]
     skipped: set = set()
     i = 0
 
