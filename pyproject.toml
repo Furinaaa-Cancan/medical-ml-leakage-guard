@@ -39,6 +39,8 @@ all = ["xgboost>=1.7", "catboost>=1.2", "lightgbm>=3.3", "tabpfn>=0.1", "optuna>
 
 [project.scripts]
 mlgg = "scripts.mlgg:cli_main"
+mlgg-pixel = "scripts.mlgg_pixel:main"
+mlgg-web = "scripts.mlgg_web:main"
 
 [project.urls]
 Repository = "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard"
