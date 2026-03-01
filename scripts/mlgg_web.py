@@ -53,6 +53,7 @@ app.secret_key = os.urandom(32)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload limit
 
 # ── session state ──────────────────────────────────────────────────────────────
+_MAX_SESSIONS = 100
 _sessions: Dict[str, Dict[str, Any]] = {}
 _log_queues: Dict[str, queue.Queue] = {}
 
@@ -60,6 +61,10 @@ _log_queues: Dict[str, queue.Queue] = {}
 def get_session(sid: str) -> Dict[str, Any]:
     """Get or create a session state dict."""
     if sid not in _sessions:
+        if len(_sessions) >= _MAX_SESSIONS:
+            oldest = next(iter(_sessions))
+            _sessions.pop(oldest, None)
+            _log_queues.pop(oldest, None)
         _sessions[sid] = {
             "step": 1,
             "project_root": "",
@@ -410,6 +415,7 @@ def stream_logs(sid: str):
             try:
                 line = q.get(timeout=30)
                 if line is None:
+                    _log_queues.pop(sid, None)
                     yield "data: __DONE__\n\n"
                     return
                 yield f"data: {line}\n\n"
