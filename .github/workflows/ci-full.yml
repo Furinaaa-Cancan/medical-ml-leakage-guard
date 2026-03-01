@@ -23,6 +23,13 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install -r requirements.txt
 
+      - name: Full onboarding (guided demo)
+        run: |
+          python3 scripts/mlgg.py onboarding \
+            --project-root /tmp/mlgg_ci_demo \
+            --mode auto \
+            --yes
+
       - name: Release benchmark suite (blocking)
         run: |
           python3 scripts/mlgg.py benchmark-suite \
