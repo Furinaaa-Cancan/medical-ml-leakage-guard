@@ -337,6 +337,16 @@ def parse_args() -> argparse.Namespace:
         help="Enable low-memory mode: downcast numeric dtypes, release intermediate "
         "DataFrames early, and call gc.collect() at key pipeline stages.",
     )
+    parser.add_argument(
+        "--checkpoint-file",
+        help="Path for saving/loading training checkpoint JSON.",
+    )
+    parser.add_argument(
+        "--resume-from-checkpoint",
+        action="store_true",
+        help="Resume training from an existing checkpoint file, "
+        "skipping already-scored candidates.",
+    )
     return parser.parse_args()
 
 
@@ -3654,8 +3664,26 @@ def main() -> int:
             "candidate_pool_too_small: candidate pool must contain >=3 models; "
             "expand --model-pool or increase --max-trials-per-family."
         )
+    checkpoint_path = Path(args.checkpoint_file) if args.checkpoint_file else None
+    resumed_rows: Dict[str, Dict[str, Any]] = {}
+    if checkpoint_path and args.resume_from_checkpoint and checkpoint_path.exists():
+        try:
+            with checkpoint_path.open("r", encoding="utf-8") as _cfh:
+                _ckpt = json.load(_cfh)
+            if isinstance(_ckpt, dict) and isinstance(_ckpt.get("candidate_rows"), list):
+                for _cr in _ckpt["candidate_rows"]:
+                    if isinstance(_cr, dict) and "model_id" in _cr:
+                        resumed_rows[str(_cr["model_id"])] = _cr
+                print(f"Checkpoint: resumed {len(resumed_rows)} scored candidates.", file=sys.stderr)
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"Checkpoint: corrupted or unreadable ({exc}), starting fresh.", file=sys.stderr)
+
     candidate_rows: List[Dict[str, Any]] = []
     for cand in candidates:
+        mid = str(cand["model_id"])
+        if mid in resumed_rows:
+            candidate_rows.append(resumed_rows[mid])
+            continue
         if selection_data == "cv_inner":
             mean_score, std_score, n_folds, fold_scores = cv_score_pr_auc(
                 cand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
@@ -3688,6 +3716,12 @@ def main() -> int:
                 "selected": False,
             }
         )
+        if checkpoint_path:
+            _ckpt_payload = {"candidate_rows": candidate_rows, "completed_count": len(candidate_rows)}
+            _ckpt_tmp = checkpoint_path.with_suffix(".tmp")
+            with _ckpt_tmp.open("w", encoding="utf-8") as _cfh:
+                json.dump(_ckpt_payload, _cfh, indent=2)
+            _ckpt_tmp.replace(checkpoint_path)
 
     estimator_map = {cand["model_id"]: cand["estimator"] for cand in candidates}
 
