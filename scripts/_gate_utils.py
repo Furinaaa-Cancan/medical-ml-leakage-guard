@@ -31,8 +31,11 @@ def add_issue(
 
 def load_json_from_path(path: Path) -> Dict[str, Any]:
     """Load and validate a JSON object from a Path."""
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"JSON root must be object: {path}")
     return payload
@@ -41,8 +44,11 @@ def load_json_from_path(path: Path) -> Dict[str, Any]:
 def load_json_from_str(path: str) -> Dict[str, Any]:
     """Load and validate a JSON object from a string path."""
     p = Path(path).expanduser().resolve()
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {p}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("JSON root must be an object.")
     return payload
@@ -59,8 +65,11 @@ def load_json_optional(path: Path) -> Optional[Dict[str, Any]]:
     """Load a JSON object if the file exists, else return None."""
     if not path.exists():
         return None
-    with path.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return None
     if isinstance(payload, dict):
         return payload
     return None
