@@ -8,9 +8,12 @@ from this module is optional and does not change gate semantics.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import os
+import signal
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -78,6 +81,72 @@ def resolve_path(base: Path, value: str) -> Path:
     else:
         p = p.resolve()
     return p
+
+
+class GateTimeoutError(Exception):
+    """Raised when a gate exceeds its configured timeout."""
+
+
+def add_timeout_argument(parser: argparse.ArgumentParser) -> None:
+    """Add a --timeout argument to a gate argparse parser.
+
+    Args:
+        parser: ArgumentParser to add the --timeout flag to.
+    """
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=0,
+        help="Maximum execution time in seconds (0=unlimited).",
+    )
+
+
+def install_gate_timeout(
+    timeout_seconds: int,
+    report_path: Optional[Path] = None,
+    gate_name: str = "unknown_gate",
+) -> None:
+    """Install a SIGALRM-based timeout for a gate script.
+
+    When the timeout fires, a timeout report is written (if report_path
+    is provided) and the process exits with code 2 (fail).
+
+    Args:
+        timeout_seconds: Seconds before timeout (0 = disabled).
+        report_path: Path to write the timeout report JSON.
+        gate_name: Name of the gate for the report.
+    """
+    if timeout_seconds <= 0:
+        return
+    if not hasattr(signal, "SIGALRM"):
+        return
+
+    def _handler(signum: int, frame: Any) -> None:
+        payload: Dict[str, Any] = {
+            "status": "fail",
+            "gate": gate_name,
+            "timeout_seconds": timeout_seconds,
+            "issues": [
+                {
+                    "code": "gate_timeout",
+                    "message": f"Gate exceeded {timeout_seconds}s timeout.",
+                    "details": {"timeout_seconds": timeout_seconds},
+                }
+            ],
+        }
+        if report_path is not None:
+            try:
+                write_json(report_path, payload)
+            except Exception:
+                pass
+        print(
+            f"TIMEOUT: {gate_name} exceeded {timeout_seconds}s limit.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    signal.signal(signal.SIGALRM, _handler)
+    signal.alarm(timeout_seconds)
 
 
 def to_float(value: Any) -> Optional[float]:
