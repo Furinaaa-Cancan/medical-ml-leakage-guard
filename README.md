@@ -945,12 +945,11 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 ### 8. 新手排障入口
 
-guided 模式取消后现在会 fail-closed，失败码为：
-- `onboarding_step_cancelled`
-- `onboarding_interactive_input_unavailable`（guided 在无 stdin/TTY 环境运行）
-- `authority_preset_route_override_forbidden`（固定封装命令上传入冲突路线参数）
-
-并在 onboarding 报告中给出 `next_actions`。
+guided 模式取消后现在会 fail-closed：
+- 失败码：`onboarding_step_cancelled`
+- 非交互 guided 模式失败码：`onboarding_interactive_input_unavailable`
+- onboarding 报告中给出可执行的 `next_actions`
+- 封装命令冲突失败码：`authority_preset_route_override_forbidden`
 
 高频失败码映射文档：
 - `references/Troubleshooting-Top20.md`
