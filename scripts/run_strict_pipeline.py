@@ -58,22 +58,28 @@ def parse_args() -> argparse.Namespace:
 def run_step(name: str, cmd: List[str]) -> Tuple[int, str, str]:
     print(f"\n== Step: {name} ==")
     print(f"$ {shlex.join(cmd)}")
+    t0 = _time.time()
     proc = subprocess.run(cmd, text=True, capture_output=True)
+    elapsed = _time.time() - t0
     if proc.stdout:
         print(proc.stdout, end="")
     if proc.stderr:
         print(proc.stderr, file=sys.stderr, end="")
+    print(f"  [{name}] {elapsed:.1f}s")
     return proc.returncode, proc.stdout, proc.stderr
 
 
 def _run_one(name_cmd: Tuple[str, List[str]]) -> Dict[str, Any]:
     """Run a single gate in a subprocess (for parallel execution)."""
     name, cmd = name_cmd
+    t0 = _time.time()
     code, stdout, stderr = run_step(name, cmd)
+    elapsed = _time.time() - t0
     return {
         "name": name,
         "command": shlex.join(cmd),
         "exit_code": code,
+        "execution_time_seconds": round(elapsed, 3),
         "stdout_tail": stdout[-4000:],
         "stderr_tail": stderr[-4000:],
     }
@@ -167,12 +173,15 @@ def main() -> int:
 
     def execute(name: str, cmd: List[str]) -> bool:
         nonlocal had_failure
+        t0 = _time.time()
         code, stdout, stderr = run_step(name, cmd)
+        elapsed = _time.time() - t0
         steps.append(
             {
                 "name": name,
                 "command": shlex.join(cmd),
                 "exit_code": code,
+                "execution_time_seconds": round(elapsed, 3),
                 "stdout_tail": stdout[-4000:],
                 "stderr_tail": stderr[-4000:],
             }
@@ -1072,11 +1081,24 @@ def finalize(
         "artifacts": {k: str(v) for k, v in reports.items()},
     }
 
+    total_time = sum(s.get("execution_time_seconds", 0) for s in steps)
+    summary["total_execution_time_seconds"] = round(total_time, 3)
+
     out_path = Path(args.report).expanduser().resolve() if args.report else reports["self_critique_report"].parent / "strict_pipeline_report.json"
     from _gate_utils import write_json as _write_pipeline
     _write_pipeline(out_path, summary)
 
     print(f"\nPipeline status: {summary['status']}")
+    print(f"Total time: {total_time:.1f}s")
+    timed = sorted(
+        [s for s in steps if s.get("execution_time_seconds", 0) > 0],
+        key=lambda s: s["execution_time_seconds"],
+        reverse=True,
+    )
+    if timed:
+        print("Top-5 slowest gates:")
+        for s in timed[:5]:
+            print(f"  {s['execution_time_seconds']:7.1f}s  {s['name']}")
     print(f"Pipeline report: {out_path}")
     return 0 if success else 2
 

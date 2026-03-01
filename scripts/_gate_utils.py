@@ -83,6 +83,35 @@ def resolve_path(base: Path, value: str) -> Path:
     return p
 
 
+_gate_start_time: Optional[float] = None
+
+
+def start_gate_timer() -> None:
+    """Record the gate start time for execution timing."""
+    global _gate_start_time
+    _gate_start_time = time.time()
+
+
+def get_gate_elapsed() -> float:
+    """Return elapsed seconds since start_gate_timer() was called."""
+    if _gate_start_time is None:
+        return 0.0
+    return time.time() - _gate_start_time
+
+
+def inject_execution_time(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Add execution_time_seconds to a gate report dict.
+
+    Args:
+        report: Gate report dict to augment.
+
+    Returns:
+        The same dict with execution_time_seconds added.
+    """
+    report["execution_time_seconds"] = round(get_gate_elapsed(), 3)
+    return report
+
+
 class GateTimeoutError(Exception):
     """Raised when a gate exceeds its configured timeout."""
 
