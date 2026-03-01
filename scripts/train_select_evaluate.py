@@ -3180,7 +3180,7 @@ def bootstrap_metric_ci(
     for metric, values in hits.items():
         arr = np.asarray(values[:effective], dtype=float)
         if arr.size == 0:
-            summary[metric] = {"ci_lower": float("nan"), "ci_upper": float("nan"), "ci_width": float("nan")}
+            summary[metric] = {"ci_lower": None, "ci_upper": None, "ci_width": None}
             continue
         lo, hi = np.percentile(arr, [2.5, 97.5]).tolist()
         summary[metric] = {
@@ -3406,12 +3406,15 @@ def build_ci_matrix_report(
         metrics_block: Dict[str, Any] = {}
         for metric_name, point_value in point_metrics.items():
             ci = ci_summary.get(metric_name, {})
-            lo = float(ci.get("ci_lower", float("nan")))
-            hi = float(ci.get("ci_upper", float("nan")))
+            ci_lo = ci.get("ci_lower")
+            ci_hi = ci.get("ci_upper")
+            lo = float(ci_lo) if ci_lo is not None else None
+            hi = float(ci_hi) if ci_hi is not None else None
+            width = round(hi - lo, 6) if lo is not None and hi is not None else None
             metrics_block[metric_name] = {
                 "point": float(point_value),
                 "ci_95": [lo, hi],
-                "ci_width": float(hi - lo) if math.isfinite(lo) and math.isfinite(hi) else float("nan"),
+                "ci_width": width,
                 "n_resamples": int(effective),
             }
         split_metrics_ci[split_name] = {
@@ -3439,12 +3442,15 @@ def build_ci_matrix_report(
         metrics_block: Dict[str, Any] = {}
         for metric_name, point_value in point_metrics.items():
             ci = ci_summary.get(metric_name, {})
-            lo = float(ci.get("ci_lower", float("nan")))
-            hi = float(ci.get("ci_upper", float("nan")))
+            ci_lo = ci.get("ci_lower")
+            ci_hi = ci.get("ci_upper")
+            lo = float(ci_lo) if ci_lo is not None else None
+            hi = float(ci_hi) if ci_hi is not None else None
+            width = round(hi - lo, 6) if lo is not None and hi is not None else None
             metrics_block[metric_name] = {
                 "point": float(point_value),
                 "ci_95": [lo, hi],
-                "ci_width": float(hi - lo) if math.isfinite(lo) and math.isfinite(hi) else float("nan"),
+                "ci_width": width,
                 "n_resamples": int(effective),
             }
         external_metrics_ci[cohort_id] = {
@@ -3529,7 +3535,7 @@ def _calibration_assessment(
     logit_p = np.log(proba_clip / (1.0 - proba_clip))
     try:
         from sklearn.linear_model import LogisticRegression as _LR
-        cal_lr = _LR(max_iter=2000, solver="lbfgs", penalty=None)
+        cal_lr = _LR(max_iter=2000, solver="lbfgs", C=np.inf)
         cal_lr.fit(logit_p.reshape(-1, 1), y_true)
         result["calibration_slope"] = round(float(cal_lr.coef_[0, 0]), 4)
         result["calibration_intercept"] = round(float(cal_lr.intercept_[0]), 4)
@@ -3570,7 +3576,7 @@ def _decision_curve_analysis(
         Dict with threshold, net_benefit_model, net_benefit_treat_all.
     """
     if thresholds is None:
-        thresholds = [round(t, 2) for t in np.arange(0.01, 0.99, 0.01).tolist()]
+        thresholds = [round(t, 2) for t in np.arange(0.05, 1.00, 0.05).tolist()]
     n = len(y_true)
     prevalence = float(np.mean(y_true))
     results = []
@@ -3648,6 +3654,8 @@ def _multicollinearity_check(
     from numpy.linalg import LinAlgError
     try:
         X_arr = X.values.astype(float)
+        if np.isnan(X_arr).any():
+            return {"skipped": True, "reason": "contains_nan", "vif": []}
         X_mean = X_arr - X_arr.mean(axis=0)
         xtx = X_mean.T @ X_mean
         try:
@@ -3713,6 +3721,62 @@ def _permutation_importance_report(
         return {"scoring": scoring, "n_repeats": n_repeats, "top_features": records}
     except Exception as exc:
         return {"scoring": scoring, "error": str(exc), "top_features": []}
+
+
+def _net_reclassification_improvement(
+    y_true: "np.ndarray",
+    proba_new: "np.ndarray",
+    proba_ref: "np.ndarray",
+    threshold: float = 0.5,
+) -> Dict[str, Any]:
+    """Compute Net Reclassification Improvement (NRI) vs a reference model.
+
+    Pencina et al. (2008) Statistics in Medicine.
+    Category-free (continuous) NRI is also computed.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba_new: Predicted probabilities from the new model.
+        proba_ref: Predicted probabilities from the reference model.
+        threshold: Risk threshold for category-based NRI.
+
+    Returns:
+        Dict with NRI_events, NRI_nonevents, NRI_total, and continuous NRI.
+    """
+    events = y_true == 1
+    nonevents = y_true == 0
+    # Category-based NRI
+    cat_new = (proba_new >= threshold).astype(int)
+    cat_ref = (proba_ref >= threshold).astype(int)
+    up_events = int(np.sum((cat_new > cat_ref) & events))
+    down_events = int(np.sum((cat_new < cat_ref) & events))
+    up_nonevents = int(np.sum((cat_new > cat_ref) & nonevents))
+    down_nonevents = int(np.sum((cat_new < cat_ref) & nonevents))
+    n_events = max(int(np.sum(events)), 1)
+    n_nonevents = max(int(np.sum(nonevents)), 1)
+    nri_events = (up_events - down_events) / n_events
+    nri_nonevents = (down_nonevents - up_nonevents) / n_nonevents
+    nri_total = nri_events + nri_nonevents
+    # Continuous NRI (category-free)
+    diff = proba_new - proba_ref
+    cnri_events = float(np.mean(diff[events])) if np.sum(events) > 0 else 0.0
+    cnri_nonevents = float(-np.mean(diff[nonevents])) if np.sum(nonevents) > 0 else 0.0
+    cnri_total = cnri_events + cnri_nonevents
+    return {
+        "threshold": float(threshold),
+        "nri_events": round(float(nri_events), 4),
+        "nri_nonevents": round(float(nri_nonevents), 4),
+        "nri_total": round(float(nri_total), 4),
+        "continuous_nri_events": round(float(cnri_events), 4),
+        "continuous_nri_nonevents": round(float(cnri_nonevents), 4),
+        "continuous_nri_total": round(float(cnri_total), 4),
+        "reclassification_table": {
+            "events_up": up_events,
+            "events_down": down_events,
+            "nonevents_up": up_nonevents,
+            "nonevents_down": down_nonevents,
+        },
+    }
 
 
 def _compute_overfit_risk(
@@ -4250,8 +4314,8 @@ def main() -> int:
     test_metrics, test_cm = metric_panel(y_test, test_proba, selected_threshold, beta=beta)
 
     if fast_diagnostic_mode:
-        ci_lo = float("nan")
-        ci_hi = float("nan")
+        ci_lo = None
+        ci_hi = None
         ci_n = 0
         all_metric_ci: Dict[str, Any] = {}
     else:
@@ -4301,27 +4365,6 @@ def main() -> int:
         "pr_auc": float(average_precision_score(y_test, baseline_logit_proba_test)),
         "brier": float(brier_score_loss(y_test, baseline_logit_proba_test)),
     }
-
-    # ── TRIPOD+AI / PROBAST supplementary assessments ──
-    calibration_test = _calibration_assessment(y_test, test_proba)
-    dca_test = _decision_curve_analysis(y_test, test_proba)
-    epv_report = _sample_size_adequacy(
-        n_events=int(np.sum(y_train)),
-        n_features=int(X_train.shape[1]),
-        n_total=int(X_train.shape[0]),
-    )
-    vif_report = _multicollinearity_check(X_train)
-    if not fast_diagnostic_mode:
-        perm_imp = _permutation_importance_report(
-            estimator=selected_estimator,
-            X_test=X_test,
-            y_test=y_test,
-            scoring="average_precision",
-            n_repeats=10,
-            seed=args.random_seed,
-        )
-    else:
-        perm_imp = {"scoring": "average_precision", "top_features": [], "skipped": True}
 
     split_fingerprints = {
         "train": {
@@ -4513,6 +4556,12 @@ def main() -> int:
                     "action": "kept_original",
                 })
 
+    # Update model_selection_report with final model (may differ after callback)
+    model_selection_report["selected_model_id"] = selected_model_id
+    model_selection_report["selected_model_family"] = (selected_candidate_row or {}).get("base_model_id")
+    model_selection_report["selected_model_hyperparameters"] = (selected_candidate_row or {}).get("hyperparameters")
+    model_selection_report["selected_model_regularization_profile"] = (selected_candidate_row or {}).get("regularization_profile")
+
     # Generate recommendations based on final risk
     overfit_recommendations: List[str] = []
     if overfit_risk in ("medium", "high"):
@@ -4522,6 +4571,34 @@ def main() -> int:
     if overfit_risk == "high":
         overfit_recommendations.append("Consider a simpler model family (e.g., logistic regression).")
         overfit_recommendations.append("Use stronger cross-validation (more folds, repeated CV).")
+
+    # ── TRIPOD+AI / PROBAST supplementary assessments ──
+    # Must run AFTER overfitting callback to use final model's probabilities.
+    calibration_test = _calibration_assessment(y_test, test_proba)
+    dca_test = _decision_curve_analysis(y_test, test_proba)
+    epv_report = _sample_size_adequacy(
+        n_events=int(np.sum(y_train)),
+        n_features=int(X_train.shape[1]),
+        n_total=int(X_train.shape[0]),
+    )
+    vif_report = _multicollinearity_check(X_train)
+    nri_vs_prevalence = _net_reclassification_improvement(
+        y_test, test_proba, baseline_proba_test, threshold=selected_threshold,
+    )
+    nri_vs_logistic = _net_reclassification_improvement(
+        y_test, test_proba, baseline_logit_proba_test, threshold=selected_threshold,
+    )
+    if not fast_diagnostic_mode:
+        perm_imp = _permutation_importance_report(
+            estimator=selected_estimator,
+            X_test=X_test,
+            y_test=y_test,
+            scoring="average_precision",
+            n_repeats=10,
+            seed=args.random_seed,
+        )
+    else:
+        perm_imp = {"scoring": "average_precision", "top_features": [], "skipped": True}
 
     evaluation_report = {
         "model_id": selected_model_id,
@@ -4548,6 +4625,10 @@ def main() -> int:
         "sample_size_adequacy": epv_report,
         "multicollinearity": vif_report,
         "permutation_importance": perm_imp,
+        "net_reclassification_improvement": {
+            "vs_prevalence_baseline": nri_vs_prevalence,
+            "vs_logistic_baseline": nri_vs_logistic,
+        },
         "threshold_selection": {
             "selection_split": threshold_selection_split,
             "strategy": "maximize_fbeta_under_floors",

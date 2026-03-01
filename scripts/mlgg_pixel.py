@@ -1822,6 +1822,37 @@ def step_run(state: Dict) -> Any:
                             ta_lines.append(f"  {'VIF max':<18} {s('Y', f'{float(max_vif):.1f}')}  {s('Y', f'{hvc} features >10')}")
                         else:
                             ta_lines.append(f"  {'VIF max':<18} {s('G', f'{float(max_vif):.1f}')}")
+                    # NRI
+                    nri_data = eval_data.get("net_reclassification_improvement", {})
+                    nri_log = nri_data.get("vs_logistic_baseline", {})
+                    if nri_log.get("nri_total") is not None:
+                        nv = float(nri_log["nri_total"])
+                        cv = nri_log.get("continuous_nri_total")
+                        nri_col = 'G' if nv > 0 else ('Y' if nv == 0 else 'R')
+                        nri_s = s(nri_col, f"{nv:+.4f}")
+                        ta_lines.append(f"  {'NRI vs logistic':<18} {nri_s}")
+                        if cv is not None:
+                            cv_col = 'G' if float(cv) > 0 else 'Y'
+                            ta_lines.append(f"  {'  continuous':<18} {s(cv_col, f'{float(cv):+.4f}')}")
+                    # DCA net benefit summary at selected threshold
+                    dca = eval_data.get("decision_curve_analysis", {})
+                    dca_pts = dca.get("thresholds", [])
+                    sel_thresh = eval_data.get("threshold_selection", {}).get("selected_threshold")
+                    if dca_pts and sel_thresh is not None:
+                        closest = min(dca_pts, key=lambda r: abs(r["threshold"] - float(sel_thresh)))
+                        nb = closest.get("net_benefit_model")
+                        nb_all = closest.get("net_benefit_treat_all")
+                        if nb is not None:
+                            nb_col = 'G' if float(nb) > max(float(nb_all or 0), 0) else 'Y'
+                            ta_lines.append(f"  {'DCA net benefit':<18} {s(nb_col, f'{float(nb):.4f}')}"
+                                            f"  {'(at threshold)':>14}")
+                    # Permutation importance top-3
+                    perm = eval_data.get("permutation_importance", {})
+                    top_feats = perm.get("top_features", [])
+                    if top_feats:
+                        top3 = top_feats[:3]
+                        fi_parts = [f"{f['feature'][:12]}={f['importance_mean']:.3f}" for f in top3]
+                        ta_lines.append(f"  {'Perm. imp top3':<18} {', '.join(fi_parts)}")
                     if ta_lines:
                         print()
                         box("TRIPOD+AI Checks", ta_lines, color="C")
