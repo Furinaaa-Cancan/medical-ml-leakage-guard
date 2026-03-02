@@ -2776,7 +2776,7 @@ def wizard(
             result = steps[i](state)
         except KeyboardInterrupt:
             print(f"\n  {DIM}{t('interrupted')}{RST}")
-            return 0
+            return 130
 
         if result is BACK:
             if i == 0:
