@@ -3992,9 +3992,13 @@ def _subgroup_performance(
                 auc = float(_roc_auc(y_sub, p_sub))
             except Exception:
                 auc = None
+            if auc is not None and not np.isfinite(auc):
+                auc = None
             try:
                 pr_auc = float(_ap(y_sub, p_sub))
             except Exception:
+                pr_auc = None
+            if pr_auc is not None and not np.isfinite(pr_auc):
                 pr_auc = None
             group_results.append({
                 "group_value": str(g),

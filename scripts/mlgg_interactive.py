@@ -15,6 +15,7 @@ import argparse
 import csv as _csv_mod
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -285,6 +286,61 @@ def infer_project_base_from_split_path(split_path: str) -> Path:
     if parent.name.lower() == "data" and parent.parent != parent:
         return parent.parent
     return parent
+
+
+def _resolve_existing_csv(path_value: Any, base_dir: Path) -> Optional[str]:
+    token = str(path_value).strip()
+    if not token:
+        return None
+    raw_path = Path(token).expanduser()
+    candidate = (
+        raw_path.resolve(strict=False)
+        if raw_path.is_absolute()
+        else (base_dir / raw_path).resolve(strict=False)
+    )
+    if candidate.exists() and candidate.is_file():
+        return str(candidate)
+    return None
+
+
+def infer_pre_split_paths_from_context() -> Optional[Dict[str, str]]:
+    """Infer default train/valid/test CSVs for --accept-defaults pre-split mode."""
+    cwd = Path.cwd().resolve(strict=False)
+
+    # Prefer explicit split_paths from request.json when available.
+    for request_path in (cwd / "configs" / "request.json", cwd / "request.json"):
+        if not request_path.exists() or not request_path.is_file():
+            continue
+        try:
+            payload = load_json(request_path)
+        except Exception:
+            continue
+        split_paths = payload.get("split_paths")
+        if not isinstance(split_paths, dict):
+            continue
+        resolved: Dict[str, str] = {}
+        for key in ("train", "valid", "test"):
+            path_token = split_paths.get(key)
+            resolved_path = _resolve_existing_csv(path_token, request_path.parent)
+            if not resolved_path:
+                resolved = {}
+                break
+            resolved[key] = resolved_path
+        if len(resolved) == 3:
+            return resolved
+
+    # Fallback: discover canonical data/*.csv under working directory.
+    for base in (cwd / "data", cwd):
+        train_path = (base / "train.csv").resolve(strict=False)
+        valid_path = (base / "valid.csv").resolve(strict=False)
+        test_path = (base / "test.csv").resolve(strict=False)
+        if train_path.exists() and valid_path.exists() and test_path.exists():
+            return {
+                "train": str(train_path),
+                "valid": str(valid_path),
+                "test": str(test_path),
+            }
+    return None
 
 
 def validate_profile_name(raw: str) -> str:
@@ -1086,6 +1142,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
 
     else:
         # Pre-split mode (original flow)
+        inferred_splits = infer_pre_split_paths_from_context() if PROMPT_AUTO_ACCEPT_DEFAULTS else None
         for key, label in (
             ("train", "Train split CSV path"),
             ("valid", "Valid split CSV path"),
@@ -1098,9 +1155,19 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
                     raise ValueError(f"{key} path not found: {value}")
                 values[key] = value
             else:
+                default_value = str(seed).strip()
+                if not default_value and inferred_splits:
+                    default_value = str(inferred_splits.get(key, "")).strip()
+                if PROMPT_AUTO_ACCEPT_DEFAULTS and not default_value:
+                    raise ValueError(
+                        "No default pre-split files detected for --accept-defaults. "
+                        "Expected data/train.csv, data/valid.csv, data/test.csv under "
+                        f"working directory ({Path.cwd()}) or split_paths in configs/request.json. "
+                        "Provide --train/--valid/--test or switch to --input-csv."
+                    )
                 values[key] = prompt_path(
                     label=label,
-                    default=str(seed),
+                    default=default_value,
                     required=True,
                     must_exist=True,
                 )
@@ -1557,6 +1624,12 @@ def main() -> int:
     profile_dir = str(args.profile_dir)
     cwd = Path(str(args.cwd)).expanduser().resolve(strict=False)
     python_bin = str(args.python).strip() or sys.executable
+    if not cwd.exists() or not cwd.is_dir():
+        return fail(f"--cwd path not found or not a directory: {cwd}")
+    try:
+        os.chdir(cwd)
+    except Exception as exc:
+        return fail(f"unable to change working directory to {cwd}: {exc}")
 
     if args.load_profile or args.save_profile:
         if not profile_name:

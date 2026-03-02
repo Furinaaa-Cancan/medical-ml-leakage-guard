@@ -456,14 +456,23 @@ def main() -> int:
             )
 
     ci_lower, ci_upper, ci_method, ci_n_resamples, ci_source_path = extract_primary_metric_ci(payload, args.metric_name)
-    if (ci_lower is None or ci_upper is None) and isinstance(ci_matrix_payload, dict):
+    needs_ci_matrix_enrichment = (
+        ci_lower is None
+        or ci_upper is None
+        or ci_n_resamples is None
+        or not (isinstance(ci_method, str) and ci_method.strip())
+    )
+    if needs_ci_matrix_enrichment and isinstance(ci_matrix_payload, dict):
         ci_m_lo, ci_m_hi, ci_m_n, ci_m_src = extract_primary_metric_ci_from_ci_matrix(ci_matrix_payload, args.metric_name)
         if ci_m_lo is not None and ci_m_hi is not None:
-            ci_lower = ci_m_lo
-            ci_upper = ci_m_hi
-            ci_n_resamples = ci_m_n
-            ci_method = "bootstrap_ci_matrix"
-            ci_source_path = ci_m_src
+            if ci_lower is None or ci_upper is None:
+                ci_lower = ci_m_lo
+                ci_upper = ci_m_hi
+                ci_source_path = ci_m_src
+            if ci_n_resamples is None:
+                ci_n_resamples = ci_m_n
+            if ci_method is None or not isinstance(ci_method, str) or not ci_method.strip():
+                ci_method = "bootstrap_ci_matrix"
     if ci_lower is None or ci_upper is None:
         add_issue(
             failures,

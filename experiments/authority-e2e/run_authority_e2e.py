@@ -40,6 +40,26 @@ except Exception:  # pragma: no cover - non-posix fallback
     fcntl = None  # type: ignore[assignment]
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return int(default)
+    try:
+        return int(raw)
+    except Exception:
+        return int(default)
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return float(default)
+    try:
+        return float(raw)
+    except Exception:
+        return float(default)
+
+
 @dataclass
 class DatasetCase:
     case_id: str
@@ -63,8 +83,23 @@ DATA_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 RAW_ROOT = DATA_ROOT / "raw"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 REFERENCES_ROOT = REPO_ROOT / "references"
-DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = int(os.environ.get("MLLG_SUBPROCESS_TIMEOUT_SECONDS", "3600"))
+_IS_CI = str(os.environ.get("CI", "")).strip().lower() in {"1", "true", "yes", "on"}
+_IS_LOCAL_TTY = bool(sys.stdout.isatty() and not _IS_CI)
+DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = _env_int(
+    "MLLG_SUBPROCESS_TIMEOUT_SECONDS",
+    1800 if _IS_LOCAL_TTY else 3600,
+)
 SUBPROCESS_TIMEOUT_SECONDS = max(1, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+DEFAULT_CASE_LOCK_TIMEOUT_SECONDS = _env_int(
+    "MLLG_CASE_LOCK_TIMEOUT_SECONDS",
+    900 if _IS_LOCAL_TTY else 1800,
+)
+DEFAULT_LOCK_WAIT_HEARTBEAT_SECONDS = _env_float(
+    "MLLG_LOCK_WAIT_HEARTBEAT_SECONDS",
+    15.0,
+)
+CASE_LOCK_TIMEOUT_SECONDS = max(1.0, float(DEFAULT_CASE_LOCK_TIMEOUT_SECONDS))
+LOCK_WAIT_HEARTBEAT_SECONDS = max(0.0, float(DEFAULT_LOCK_WAIT_HEARTBEAT_SECONDS))
 SPLIT_RANDOM_SEED_BY_CASE: Dict[str, int] = {
     "uci-heart-disease": 20250003,
     "uci-breast-cancer-wdbc": 20260224,
@@ -322,7 +357,11 @@ def parse_bool_env(name: str, default: bool = False) -> bool:
 
 
 @contextmanager
-def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
+def case_run_lock(
+    case_id: str,
+    timeout_seconds: float = 1800.0,
+    heartbeat_seconds: float = 15.0,
+):
     """
     Serialize per-case filesystem mutations to avoid concurrent rmtree/write races.
     - POSIX: advisory lock via fcntl.flock
@@ -332,9 +371,27 @@ def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / f"{str(case_id).strip().lower() or 'unknown'}.lock"
     started = time.time()
+    heartbeat_every = max(0.0, float(heartbeat_seconds))
+    last_wait_log = started
     owner_token = (
         f"pid={os.getpid()} acquired_at={datetime.now(tz=timezone.utc).isoformat()} case_id={case_id}\n"
     )
+
+    def _maybe_log_wait() -> None:
+        nonlocal last_wait_log
+        if heartbeat_every <= 0:
+            return
+        now = time.time()
+        if (now - last_wait_log) < heartbeat_every:
+            return
+        waited = now - started
+        print(
+            "[INFO] waiting_for_case_lock "
+            f"case_id={case_id} waited_seconds={waited:.1f} "
+            f"timeout_seconds={float(timeout_seconds):.1f} lock={lock_path}",
+            flush=True,
+        )
+        last_wait_log = now
 
     if fcntl is not None:
         with lock_path.open("a+", encoding="utf-8") as fh:
@@ -343,10 +400,18 @@ def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
                     fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
+                    _maybe_log_wait()
                     if (time.time() - started) > float(timeout_seconds):
                         raise TimeoutError(f"case_run_lock_timeout: case_id={case_id} lock={lock_path}")
                     time.sleep(0.2)
             try:
+                waited_seconds = time.time() - started
+                if waited_seconds >= max(1.0, heartbeat_every):
+                    print(
+                        "[INFO] acquired_case_lock "
+                        f"case_id={case_id} waited_seconds={waited_seconds:.1f} lock={lock_path}",
+                        flush=True,
+                    )
                 fh.seek(0)
                 fh.truncate(0)
                 fh.write(owner_token)
@@ -369,6 +434,7 @@ def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
             acquired = True
         except FileExistsError:
             # Try stale lock eviction when lock age exceeds timeout.
+            _maybe_log_wait()
             try:
                 age = time.time() - float(lock_path.stat().st_mtime)
             except OSError:
@@ -383,6 +449,13 @@ def case_run_lock(case_id: str, timeout_seconds: float = 1800.0):
                 raise TimeoutError(f"case_run_lock_timeout: case_id={case_id} lock={lock_path}")
             time.sleep(0.2)
     try:
+        waited_seconds = time.time() - started
+        if waited_seconds >= max(1.0, heartbeat_every):
+            print(
+                "[INFO] acquired_case_lock "
+                f"case_id={case_id} waited_seconds={waited_seconds:.1f} lock={lock_path}",
+                flush=True,
+            )
         yield
     finally:
         try:
@@ -674,6 +747,25 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Timeout budget per spawned subprocess in seconds "
             f"(default: {DEFAULT_SUBPROCESS_TIMEOUT_SECONDS})."
+        ),
+    )
+    parser.add_argument(
+        "--case-lock-timeout-seconds",
+        type=float,
+        default=float(DEFAULT_CASE_LOCK_TIMEOUT_SECONDS),
+        help=(
+            "Timeout budget for per-case workspace lock acquisition in seconds "
+            f"(default: {float(DEFAULT_CASE_LOCK_TIMEOUT_SECONDS):.1f})."
+        ),
+    )
+    parser.add_argument(
+        "--lock-wait-heartbeat-seconds",
+        type=float,
+        default=float(DEFAULT_LOCK_WAIT_HEARTBEAT_SECONDS),
+        help=(
+            "Heartbeat interval while waiting for case lock. "
+            "Set 0 to disable wait heartbeat logs "
+            f"(default: {float(DEFAULT_LOCK_WAIT_HEARTBEAT_SECONDS):.1f})."
         ),
     )
     parser.add_argument(
@@ -3506,8 +3598,14 @@ def main() -> int:
     args = parse_args()
     if int(args.subprocess_timeout_seconds) < 1:
         raise SystemExit("--subprocess-timeout-seconds must be >= 1.")
-    global SUBPROCESS_TIMEOUT_SECONDS
+    if float(args.case_lock_timeout_seconds) < 1.0:
+        raise SystemExit("--case-lock-timeout-seconds must be >= 1.")
+    if float(args.lock_wait_heartbeat_seconds) < 0.0:
+        raise SystemExit("--lock-wait-heartbeat-seconds must be >= 0.")
+    global SUBPROCESS_TIMEOUT_SECONDS, CASE_LOCK_TIMEOUT_SECONDS, LOCK_WAIT_HEARTBEAT_SECONDS
     SUBPROCESS_TIMEOUT_SECONDS = int(args.subprocess_timeout_seconds)
+    CASE_LOCK_TIMEOUT_SECONDS = float(args.case_lock_timeout_seconds)
+    LOCK_WAIT_HEARTBEAT_SECONDS = float(args.lock_wait_heartbeat_seconds)
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     summary_path = resolve_output_path(args.summary_file)
     include_large_cases = bool(args.include_large_cases or parse_bool_env("MLLG_INCLUDE_LARGE_CASES", default=False))
@@ -3743,7 +3841,11 @@ def main() -> int:
                     case_stress_result = stress_result
                 else:
                     split_seed_override = int(SPLIT_RANDOM_SEED_BY_CASE.get(case.case_id, 20260224))
-            with case_run_lock(case.case_id):
+            with case_run_lock(
+                case.case_id,
+                timeout_seconds=float(CASE_LOCK_TIMEOUT_SECONDS),
+                heartbeat_seconds=float(LOCK_WAIT_HEARTBEAT_SECONDS),
+            ):
                 result = prepare_case_artifacts(
                     case,
                     split_seed_override=split_seed_override,
@@ -3789,6 +3891,8 @@ def main() -> int:
         "stress_profile_set": stress_profile_set,
         "stress_seed_range": {"min": int(args.stress_seed_min), "max": int(args.stress_seed_max)},
         "subprocess_timeout_seconds": int(SUBPROCESS_TIMEOUT_SECONDS),
+        "case_lock_timeout_seconds": float(CASE_LOCK_TIMEOUT_SECONDS),
+        "lock_wait_heartbeat_seconds": float(LOCK_WAIT_HEARTBEAT_SECONDS),
         "stress_seed_cache_file": str(stress_seed_cache),
         "stress_selection_file": str(stress_selection_file),
         "stress_seed_selected": int(stress_result.selected_seed) if stress_result is not None else None,
