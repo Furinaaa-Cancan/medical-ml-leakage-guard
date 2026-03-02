@@ -1224,14 +1224,6 @@ def step_dataset(state: Dict) -> Any:
         state["pid"] = "patient_id"
         state["target"] = "y"
         state["time"] = "event_time"
-
-        default_name = files[ci]
-        print(f"\n  {s('W', t('pick_outname'))}")
-        name = _input_line(f"  {s('C','>')} [{default_name}]: ")
-        if name is None:
-            return BACK
-        if name:
-            state["out_dir"] = str(DEFAULT_OUT / name)
         return True
 
     # source == "csv"
@@ -1271,14 +1263,6 @@ def step_dataset(state: Dict) -> Any:
     except Exception:
         state["_n_rows"] = 0
     state["out_dir"] = str(DEFAULT_OUT / Path(path).stem)
-
-    default_name = Path(path).stem
-    print(f"\n  {s('W', t('pick_outname'))}")
-    name = _input_line(f"  {s('C','>')} [{default_name}]: ")
-    if name is None:
-        return BACK
-    if name:
-        state["out_dir"] = str(DEFAULT_OUT / name)
     return True
 
 

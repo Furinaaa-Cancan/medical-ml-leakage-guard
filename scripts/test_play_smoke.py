@@ -80,6 +80,32 @@ def test_source_step_has_only_builtin_or_csv_paths() -> None:
         play.select = original_select  # type: ignore[assignment]
 
 
+def test_download_dataset_step_no_project_name_prompt() -> None:
+    print("\n=== play: builtin dataset path no longer asks project name ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    called = {"count": 0}
+    try:
+        play.select = lambda opts, descs=None, title="", is_first=False: 0  # type: ignore[assignment]
+
+        def fail_if_called(*args, **kwargs):
+            called["count"] += 1
+            raise AssertionError("project-name prompt should not be called for builtin dataset path")
+
+        play._input_line = fail_if_called  # type: ignore[assignment]
+        state = {"source": "download"}
+        result = play.step_dataset(state)
+        assert_true(result is True, "step_dataset(download) completes without project-name prompt")
+        assert_true(called["count"] == 0, "project-name prompt was not invoked")
+        assert_true(
+            str(state.get("out_dir", "")).endswith("heart_disease"),
+            "download path keeps deterministic default output directory",
+        )
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+
+
 def test_recommended_trials_respect_search_mode_and_rows() -> None:
     print("\n=== play: recommended max trials uses search mode + n_rows ===")
     assert_true(
@@ -204,6 +230,7 @@ def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
     test_source_step_has_only_builtin_or_csv_paths()
+    test_download_dataset_step_no_project_name_prompt()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
