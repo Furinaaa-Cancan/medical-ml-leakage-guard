@@ -200,14 +200,23 @@ _T: Dict[str, Dict[str, str]] = {
                      "zh": "\u9879\u76ee\u540d\u79f0\uff08\u652f\u6301\u4e2d\u6587\uff09"},
 
     "strat_temporal":   {"en": "Grouped Temporal", "zh": "\u65f6\u5e8f\u5206\u7ec4"},
-    "strat_temporal_d": {"en": "Sort by time, patient-disjoint (recommended)",
-                         "zh": "\u6309\u65f6\u95f4\u6392\u5e8f\uff0c\u60a3\u8005\u4e0d\u76f8\u4ea4\uff08\u63a8\u8350\uff09"},
+    "strat_temporal_d": {"en": "Time-ordered split for true longitudinal prediction",
+                         "zh": "\u7528\u4e8e\u771f\u5b9e\u7eb5\u5411\u9884\u6d4b\u7684\u65f6\u95f4\u987a\u5e8f\u5206\u5272"},
     "strat_random":     {"en": "Grouped Random", "zh": "\u968f\u673a\u5206\u7ec4"},
     "strat_random_d":   {"en": "Random patient-disjoint split",
                          "zh": "\u968f\u673a\u60a3\u8005\u4e0d\u76f8\u4ea4\u5206\u5272"},
     "strat_stratified":   {"en": "Stratified Grouped", "zh": "\u5206\u5c42\u5206\u7ec4"},
-    "strat_stratified_d": {"en": "Preserve positive rate across splits",
-                           "zh": "\u4fdd\u6301\u5404\u5206\u5272\u7684\u9633\u6027\u7387\u4e00\u81f4"},
+    "strat_stratified_d": {"en": "Patient-disjoint split with stable class prevalence",
+                           "zh": "\u60a3\u8005\u4e0d\u91cd\u53e0\u4e14\u4fdd\u6301\u9633\u6027\u7387\u7a33\u5b9a\u7684\u5206\u5272"},
+    "split_help_title":   {"en": "How to choose", "zh": "\u600e\u4e48\u9009"},
+    "split_help_temporal":{"en": "Grouped Temporal: use only when timestamps reflect real prediction order.",
+                           "zh": "\u65f6\u5e8f\u5206\u7ec4\uff1a\u53ea\u5728\u65f6\u95f4\u6233\u80fd\u4ee3\u8868\u771f\u5b9e\u9884\u6d4b\u987a\u5e8f\u65f6\u4f7f\u7528\u3002"},
+    "split_help_stratified":{"en": "Stratified Grouped: preferred for cross-sectional/single-visit datasets.",
+                             "zh": "\u5206\u5c42\u5206\u7ec4\uff1a\u66f4\u9002\u5408\u6a2a\u65ad\u9762/\u5355\u6b21\u5c31\u8bca\u6570\u636e\u3002"},
+    "split_help_default_csv":{"en": "Default first option for CSV is Stratified Grouped.",
+                              "zh": "CSV \u6570\u636e\u9ed8\u8ba4\u9996\u9009\u4e3a\u5206\u5c42\u5206\u7ec4\u3002"},
+    "split_help_default_download":{"en": "Built-in test datasets default to Stratified Grouped.",
+                                   "zh": "\u5185\u7f6e\u6d4b\u8bd5\u6570\u636e\u96c6\u9ed8\u8ba4\u4e3a\u5206\u5c42\u5206\u7ec4\u3002"},
 
     "pick_ratio":    {"en": "Train / Valid / Test ratio", "zh": "\u8bad\u7ec3 / \u9a8c\u8bc1 / \u6d4b\u8bd5 \u6bd4\u4f8b"},
     "ratio_60":      {"en": "60 / 20 / 20  (standard)", "zh": "60 / 20 / 20  \uff08\u6807\u51c6\uff09"},
@@ -285,7 +294,7 @@ _T: Dict[str, Dict[str, str]] = {
     "adv_ignore":    {"en": "Ignore columns (comma-separated, non-feature columns to exclude):",
                       "zh": "\u5ffd\u7565\u5217\uff08\u9017\u53f7\u5206\u9694\uff0c\u6392\u9664\u7684\u975e\u7279\u5f81\u5217\uff09\uff1a"},
     "adv_njobs":     {"en": "CPU workers (-1 = all cores):", "zh": "CPU \u5de5\u4f5c\u8fdb\u7a0b\uff08-1 = \u6240\u6709\u6838\u5fc3\uff09\uff1a"},
-    "adv_trials":    {"en": "Max trials per model family:", "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf\u6700\u5927\u8bd5\u9a8c\u6b21\u6570\uff1a"},
+    "adv_trials":    {"en": "Max tries per model (higher = slower):", "zh": "\u6bcf\u4e2a\u6a21\u578b\u6700\u591a\u5c1d\u8bd5\u6b21\u6570\uff08\u8d8a\u5927\u8d8a\u6162\uff09\uff1a"},
     "adv_optional":  {"en": "Include optional model backends when installed?",
                       "zh": "\u5305\u542b\u5df2\u5b89\u88c5\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1f"},
     "adv_menu_title":{"en": "Advanced settings (editable)", "zh": "\u9ad8\u7ea7\u8bbe\u7f6e\uff08\u53ef\u7f16\u8f91\uff09"},
@@ -316,6 +325,9 @@ _T: Dict[str, Dict[str, str]] = {
     "r_train_ok":    {"en": "Training Complete!", "zh": "\u8bad\u7ec3\u5b8c\u6210\uff01"},
     "r_metrics":     {"en": "Key Metrics (test set)", "zh": "\u5173\u952e\u6307\u6807\uff08\u6d4b\u8bd5\u96c6\uff09"},
     "r_quick_readiness": {"en": "Quick Readiness (play mode)", "zh": "\u5feb\u901f\u5c31\u7eea\u68c0\u67e5\uff08play \u6a21\u5f0f\uff09"},
+    "r_play_status_not_ready": {"en": "NOT READY (play)", "zh": "\u672a\u5c31\u7eea\uff08play\uff09"},
+    "r_play_status_warn": {"en": "CAUTION (play)", "zh": "\u9700\u8c28\u614e\uff08play\uff09"},
+    "r_play_status_pass": {"en": "GOOD (play)", "zh": "\u826f\u597d\uff08play\uff09"},
     "r_pub_gate_not_run_label": {"en": "Publication gate", "zh": "\u51fa\u7248\u7ea7\u95e8\u63a7"},
     "r_pub_gate_not_run_value": {"en": "NOT RUN (use workflow --strict)", "zh": "\u672a\u8fd0\u884c\uff08\u8bf7\u7528 workflow --strict\uff09"},
     "r_verdict_not_ready": {"en": "Not strict release-ready", "zh": "\u672a\u8fbe\u4e25\u683c\u53d1\u5e03\u6761\u4ef6"},
@@ -380,9 +392,9 @@ _T: Dict[str, Dict[str, str]] = {
     "c_imbalance":       {"en": "Imbalance:", "zh": "\u4e0d\u5e73\u8861\uff1a"},
     "c_validation":      {"en": "Validation:", "zh": "\u9a8c\u8bc1\u65b9\u5f0f\uff1a"},
     "c_cv_folds":        {"en": "CV Folds:", "zh": "CV \u6298\u6570\uff1a"},
-    "c_trials":          {"en": "Trials/family:", "zh": "\u8bd5\u9a8c\u6b21\u6570/\u65cf\uff1a"},
-    "pick_optuna_trials":{"en": "Optuna trials per model family (higher = slower but potentially better):",
-                          "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf Optuna \u8bd5\u9a8c\u6b21\u6570\uff08\u66f4\u5927=\u66f4\u6162\uff0c\u4f46\u53ef\u80fd\u66f4\u597d\uff09\uff1a"},
+    "c_trials":          {"en": "Tries/model:", "zh": "\u5c1d\u8bd5\u6b21\u6570/\u6a21\u578b\uff1a"},
+    "pick_optuna_trials":{"en": "Optuna tries per model (higher = slower, may improve):",
+                          "zh": "\u6bcf\u4e2a\u6a21\u578b Optuna \u5c1d\u8bd5\u6b21\u6570\uff08\u8d8a\u5927\u8d8a\u6162\uff0c\u53ef\u80fd\u66f4\u597d\uff09\uff1a"},
     "optuna_trials_hint":{"en": "Quick suggestion: 20 (fast) / 50 (balanced) / 100 (thorough)",
                           "zh": "\u5feb\u901f\u5efa\u8bae\uff1a20\uff08\u5feb\uff09 / 50\uff08\u5e73\u8861\uff09 / 100\uff08\u7ec6\u81f4\uff09"},
 }
@@ -1126,9 +1138,9 @@ def apply_strict_small_sample_profile(state: Dict[str, Any]) -> Dict[str, Any]:
 def split_strategy_order_for_source(source: str) -> List[str]:
     """Return split strategy order with source-aware default at index 0."""
     token = str(source).strip().lower()
-    if token == "download":
+    if token in {"download", "csv"}:
         # UCI packaged examples include synthetic event_time; default to
-        # prevalence-stable grouped split instead of pseudo-temporal ordering.
+        # prevalence-stable grouped split unless users explicitly need temporal.
         return ["stratified_grouped", "grouped_temporal"]
     return ["grouped_temporal", "stratified_grouped"]
 
@@ -1417,6 +1429,15 @@ def step_split(state: Dict) -> Any:
         if sub == 0:
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
+            print(f"  {s('C', t('split_help_title'), bold=True)}")
+            print(f"  {DIM}- {t('split_help_temporal')}{RST}")
+            print(f"  {DIM}- {t('split_help_stratified')}{RST}")
+            if source == "csv":
+                print(f"  {DIM}{t('split_help_default_csv')}{RST}\n")
+            elif source == "download":
+                print(f"  {DIM}{t('split_help_default_download')}{RST}\n")
+            else:
+                print()
             strategy_order = split_strategy_order_for_source(source)
             strategy_title = {
                 "grouped_temporal": t("strat_temporal"),
@@ -2727,13 +2748,13 @@ def step_run(state: Dict) -> Any:
                 advisories.extend([x for x in tripod_warnings if x not in advisories and x not in blockers])
 
                 if blockers:
-                    overall_tag = s('R', "FAIL", bold=True)
+                    overall_tag = s('R', t("r_play_status_not_ready"), bold=True)
                     verdict = t("r_verdict_not_ready")
                 elif advisories:
-                    overall_tag = s('Y', "WARN", bold=True)
+                    overall_tag = s('Y', t("r_play_status_warn"), bold=True)
                     verdict = t("r_verdict_warn")
                 else:
-                    overall_tag = s('G', "PASS", bold=True)
+                    overall_tag = s('G', t("r_play_status_pass"), bold=True)
                     verdict = t("r_verdict_pass")
                 readiness_lines.append(f"  {'Overall':<16} {overall_tag}  {verdict}")
                 readiness_lines.append(f"  {'Constraints':<16} {s('G','PASS') if constraints_ok else s('R','FAIL') if constraints_ok is False else s('Y','N/A')}")

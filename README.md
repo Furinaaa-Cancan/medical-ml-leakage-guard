@@ -247,10 +247,10 @@ Or use onboarding with your own data:
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_project --input-csv /path/to/your_data.csv --mode guided --yes
 ```
 
-Available split strategies:
-- `grouped_temporal`: time-ordered split (recommended for longitudinal data)
-- `grouped_random`: random patient-level split
-- `stratified_grouped`: random split preserving class prevalence
+Available split strategies (onboarding/play wizard):
+- `stratified_grouped` (default): patient-disjoint split with stable class prevalence; preferred for cross-sectional/single-visit datasets.
+- `grouped_temporal`: time-ordered split; use only for true longitudinal prediction timelines.
+- `grouped_random`: available in split CLI (`scripts/mlgg.py split`) for research/debug only.
 
 **Option 2 — Pre-split files:**
 
@@ -755,10 +755,10 @@ python3 scripts/mlgg.py interactive --command train
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_project --input-csv /path/to/your_data.csv --mode guided --yes
 ```
 
-可用分割策略：
-- `grouped_temporal`：按时间排序分割（推荐纵向数据）
-- `grouped_random`：随机患者级分割
-- `stratified_grouped`：保持类别比例的随机分割
+可用分割策略（onboarding/play 向导）：
+- `stratified_grouped`（默认）：患者不重叠且类别比例稳定，更适合横断面/单次就诊数据。
+- `grouped_temporal`：按时间排序分割，只建议用于真实纵向预测场景。
+- `grouped_random`：仅在 split CLI（`scripts/mlgg.py split`）中保留，主要用于研究/调试。
 
 **方式 2 — 已分割文件：**
 

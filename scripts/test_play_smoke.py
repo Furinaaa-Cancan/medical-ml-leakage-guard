@@ -48,7 +48,7 @@ def test_split_strategy_order_is_source_aware() -> None:
     assert_true(sorted(dl) == sorted(["grouped_temporal", "stratified_grouped"]), "download strategy options complete")
 
     csv_src = play.split_strategy_order_for_source("csv")
-    assert_true(csv_src[0] == "grouped_temporal", "csv source default strategy keeps grouped_temporal")
+    assert_true(csv_src[0] == "stratified_grouped", "csv source default strategy is stratified_grouped")
     assert_true(sorted(csv_src) == sorted(["grouped_temporal", "stratified_grouped"]), "csv strategy options complete")
 
     demo_src = play.split_strategy_order_for_source("demo")
