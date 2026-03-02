@@ -64,6 +64,53 @@ python3 scripts/mlgg.py split -- \
   --strategy grouped_temporal
 ```
 
+### 0.1 Which command should I use?
+
+| Goal | Command | What you get |
+|---|---|---|
+| Quick exploration / teaching | `python3 scripts/mlgg.py play` | Fast interactive train/eval, **not** publication verdict |
+| First strict end-to-end run | `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes` | 8-step strict flow + evidence reports |
+| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 28-gate strict decision |
+
+### 0.2 Status semantics (do not mix these)
+
+| Surface | Status values | Meaning | Release decision? |
+|---|---|---|---|
+| `play` quick readiness card | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | Lightweight educational signal in play mode | No |
+| `onboarding_report.json` | `status=pass|fail` + `termination_reason` | Whether onboarding flow completed cleanly | No (onboarding is a wrapper) |
+| `strict_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28-gate strict result | Yes |
+
+### 0.3 Fastest own-CSV strict closed loop (copy-paste)
+
+```bash
+# 1) Initialize project
+python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
+
+# 2) Split one CSV safely (default recommendation for cross-sectional data)
+python3 scripts/mlgg.py split -- \
+  --input /path/to/your_data.csv \
+  --output-dir /tmp/mlgg_project/data \
+  --patient-id-col patient_id \
+  --target-col y \
+  --time-col event_time \
+  --strategy stratified_grouped
+
+# 3) Train/evaluate (interactive)
+python3 scripts/mlgg.py train --interactive
+
+# 4) First strict run (bootstrap baseline)
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --allow-missing-compare
+
+# 5) Strict compare rerun
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
+```
+
 ---
 
 ### 1. What This Repository Does
@@ -462,6 +509,21 @@ If guided mode is cancelled, onboarding now fails closed with:
 Use this mapping for top failures:
 - `references/Troubleshooting-Top20.md`
 
+Top10 quick fixes (copy-paste):
+
+| Failure code | What it usually means | One-step fix |
+|---|---|---|
+| `onboarding_step_cancelled` | Guided step cancelled by user | Re-run with `--yes` or `--mode auto --no-stop-on-fail` |
+| `onboarding_interactive_input_unavailable` | Guided mode in non-interactive shell | Use `--yes` or switch to `--mode auto` |
+| `authority_preset_route_override_forbidden` | Wrapper route flags conflict | Remove conflicting route flags, keep preset route only |
+| `row_overlap` | Same rows appear across splits | Re-split data with patient-disjoint policy |
+| `id_overlap` | Patient IDs overlap across splits | Re-split by `patient_id` with grouped split |
+| `temporal_overlap` | Train/valid/test time boundary violation | Use proper index time and temporal ordering |
+| `suspicious_feature_names` | Feature names imply leakage path | Remove/review leakage-prone features (future/outcome/diagnosis-like) |
+| `benchmark_registry_missing` | Missing benchmark registry file | Use `--registry-file references/benchmark-registry.json` |
+| `benchmark_registry_mismatch` | Registry fingerprint/case mismatch | Restore official registry and rerun |
+| `benchmark_repeat_inconsistent` | Repeated runs are unstable | Keep same config/seed/data fingerprint and rerun `--repeat 3` |
+
 Typical diagnosis commands:
 
 ```bash
@@ -570,6 +632,53 @@ python3 scripts/mlgg.py split -- \
   --output-dir /tmp/mlgg_heart/data \
   --patient-id-col patient_id --target-col y --time-col event_time \
   --strategy grouped_temporal
+```
+
+### 0.1 我该用哪个命令？
+
+| 目标 | 命令 | 结果类型 |
+|---|---|---|
+| 快速探索/教学演示 | `python3 scripts/mlgg.py play` | 快速交互训练评估，**不是**发布结论 |
+| 新手首跑严格全流程 | `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes` | 固定 8 步严格流程 + 证据报告 |
+| 出版级通过/失败判定 | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 28 门严格判定 |
+
+### 0.2 状态语义（不要混用）
+
+| 界面/报告 | 状态值 | 含义 | 能否作为发布结论 |
+|---|---|---|---|
+| `play` 快速就绪卡片 | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | play 模式下的轻量提示 | 否 |
+| `onboarding_report.json` | `status=pass|fail` + `termination_reason` | onboarding 包装流程是否执行完好 | 否（onboarding 是包装层） |
+| `strict_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28 门严格结果 | 是 |
+
+### 0.3 自有 CSV 最短严格闭环（可直接复制）
+
+```bash
+# 1）初始化项目
+python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
+
+# 2）安全分割单个 CSV（横断面数据默认建议）
+python3 scripts/mlgg.py split -- \
+  --input /path/to/your_data.csv \
+  --output-dir /tmp/mlgg_project/data \
+  --patient-id-col patient_id \
+  --target-col y \
+  --time-col event_time \
+  --strategy stratified_grouped
+
+# 3）训练评估（交互）
+python3 scripts/mlgg.py train --interactive
+
+# 4）严格首跑（bootstrap 基线）
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --allow-missing-compare
+
+# 5）严格 compare 复跑
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
 ```
 
 ---
@@ -969,6 +1078,21 @@ guided 模式取消后现在会 fail-closed：
 
 高频失败码映射文档：
 - `references/Troubleshooting-Top20.md`
+
+Top10 常见失败码速修（可直接执行）：
+
+| 失败码 | 常见原因 | 一步修复 |
+|---|---|---|
+| `onboarding_step_cancelled` | guided 步骤被手动取消 | 加 `--yes` 或改 `--mode auto --no-stop-on-fail` 重跑 |
+| `onboarding_interactive_input_unavailable` | 在无交互 shell 运行 guided | 使用 `--yes` 或改 `--mode auto` |
+| `authority_preset_route_override_forbidden` | 封装命令路线参数冲突 | 删除冲突路线参数，仅保留封装默认路线 |
+| `row_overlap` | 不同 split 出现相同行 | 按患者不交叉规则重新 split |
+| `id_overlap` | split 间患者 ID 重叠 | 用 `patient_id` 做 grouped split 重新分割 |
+| `temporal_overlap` | 训练/验证/测试时间边界冲突 | 修正 index time 并保证时间顺序切分 |
+| `suspicious_feature_names` | 特征名疑似泄漏路径 | 删除/复核 future/outcome/diagnosis 类特征 |
+| `benchmark_registry_missing` | 基准注册表缺失 | 使用 `--registry-file references/benchmark-registry.json` |
+| `benchmark_registry_mismatch` | 注册表指纹或 case 不匹配 | 恢复官方 registry 后重跑 |
+| `benchmark_repeat_inconsistent` | 重复运行结论不一致 | 固定配置/seed/数据指纹后用 `--repeat 3` 复验 |
 
 常用诊断命令：
 
