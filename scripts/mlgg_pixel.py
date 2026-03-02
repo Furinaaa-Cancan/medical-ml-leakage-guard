@@ -1076,8 +1076,8 @@ def split_strategy_order_for_source(source: str) -> List[str]:
     if token == "download":
         # UCI packaged examples include synthetic event_time; default to
         # prevalence-stable grouped split instead of pseudo-temporal ordering.
-        return ["stratified_grouped", "grouped_random", "grouped_temporal"]
-    return ["grouped_temporal", "grouped_random", "stratified_grouped"]
+        return ["stratified_grouped", "grouped_temporal"]
+    return ["grouped_temporal", "stratified_grouped"]
 
 
 def _save_history(state: Dict) -> None:
@@ -1367,12 +1367,10 @@ def step_split(state: Dict) -> Any:
             strategy_order = split_strategy_order_for_source(source)
             strategy_title = {
                 "grouped_temporal": t("strat_temporal"),
-                "grouped_random": t("strat_random"),
                 "stratified_grouped": t("strat_stratified"),
             }
             strategy_desc = {
                 "grouped_temporal": t("strat_temporal_d"),
-                "grouped_random": t("strat_random_d"),
                 "stratified_grouped": t("strat_stratified_d"),
             }
             si = select(

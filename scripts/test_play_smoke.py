@@ -45,13 +45,15 @@ def test_split_strategy_order_is_source_aware() -> None:
     print("\n=== play: split strategy order is source-aware ===")
     dl = play.split_strategy_order_for_source("download")
     assert_true(dl[0] == "stratified_grouped", "download source default strategy is stratified_grouped")
-    assert_true(sorted(dl) == sorted(["grouped_temporal", "grouped_random", "stratified_grouped"]), "download strategy options complete")
+    assert_true(sorted(dl) == sorted(["grouped_temporal", "stratified_grouped"]), "download strategy options complete")
 
     csv_src = play.split_strategy_order_for_source("csv")
     assert_true(csv_src[0] == "grouped_temporal", "csv source default strategy keeps grouped_temporal")
+    assert_true(sorted(csv_src) == sorted(["grouped_temporal", "stratified_grouped"]), "csv strategy options complete")
 
     demo_src = play.split_strategy_order_for_source("demo")
     assert_true(demo_src[0] == "grouped_temporal", "demo source default strategy keeps grouped_temporal")
+    assert_true(sorted(demo_src) == sorted(["grouped_temporal", "stratified_grouped"]), "demo strategy options complete")
 
 
 def test_source_step_has_only_builtin_or_csv_paths() -> None:
