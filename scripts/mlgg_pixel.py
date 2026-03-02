@@ -116,8 +116,8 @@ _T: Dict[str, Dict[str, str]] = {
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u8fd4\u56de"},
     "nav_first":     {"en": "[\u2191\u2193] move  [Enter] next  [\u2190/q] quit",
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u9000\u51fa"},
-    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] toggle  [Enter] confirm  [a] all  [\u2190/q] back",
-                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u5207\u6362  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [\u2190/q] \u8fd4\u56de"},
+    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] select/unselect  [Enter] confirm  [a] all  [\u2190/q] back",
+                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u9009\u62e9/\u53d6\u6d88\u9009\u62e9  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [\u2190/q] \u8fd4\u56de"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
@@ -232,6 +232,16 @@ _T: Dict[str, Dict[str, str]] = {
     "calib_iso":     {"en": "Isotonic", "zh": "Isotonic\uff08\u4fdd\u5e8f\uff09"},
     "calib_power":   {"en": "Power calibration", "zh": "Power \u6821\u51c6"},
     "calib_beta":    {"en": "Beta calibration", "zh": "Beta \u6821\u51c6"},
+    "calib_none_d":  {"en": "Fastest; keep raw probabilities (when model is already well-calibrated)",
+                      "zh": "\u6700\u5feb\uff1b\u4fdd\u6301\u539f\u59cb\u6982\u7387\uff08\u6a21\u578b\u5df2\u8f83\u597d\u6821\u51c6\u65f6\uff09"},
+    "calib_sig_d":   {"en": "Most stable on small/medium datasets (recommended default)",
+                      "zh": "\u5c0f/\u4e2d\u6570\u636e\u96c6\u4e0b\u6700\u7a33\u5b9a\uff08\u9ed8\u8ba4\u63a8\u8350\uff09"},
+    "calib_iso_d":   {"en": "Flexible non-linear mapping; needs more samples to avoid overfitting",
+                      "zh": "\u7075\u6d3b\u7684\u975e\u7ebf\u6027\u6620\u5c04\uff1b\u9700\u8981\u66f4\u591a\u6837\u672c\u9632\u6b62\u8fc7\u62df\u5408"},
+    "calib_power_d": {"en": "Conservative shape adjustment; often robust for clinical probabilities",
+                      "zh": "\u4fdd\u5b88\u7684\u5f62\u72b6\u8c03\u6574\uff1b\u5bf9\u4e34\u5e8a\u6982\u7387\u901a\u5e38\u66f4\u7a33\u5b9a"},
+    "calib_beta_d":  {"en": "More expressive transform; use when sample size is sufficient",
+                      "zh": "\u8868\u8fbe\u80fd\u529b\u66f4\u5f3a\uff1b\u5efa\u8bae\u5728\u6837\u672c\u8db3\u591f\u65f6\u4f7f\u7528"},
 
     "pick_device":   {"en": "Compute device", "zh": "\u8ba1\u7b97\u8bbe\u5907"},
     "dev_auto":      {"en": "Auto", "zh": "\u81ea\u52a8"},
@@ -265,6 +275,17 @@ _T: Dict[str, Dict[str, str]] = {
     "adv_trials":    {"en": "Max trials per model family:", "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf\u6700\u5927\u8bd5\u9a8c\u6b21\u6570\uff1a"},
     "adv_optional":  {"en": "Include optional model backends when installed?",
                       "zh": "\u5305\u542b\u5df2\u5b89\u88c5\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1f"},
+    "adv_menu_title":{"en": "Advanced settings (editable)", "zh": "\u9ad8\u7ea7\u8bbe\u7f6e\uff08\u53ef\u7f16\u8f91\uff09"},
+    "adv_edit_ignore":{"en": "Edit ignore columns", "zh": "\u7f16\u8f91\u5ffd\u7565\u5217"},
+    "adv_edit_njobs":{"en": "Set CPU workers", "zh": "\u8bbe\u7f6e CPU \u5e76\u884c\u6570"},
+    "adv_edit_optional":{"en": "Optional model backends", "zh": "\u53ef\u9009\u6a21\u578b\u540e\u7aef"},
+    "adv_done":      {"en": "Done and continue", "zh": "\u5b8c\u6210\u5e76\u7ee7\u7eed"},
+    "adv_current":   {"en": "Current values", "zh": "\u5f53\u524d\u914d\u7f6e"},
+    "adv_njobs_auto":{"en": "Auto (-1, all cores)", "zh": "\u81ea\u52a8\uff08-1\uff0c\u5168\u6838\u5fc3\uff09"},
+    "adv_njobs_1":   {"en": "1 worker (most stable)", "zh": "1 \u4e2a\u8fdb\u7a0b\uff08\u6700\u7a33\u5b9a\uff09"},
+    "adv_njobs_4":   {"en": "4 workers", "zh": "4 \u4e2a\u8fdb\u7a0b"},
+    "adv_njobs_8":   {"en": "8 workers", "zh": "8 \u4e2a\u8fdb\u7a0b"},
+    "adv_njobs_custom":{"en": "Custom value...", "zh": "\u81ea\u5b9a\u4e49\u6570\u503c..."},
 
     "x_download":    {"en": "Downloading {ds}...", "zh": "\u6b63\u5728\u4e0b\u8f7d {ds}..."},
     "x_split":       {"en": "Splitting with safety checks...",
@@ -347,8 +368,10 @@ _T: Dict[str, Dict[str, str]] = {
     "c_validation":      {"en": "Validation:", "zh": "\u9a8c\u8bc1\u65b9\u5f0f\uff1a"},
     "c_cv_folds":        {"en": "CV Folds:", "zh": "CV \u6298\u6570\uff1a"},
     "c_trials":          {"en": "Trials/family:", "zh": "\u8bd5\u9a8c\u6b21\u6570/\u65cf\uff1a"},
-    "pick_optuna_trials":{"en": "Optuna trials per model family:",
-                          "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf Optuna \u8bd5\u9a8c\u6b21\u6570\uff1a"},
+    "pick_optuna_trials":{"en": "Optuna trials per model family (higher = slower but potentially better):",
+                          "zh": "\u6bcf\u4e2a\u6a21\u578b\u65cf Optuna \u8bd5\u9a8c\u6b21\u6570\uff08\u66f4\u5927=\u66f4\u6162\uff0c\u4f46\u53ef\u80fd\u66f4\u597d\uff09\uff1a"},
+    "optuna_trials_hint":{"en": "Quick suggestion: 20 (fast) / 50 (balanced) / 100 (thorough)",
+                          "zh": "\u5feb\u901f\u5efa\u8bae\uff1a20\uff08\u5feb\uff09 / 50\uff08\u5e73\u8861\uff09 / 100\uff08\u7ec6\u81f4\uff09"},
 }
 
 
@@ -1597,11 +1620,13 @@ def step_tuning(state: Dict) -> Any:
             step_header(8, TOTAL_STEPS, t("s_tuning"))
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
             print(f"  {s('W', t('pick_optuna_trials'))}")
+            print(f"  {DIM}{t('optuna_trials_hint')}{RST}")
             raw = _input_line(f"  {s('C','>')} [{state.get('optuna_trials', 50)}]: ")
             if raw is None:
                 sub = 0; continue
             try:
-                state["optuna_trials"] = int(raw) if raw else 50
+                parsed = int(raw) if raw else 50
+                state["optuna_trials"] = parsed if parsed > 0 else 50
             except ValueError:
                 state["optuna_trials"] = 50
             sub = 2
@@ -1657,6 +1682,8 @@ def step_tuning(state: Dict) -> Any:
             ci = select(
                 [t("calib_none"), t("calib_sig"), t("calib_iso"),
                  t("calib_power"), t("calib_beta")],
+                [t("calib_none_d"), t("calib_sig_d"), t("calib_iso_d"),
+                 t("calib_power_d"), t("calib_beta_d")],
                 title=t("pick_calib"),
             )
             if ci < 0:
@@ -1705,48 +1732,74 @@ def step_advanced(state: Dict) -> Any:
         state.setdefault("include_optional_models", False)
         return True
 
-    sub = 0
+    ignore_parts = [state.get("pid", "patient_id")]
+    if state.get("time"):
+        ignore_parts.append(state["time"])
+    state.setdefault("ignore_cols", ",".join(ignore_parts))
+    state.setdefault("n_jobs", 1)
+    state.setdefault("include_optional_models", False)
+
     while True:
-        if sub == 0:
-            _clear()
-            step_header(9, TOTAL_STEPS, t("s_advanced"))
-            ignore_parts = [state.get("pid", "patient_id")]
-            if state.get("time"):
-                ignore_parts.append(state["time"])
-            default_ignore = state.get("ignore_cols", ",".join(ignore_parts))
-            print(f"  {s('W', t('adv_ignore'))}")
+        _clear()
+        step_header(9, TOTAL_STEPS, t("s_advanced"))
+        print(f"  {s('W', t('adv_current'), bold=True)}")
+        print(f"  {s('G', '\u2713')} ignore_cols = {s('W', str(state.get('ignore_cols', '')))}")
+        print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state.get('n_jobs', 1)))}")
+        print(f"  {s('G', '\u2713')} include_optional_models = {s('W', str(bool(state.get('include_optional_models', False))))}\n")
+        ai = select(
+            [t("adv_edit_ignore"), t("adv_edit_njobs"), t("adv_edit_optional"), t("adv_done")],
+            title=t("adv_menu_title"),
+        )
+        if ai < 0:
+            return BACK
+        if ai == 0:
+            default_ignore = str(state.get("ignore_cols", ",".join(ignore_parts)))
+            print(f"\n  {s('W', t('adv_ignore'))}")
             raw = _input_line(f"  {s('C','>')} [{default_ignore}]: ")
             if raw is None:
-                return BACK
-            state["ignore_cols"] = raw if raw else default_ignore
-            sub = 1
-
-        elif sub == 1:
-            _clear()
-            step_header(9, TOTAL_STEPS, t("s_advanced"))
-            print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}\n")
-            print(f"  {s('W', t('adv_njobs'))}")
+                continue
+            raw_trim = raw.strip()
+            if raw_trim.lower() in {"q", "quit", "back"}:
+                continue
+            state["ignore_cols"] = raw_trim if raw_trim else default_ignore
+            continue
+        if ai == 1:
+            nj_idx = select(
+                [t("adv_njobs_auto"), t("adv_njobs_1"), t("adv_njobs_4"), t("adv_njobs_8"), t("adv_njobs_custom")],
+                title=t("adv_njobs"),
+            )
+            if nj_idx < 0:
+                continue
+            if nj_idx == 0:
+                state["n_jobs"] = -1
+                continue
+            if nj_idx == 1:
+                state["n_jobs"] = 1
+                continue
+            if nj_idx == 2:
+                state["n_jobs"] = 4
+                continue
+            if nj_idx == 3:
+                state["n_jobs"] = 8
+                continue
             raw = _input_line(f"  {s('C','>')} [{state.get('n_jobs', 1)}]: ")
             if raw is None:
-                sub = 0; continue
+                continue
+            raw_trim = raw.strip()
+            if raw_trim.lower() in {"q", "quit", "back"}:
+                continue
             try:
-                state["n_jobs"] = int(raw) if raw else state.get("n_jobs", 1)
+                state["n_jobs"] = int(raw_trim) if raw_trim else int(state.get("n_jobs", 1))
             except ValueError:
                 state["n_jobs"] = 1
-            sub = 2
-
-        elif sub == 2:
-            _clear()
-            step_header(9, TOTAL_STEPS, t("s_advanced"))
-            print(f"  {s('G', '\u2713')} ignore_cols = {s('W', state['ignore_cols'])}")
-            print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state['n_jobs']))}\n")
-            oi = select(
-                [t("adv_no"), t("adv_yes")],
-                title=t("adv_optional"),
-            )
+            continue
+        if ai == 2:
+            oi = select([t("adv_no"), t("adv_yes")], title=t("adv_optional"))
             if oi < 0:
-                sub = 1; continue
+                continue
             state["include_optional_models"] = (oi == 1)
+            continue
+        if ai == 3:
             break
 
     return True

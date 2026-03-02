@@ -132,6 +132,65 @@ def test_imbalance_step_supports_multiselect_and_metric() -> None:
         play.select = original_select  # type: ignore[assignment]
 
 
+def test_tuning_calibration_menu_includes_human_readable_descriptions() -> None:
+    print("\n=== play: calibration menu includes brief method descriptions ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    captured = {"has_desc": False}
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return 1  # random_subsample
+            if title == play.t("pick_calib"):
+                captured["has_desc"] = isinstance(descs, list) and len(descs) == 5 and all(bool(str(x).strip()) for x in descs)
+                return 0  # none
+            if title == play.t("pick_device"):
+                return 1  # cpu
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._input_line = lambda *args, **kwargs: ""  # type: ignore[assignment]
+        state = {"source": "csv", "_n_rows": 569}
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds")
+        assert_true(captured["has_desc"], "calibration menu provides 5 non-empty descriptions")
+        assert_true(state.get("calibration") == "none", "calibration selection captured")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+
+
+def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
+    print("\n=== play: advanced custom mode remains interactive and can finish ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    try:
+        menu_sequence = [0, 1, 2, 3]  # edit ignore -> set n_jobs -> optional backends -> done
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("adv_ask"):
+                return 1  # yes customize
+            if title == play.t("adv_menu_title"):
+                return menu_sequence.pop(0)
+            if title == play.t("adv_njobs"):
+                return 2  # 4 workers
+            if title == play.t("adv_optional"):
+                return 1  # include optional backends
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._input_line = lambda *args, **kwargs: "patient_id,event_time,site_id"  # type: ignore[assignment]
+        state = {"source": "csv", "pid": "patient_id", "time": "event_time"}
+        result = play.step_advanced(state)
+        assert_true(result is True, "step_advanced custom mode completes")
+        assert_true(state.get("ignore_cols") == "patient_id,event_time,site_id", "custom ignore_cols is applied")
+        assert_true(int(state.get("n_jobs", 0)) == 4, "n_jobs preset selection is applied")
+        assert_true(bool(state.get("include_optional_models")) is True, "optional backend flag is applied")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+
+
 def test_recommended_trials_respect_search_mode_and_rows() -> None:
     print("\n=== play: recommended max trials uses search mode + n_rows ===")
     assert_true(
@@ -258,6 +317,8 @@ def main() -> int:
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
     test_imbalance_step_supports_multiselect_and_metric()
+    test_tuning_calibration_menu_includes_human_readable_descriptions()
+    test_advanced_custom_mode_is_fully_interactive_and_completes()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
