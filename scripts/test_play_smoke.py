@@ -160,6 +160,71 @@ def test_tuning_calibration_menu_includes_human_readable_descriptions() -> None:
         play._input_line = original_input_line  # type: ignore[assignment]
 
 
+def test_tuning_optuna_input_accepts_back_token() -> None:
+    print("\n=== play: tuning optuna trials input supports q/back token ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    try:
+        tuning_choices = [2, 1]  # first optuna, then back and choose random
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return tuning_choices.pop(0)
+            if title == play.t("pick_calib"):
+                return 0
+            if title == play.t("pick_device"):
+                return 1
+            return 0
+
+        input_values = ["q", ""]  # q at optuna-trials prompt, then accept default max_trials
+
+        def fake_input_line(*args, **kwargs):
+            return input_values.pop(0) if input_values else ""
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._input_line = fake_input_line  # type: ignore[assignment]
+        state = {"source": "csv", "_n_rows": 569}
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds after q/back from optuna prompt")
+        assert_true(state.get("hyperparam_search") == "random_subsample", "q/back returns to tuning strategy selection")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+
+
+def test_tuning_max_trials_rejects_invalid_values() -> None:
+    print("\n=== play: tuning max trials rejects invalid values and keeps interaction ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    original_notice = play._notice
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return 1
+            if title == play.t("pick_calib"):
+                return 0
+            if title == play.t("pick_device"):
+                return 1
+            return 0
+
+        input_values = ["0", "abc", "12"]  # invalid, invalid, valid
+
+        def fake_input_line(*args, **kwargs):
+            return input_values.pop(0) if input_values else "12"
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._input_line = fake_input_line  # type: ignore[assignment]
+        play._notice = lambda *args, **kwargs: None  # type: ignore[assignment]
+        state = {"source": "csv", "_n_rows": 569}
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds after invalid max_trials retries")
+        assert_true(int(state.get("max_trials", 0)) == 12, "valid retry value is applied")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+        play._notice = original_notice  # type: ignore[assignment]
+
+
 def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
     print("\n=== play: advanced custom mode remains interactive and can finish ===")
     original_select = play.select
@@ -189,6 +254,43 @@ def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
     finally:
         play.select = original_select  # type: ignore[assignment]
         play._input_line = original_input_line  # type: ignore[assignment]
+
+
+def test_advanced_njobs_custom_rejects_invalid_values() -> None:
+    print("\n=== play: advanced custom n_jobs rejects invalid values and retries ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    original_notice = play._notice
+    try:
+        adv_menu_sequence = [1, 1, 3]  # n_jobs -> n_jobs -> done
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("adv_ask"):
+                return 1
+            if title == play.t("adv_menu_title"):
+                return adv_menu_sequence.pop(0)
+            if title == play.t("adv_njobs"):
+                return 4  # custom
+            if title == play.t("adv_optional"):
+                return 0
+            return 0
+
+        input_values = ["0", "4"]  # invalid then valid
+
+        def fake_input_line(*args, **kwargs):
+            return input_values.pop(0) if input_values else "4"
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._input_line = fake_input_line  # type: ignore[assignment]
+        play._notice = lambda *args, **kwargs: None  # type: ignore[assignment]
+        state = {"source": "csv", "pid": "patient_id", "time": "event_time"}
+        result = play.step_advanced(state)
+        assert_true(result is True, "step_advanced completes after invalid n_jobs retry")
+        assert_true(int(state.get("n_jobs", 0)) == 4, "n_jobs valid retry value is applied")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+        play._notice = original_notice  # type: ignore[assignment]
 
 
 def test_recommended_trials_respect_search_mode_and_rows() -> None:
@@ -318,7 +420,10 @@ def main() -> int:
     test_download_dataset_step_no_project_name_prompt()
     test_imbalance_step_supports_multiselect_and_metric()
     test_tuning_calibration_menu_includes_human_readable_descriptions()
+    test_tuning_optuna_input_accepts_back_token()
+    test_tuning_max_trials_rejects_invalid_values()
     test_advanced_custom_mode_is_fully_interactive_and_completes()
+    test_advanced_njobs_custom_rejects_invalid_values()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()

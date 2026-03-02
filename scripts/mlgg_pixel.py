@@ -70,6 +70,9 @@ def _cols() -> int:
     return shutil.get_terminal_size((80, 24)).columns
 
 _TEST_MODE = bool(os.environ.get("MLGG_TEST"))
+MAX_TRIALS_INPUT = 1000
+MAX_OPTUNA_TRIALS_INPUT = 2000
+MAX_NJOBS_INPUT = 256
 
 def _clear() -> None:
     if _TEST_MODE:
@@ -122,6 +125,16 @@ _T: Dict[str, Dict[str, str]] = {
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
                       "zh": "\u6309 Enter \u7ee7\u7eed..."},
+    "msg_positive_int":{"en": "Please enter a positive integer.",
+                        "zh": "\u8bf7\u8f93\u5165\u6b63\u6574\u6570\u3002"},
+    "msg_njobs_int": {"en": "Please enter -1 or an integer >= 1.",
+                      "zh": "\u8bf7\u8f93\u5165 -1 \u6216 >=1 \u7684\u6574\u6570\u3002"},
+    "msg_trials_range":{"en": f"Value out of range. Allowed: 1-{MAX_TRIALS_INPUT}.",
+                        "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a1-{MAX_TRIALS_INPUT}\u3002"},
+    "msg_optuna_trials_range":{"en": f"Value out of range. Allowed: 1-{MAX_OPTUNA_TRIALS_INPUT}.",
+                               "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a1-{MAX_OPTUNA_TRIALS_INPUT}\u3002"},
+    "msg_njobs_range":{"en": f"Value out of range. Allowed: -1 or 1-{MAX_NJOBS_INPUT}.",
+                       "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a-1 \u6216 1-{MAX_NJOBS_INPUT}\u3002"},
 
     "s_lang":        {"en": "Language", "zh": "\u8bed\u8a00"},
     "s_source":      {"en": "Data Source", "zh": "\u6570\u636e\u6765\u6e90"},
@@ -502,6 +515,20 @@ def _input_line(prompt_str: str, default: str = "") -> Optional[str]:
             buf.insert(cur, key)
             cur += 1
             _redraw()
+
+
+def _is_back_text_token(raw: str) -> bool:
+    token = str(raw or "").strip().lower()
+    return token in {"q", "quit", "back", "return", "返回"}
+
+
+def _notice(message: str) -> None:
+    print(f"\n  {s('Y', message)}")
+    sys.stdout.write(SHOW_CUR)
+    try:
+        input(f"  {DIM}{t('enter_continue')}{RST}")
+    except (EOFError, KeyboardInterrupt):
+        pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1624,11 +1651,18 @@ def step_tuning(state: Dict) -> Any:
             raw = _input_line(f"  {s('C','>')} [{state.get('optuna_trials', 50)}]: ")
             if raw is None:
                 sub = 0; continue
+            raw_trim = raw.strip()
+            if _is_back_text_token(raw_trim):
+                sub = 0; continue
             try:
-                parsed = int(raw) if raw else 50
-                state["optuna_trials"] = parsed if parsed > 0 else 50
+                parsed = int(raw_trim) if raw_trim else 50
             except ValueError:
-                state["optuna_trials"] = 50
+                _notice(t("msg_positive_int"))
+                continue
+            if parsed < 1 or parsed > MAX_OPTUNA_TRIALS_INPUT:
+                _notice(t("msg_optuna_trials_range"))
+                continue
+            state["optuna_trials"] = parsed
             sub = 2
 
         elif sub == 2:
@@ -1665,10 +1699,19 @@ def step_tuning(state: Dict) -> Any:
             if raw is None:
                 sub = 1 if state["hyperparam_search"] == "optuna" else 0
                 continue
+            raw_trim = raw.strip()
+            if _is_back_text_token(raw_trim):
+                sub = 1 if state["hyperparam_search"] == "optuna" else 0
+                continue
             try:
-                state["max_trials"] = int(raw) if raw else default_trials
+                parsed = int(raw_trim) if raw_trim else default_trials
             except ValueError:
-                state["max_trials"] = default_trials
+                _notice(t("msg_positive_int"))
+                continue
+            if parsed < 1 or parsed > MAX_TRIALS_INPUT:
+                _notice(t("msg_trials_range"))
+                continue
+            state["max_trials"] = parsed
             sub = 3
 
         elif sub == 3:
@@ -1759,7 +1802,7 @@ def step_advanced(state: Dict) -> Any:
             if raw is None:
                 continue
             raw_trim = raw.strip()
-            if raw_trim.lower() in {"q", "quit", "back"}:
+            if _is_back_text_token(raw_trim):
                 continue
             state["ignore_cols"] = raw_trim if raw_trim else default_ignore
             continue
@@ -1786,12 +1829,20 @@ def step_advanced(state: Dict) -> Any:
             if raw is None:
                 continue
             raw_trim = raw.strip()
-            if raw_trim.lower() in {"q", "quit", "back"}:
+            if _is_back_text_token(raw_trim):
                 continue
             try:
-                state["n_jobs"] = int(raw_trim) if raw_trim else int(state.get("n_jobs", 1))
+                parsed = int(raw_trim) if raw_trim else int(state.get("n_jobs", 1))
             except ValueError:
-                state["n_jobs"] = 1
+                _notice(t("msg_njobs_int"))
+                continue
+            if parsed != -1 and parsed < 1:
+                _notice(t("msg_njobs_int"))
+                continue
+            if parsed > MAX_NJOBS_INPUT:
+                _notice(t("msg_njobs_range"))
+                continue
+            state["n_jobs"] = parsed
             continue
         if ai == 2:
             oi = select([t("adv_no"), t("adv_yes")], title=t("adv_optional"))
