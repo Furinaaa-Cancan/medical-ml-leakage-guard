@@ -54,6 +54,7 @@ UP_LINE = "\033[A"
 # ── sentinel ──────────────────────────────────────────────────────────────────
 BACK = type("BACK", (), {"__repr__": lambda self: "BACK"})()
 SKIP = type("SKIP", (), {"__repr__": lambda self: "SKIP"})()
+FAIL = type("FAIL", (), {"__repr__": lambda self: "FAIL"})()
 TOTAL_STEPS = 11
 
 def s(fg: str, text: str, bold: bool = False) -> str:
@@ -271,12 +272,20 @@ _T: Dict[str, Dict[str, str]] = {
                       "zh": "\u6b63\u5728\u8bad\u7ec3 {n} \u4e2a\u6a21\u578b..."},
     "x_pipeline":    {"en": "Running full pipeline...",
                       "zh": "\u6b63\u5728\u8fd0\u884c\u5b8c\u6574\u7ba1\u7ebf..."},
+    "x_pipeline_full": {"en": "Running 28-gate publication pipeline...",
+                        "zh": "\u6b63\u5728\u8fd0\u884c 28 \u5173\u51fa\u7248\u7ea7\u7ba1\u7ebf..."},
     "x_fail":        {"en": "Failed.", "zh": "\u5931\u8d25\u3002"},
 
     "r_done":        {"en": "Complete!", "zh": "\u5b8c\u6210\uff01"},
     "r_split_ok":    {"en": "Split Complete!", "zh": "\u5206\u5272\u5b8c\u6210\uff01"},
     "r_train_ok":    {"en": "Training Complete!", "zh": "\u8bad\u7ec3\u5b8c\u6210\uff01"},
     "r_metrics":     {"en": "Key Metrics (test set)", "zh": "\u5173\u952e\u6307\u6807\uff08\u6d4b\u8bd5\u96c6\uff09"},
+    "r_quick_readiness": {"en": "Quick Readiness (play mode)", "zh": "\u5feb\u901f\u5c31\u7eea\u68c0\u67e5\uff08play \u6a21\u5f0f\uff09"},
+    "r_pub_gate_not_run_label": {"en": "Publication gate", "zh": "\u51fa\u7248\u7ea7\u95e8\u63a7"},
+    "r_pub_gate_not_run_value": {"en": "NOT RUN (use workflow --strict)", "zh": "\u672a\u8fd0\u884c\uff08\u8bf7\u7528 workflow --strict\uff09"},
+    "r_verdict_not_ready": {"en": "Not strict release-ready", "zh": "\u672a\u8fbe\u4e25\u683c\u53d1\u5e03\u6761\u4ef6"},
+    "r_verdict_warn": {"en": "Usable with caution (play mode)", "zh": "\u53ef\u8c28\u614e\u4f7f\u7528\uff08play \u6a21\u5f0f\uff09"},
+    "r_verdict_pass": {"en": "Pass in play mode (strict gate not run)", "zh": "play \u6a21\u5f0f\u901a\u8fc7\uff08\u672a\u8fd0\u884c\u4e25\u683c\u95e8\u63a7\uff09"},
     "r_saved":       {"en": "Saved to:", "zh": "\u4fdd\u5b58\u81f3\uff1a"},
     "r_next":        {"en": "All done! Results saved to output directory.",
                       "zh": "\u5168\u90e8\u5b8c\u6210\uff01\u7ed3\u679c\u5df2\u4fdd\u5b58\u81f3\u8f93\u51fa\u76ee\u5f55\u3002"},
@@ -1175,9 +1184,9 @@ def step_dataset(state: Dict) -> Any:
     if source == "full":
         _clear()
         step_header(3, TOTAL_STEPS, t("s_dataset"))
-        print(f"\n  {s('W', 'Full Publication-Grade Pipeline')}")
-        print(f"  {s('D', 'Requires a project directory with request.json and all spec files.')}\n")
-        project_root = prompt("Project root (with request.json)")
+        print(f"\n  {s('W', t('src_full'))}")
+        print(f"  {s('D', t('src_full_d'))}\n")
+        project_root = prompt("Project root (with request.json)" if LANG == "en" else "\u9879\u76ee\u76ee\u5f55\uff08\u542b request.json\uff09")
         if not project_root:
             return BACK
         p = Path(project_root).expanduser().resolve()
@@ -1185,9 +1194,12 @@ def step_dataset(state: Dict) -> Any:
         if not req.exists():
             req = p / "request.json"
         if not req.exists():
-            print(f"\n  {s('R', 'request.json not found in')} {p}")
-            print(f"  {s('D', 'Run mlgg.py onboarding first to generate it.')}\n")
-            prompt("Press Enter to go back")
+            missing_msg = "request.json not found in" if LANG == "en" else "\u672a\u5728\u4ee5\u4e0b\u76ee\u5f55\u627e\u5230 request.json\uff1a"
+            hint_msg = "Run mlgg.py onboarding first to generate it." if LANG == "en" else "\u8bf7\u5148\u8fd0\u884c mlgg.py onboarding \u751f\u6210\u8be5\u6587\u4ef6\u3002"
+            back_msg = "Press Enter to go back" if LANG == "en" else "\u6309 Enter \u8fd4\u56de"
+            print(f"\n  {s('R', missing_msg)} {p}")
+            print(f"  {s('D', hint_msg)}\n")
+            prompt(back_msg)
             return BACK
         state["_full_project_root"] = str(p)
         state["_full_request_json"] = str(req)
@@ -2040,6 +2052,7 @@ def step_run(state: Dict) -> Any:
             if err:
                 for l in err.strip().split("\n")[-5:]:
                     print(f"  {DIM}{l}{RST}")
+            return FAIL
         return True
 
     # ── Full Publication-Grade Pipeline ──
@@ -2058,7 +2071,7 @@ def step_run(state: Dict) -> Any:
             "--allow-missing-compare",
             "--report", str(Path(evidence_dir) / "strict_pipeline_report.json"),
         ]
-        rc, _, err = run_spinner(cmd, "Running 28-gate publication pipeline...")
+        rc, _, err = run_spinner(cmd, t("x_pipeline_full"))
         print()
         if rc == 0:
             box(t("r_done"), [
@@ -2070,6 +2083,7 @@ def step_run(state: Dict) -> Any:
             if err:
                 for l in err.strip().split("\n")[-5:]:
                     print(f"  {DIM}{l}{RST}")
+            return FAIL
         return True
 
     # ── Download + Split + Train flow ──
@@ -2111,7 +2125,7 @@ def step_run(state: Dict) -> Any:
                 print()
                 for l in err.strip().split("\n")[-3:]:
                     print(f"  {DIM}{l}{RST}")
-            return True
+            return FAIL
         completed.append((dl_label, "done"))
 
     # ── Phase 2: Split ──
@@ -2143,7 +2157,7 @@ def step_run(state: Dict) -> Any:
             print()
             for l in err.strip().split("\n")[-3:]:
                 print(f"  {DIM}{l}{RST}")
-        return True
+        return FAIL
     completed.append((split_label, "done"))
 
     # Show split results
@@ -2231,7 +2245,7 @@ def step_run(state: Dict) -> Any:
             print()
             for l in err.strip().split("\n")[-5:]:
                 print(f"  {DIM}{l}{RST}")
-        return True
+        return FAIL
     completed.append((train_label, "done"))
 
     # Show final results
@@ -2592,16 +2606,17 @@ def step_run(state: Dict) -> Any:
 
                 if blockers:
                     overall_tag = s('R', "FAIL", bold=True)
-                    verdict = "Not release-ready"
+                    verdict = t("r_verdict_not_ready")
                 elif advisories:
                     overall_tag = s('Y', "WARN", bold=True)
-                    verdict = "Usable with caution"
+                    verdict = t("r_verdict_warn")
                 else:
                     overall_tag = s('G', "PASS", bold=True)
-                    verdict = "Release-ready"
+                    verdict = t("r_verdict_pass")
                 readiness_lines.append(f"  {'Overall':<16} {overall_tag}  {verdict}")
                 readiness_lines.append(f"  {'Constraints':<16} {s('G','PASS') if constraints_ok else s('R','FAIL') if constraints_ok is False else s('Y','N/A')}")
                 readiness_lines.append(f"  {'Overfitting':<16} {str(overfit.get('risk_level', 'unknown')).upper()}")
+                readiness_lines.append(f"  {t('r_pub_gate_not_run_label'):<16} {s('Y', t('r_pub_gate_not_run_value'))}")
                 calibration_blockers = {
                     "calibration_slope",
                     "calibration_intercept",
@@ -2671,7 +2686,7 @@ def step_run(state: Dict) -> Any:
                     except Exception:
                         pass
                 print()
-                box("Release Readiness", readiness_lines, color="C")
+                box(t("r_quick_readiness"), readiness_lines, color="C")
                 if set(blockers) & calibration_blockers:
                     print()
                     if LANG == "zh":
@@ -2773,6 +2788,8 @@ def wizard(
         elif result is SKIP:
             skipped.add(i)
             i += 1
+        elif result is FAIL:
+            return 2
         else:
             skipped.discard(i)
             i += 1

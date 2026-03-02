@@ -136,6 +136,44 @@ def test_strict_small_sample_profile_inactive_on_large_data() -> None:
     )
 
 
+def test_step_run_failure_returns_fail_sentinel() -> None:
+    print("\n=== play: step_run fail-closed sentinel on execution failure ===")
+    original_spinner = play.run_spinner
+    try:
+        play.run_spinner = lambda *args, **kwargs: (2, "", "simulated failure")  # type: ignore[assignment]
+        result = play.step_run({"source": "demo", "out_dir": "/tmp/mlgg_play_demo_fail"})
+        assert_true(result is play.FAIL, "step_run returns FAIL sentinel when demo onboarding execution fails")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+
+
+def test_wizard_exits_nonzero_when_run_step_fails() -> None:
+    print("\n=== play: wizard returns exit code 2 when execution step fails ===")
+    step_names = [
+        "step_lang",
+        "step_source",
+        "step_dataset",
+        "step_config",
+        "step_split",
+        "step_imbalance",
+        "step_models",
+        "step_tuning",
+        "step_advanced",
+        "step_confirm",
+        "step_run",
+    ]
+    originals = {name: getattr(play, name) for name in step_names}
+    try:
+        for name in step_names[:-1]:
+            setattr(play, name, lambda state: True)
+        setattr(play, "step_run", lambda state: play.FAIL)
+        rc = play.wizard(force_lang="en", dry_run=True)
+        assert_true(rc == 2, "wizard returns 2 when step_run reports FAIL")
+    finally:
+        for name in step_names:
+            setattr(play, name, originals[name])
+
+
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
@@ -143,6 +181,8 @@ def main() -> int:
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
     test_strict_small_sample_profile_inactive_on_large_data()
+    test_step_run_failure_returns_fail_sentinel()
+    test_wizard_exits_nonzero_when_run_step_fails()
 
     print(f"\n{'='*50}")
     if _failures:

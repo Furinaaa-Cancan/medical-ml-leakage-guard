@@ -41,6 +41,14 @@ That's it! After step 5, check `/tmp/mlgg_demo/evidence/onboarding_report.json` 
 python3 scripts/mlgg.py play
 ```
 
+Important:
+- `play` is a quick train/evaluate launcher for interactive exploration.
+- The “Quick Readiness (play mode)” card is **not** the 28-gate publication verdict.
+- For publication-grade pass/fail, run:
+  `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
+- For small datasets (for example UCI heart/breast/ckd), prefer:
+  `python3 scripts/mlgg.py play -- --strict-small-sample`
+
 **Want to use real medical data instead of demo?** Download a real UCI dataset:
 
 ```bash
@@ -540,6 +548,14 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided -
 ```bash
 python3 scripts/mlgg.py play
 ```
+
+重要说明：
+- `play` 是交互式快速训练/评估入口，适合探索与教学。
+- 输出中的“快速就绪检查（play 模式）”**不是** 28 关发布门结论。
+- 需要 publication-grade 通过/失败结论，请运行：
+  `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
+- 小样本数据（如 UCI heart/breast/ckd）建议使用：
+  `python3 scripts/mlgg.py play -- --strict-small-sample`
 
 **想用真实医学数据代替 demo？** 一键下载 UCI 公开数据集：
 
