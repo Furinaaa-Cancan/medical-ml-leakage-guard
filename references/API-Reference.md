@@ -330,7 +330,7 @@ All gates share `--report` (optional JSON output) and `--strict` (fail on warnin
 | `--test` | str | ✅ | — | Test CSV |
 | `--target-col` | str | | `y` | Target column |
 | `--ignore-cols` | str | | — | Non-feature columns |
-| `--missingness-policy` | str | ✅ | — | Missingness policy JSON |
+| `--policy-spec` | str | ✅ | — | Missingness policy JSON |
 | `--evaluation-report` | str | | — | Evaluation report JSON |
 
 ### `model_selection_audit_gate.py`

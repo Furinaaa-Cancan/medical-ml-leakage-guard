@@ -557,6 +557,8 @@ def main() -> int:
             *split_args,
             "--target-col",
             label_col,
+            "--evaluation-report",
+            evaluation_report_file,
             "--report",
             str(reports["imbalance_report"]),
             *strict_flag,

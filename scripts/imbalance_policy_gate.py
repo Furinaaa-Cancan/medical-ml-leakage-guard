@@ -12,7 +12,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from _gate_utils import add_issue
 
@@ -23,10 +23,93 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train", required=True, help="Path to train CSV.")
     parser.add_argument("--valid", help="Path to valid CSV.")
     parser.add_argument("--test", required=True, help="Path to test CSV.")
+    parser.add_argument("--evaluation-report", help="Optional evaluation_report.json for execution-vs-policy reconciliation.")
     parser.add_argument("--target-col", default="y", help="Label column name.")
     parser.add_argument("--report", help="Optional output JSON report path.")
     parser.add_argument("--strict", action="store_true", help="Fail on warnings.")
     return parser.parse_args()
+
+
+STRATEGY_ALIAS_MAP = {
+    "auto": "auto",
+    "none": "none",
+    "class_weight": "class_weight",
+    "balanced": "class_weight",
+    "class_weight_balanced": "class_weight",
+    "oversample_train_only": "random_oversample",
+    "undersample_train_only": "random_undersample",
+    "smote_train_only": "smote",
+    "random_oversample": "random_oversample",
+    "random_undersample": "random_undersample",
+    "smote": "smote",
+    "adasyn": "adasyn",
+}
+
+SUPPORTED_STRATEGIES = {"none", "class_weight", "random_oversample", "random_undersample", "smote", "adasyn"}
+ALLOWED_POLICY_STRATEGIES = set(SUPPORTED_STRATEGIES) | {"auto"}
+
+
+def normalize_strategy_token(token: str) -> Optional[str]:
+    norm = str(token or "").strip().lower()
+    if not norm:
+        return None
+    return STRATEGY_ALIAS_MAP.get(norm)
+
+
+def resolve_auto_strategy(canonical_strategy: Optional[str], train_ratio: Optional[float]) -> Optional[str]:
+    if canonical_strategy != "auto":
+        return canonical_strategy
+    if train_ratio is None:
+        return "none"
+    if math.isfinite(float(train_ratio)) and float(train_ratio) >= 1.5:
+        return "class_weight"
+    return "none"
+
+
+def load_evaluation_report(path: str, failures: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    report_path = Path(path).expanduser().resolve()
+    if not report_path.exists():
+        add_issue(
+            failures,
+            "missing_evaluation_report",
+            "evaluation_report file not found for imbalance reconciliation.",
+            {"path": str(report_path)},
+        )
+        return None
+    try:
+        with report_path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception as exc:
+        add_issue(
+            failures,
+            "invalid_evaluation_report",
+            "Failed to parse evaluation_report JSON for imbalance reconciliation.",
+            {"path": str(report_path), "error": str(exc)},
+        )
+        return None
+    if not isinstance(payload, dict):
+        add_issue(
+            failures,
+            "invalid_evaluation_report",
+            "evaluation_report JSON root must be object.",
+            {"path": str(report_path)},
+        )
+        return None
+    return payload
+
+
+def extract_evaluation_selected_strategy(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return None, None
+    imbalance_meta = metadata.get("imbalance")
+    if not isinstance(imbalance_meta, dict):
+        return None, None
+    selected_raw = imbalance_meta.get("selected_strategy")
+    if not isinstance(selected_raw, str) or not selected_raw.strip():
+        return None, None
+    selected_canonical = normalize_strategy_token(selected_raw)
+    return selected_raw.strip(), selected_canonical
 
 
 def parse_label(raw: str) -> Optional[int]:
@@ -218,7 +301,7 @@ def main() -> int:
         )
         return finish(args, failures, warnings, {}, {})
 
-    strategy = require_str(spec, "strategy", failures)
+    strategy_raw = require_str(spec, "strategy", failures)
     fit_scope = require_str(spec, "fit_scope", failures)
     threshold_selection_split = require_str(spec, "threshold_selection_split", failures)
     calibration_split = require_str(spec, "calibration_split", failures)
@@ -227,22 +310,22 @@ def main() -> int:
     ratio_alert = require_number(spec, "imbalance_alert_ratio", failures, default=5.0)
     min_minority_cases = require_number(spec, "minimum_minority_cases", failures, default=20.0)
 
-    allowed_strategies = {
-        "class_weight",
-        "focal_loss",
-        "oversample_train_only",
-        "undersample_train_only",
-        "smote_train_only",
-        "none",
-    }
     allowed_fit_scopes = {"train_only", "cv_inner_train_only", "fold_train_only"}
 
-    if strategy and strategy not in allowed_strategies:
+    strategy = normalize_strategy_token(strategy_raw) if strategy_raw else None
+    if strategy_raw and strategy is None:
         add_issue(
             failures,
             "unsupported_imbalance_strategy",
             "Unsupported imbalance strategy.",
-            {"strategy": strategy, "allowed": sorted(allowed_strategies)},
+            {"strategy": strategy_raw, "allowed": sorted(ALLOWED_POLICY_STRATEGIES)},
+        )
+    if strategy and strategy not in ALLOWED_POLICY_STRATEGIES:
+        add_issue(
+            failures,
+            "unsupported_imbalance_strategy",
+            "Unsupported imbalance strategy.",
+            {"strategy": strategy, "allowed": sorted(ALLOWED_POLICY_STRATEGIES)},
         )
     if fit_scope and fit_scope not in allowed_fit_scopes:
         add_issue(
@@ -297,7 +380,8 @@ def main() -> int:
                 {"field": field_name, "split": split_name, "has_valid_split": has_valid_split},
             )
 
-    resampling_required = strategy in {"oversample_train_only", "undersample_train_only", "smote_train_only"}
+    strategy_for_scope = strategy
+    resampling_required = strategy_for_scope in {"random_oversample", "random_undersample", "smote", "adasyn"}
     raw_resampling = spec.get("resampling_applied_to")
     normalized_scope = normalize_scope_list(raw_resampling, "resampling_applied_to", failures)
     if resampling_required:
@@ -306,7 +390,7 @@ def main() -> int:
                 failures,
                 "missing_resampling_scope",
                 "Resampling strategy requires resampling_applied_to list.",
-                {"strategy": strategy},
+                {"strategy": strategy_for_scope},
             )
         elif normalized_scope != ["train"]:
             add_issue(
@@ -320,7 +404,7 @@ def main() -> int:
             failures,
             "unexpected_resampling_scope",
             "Non-resampling strategy must not declare active resampling scopes.",
-            {"strategy": strategy, "resampling_applied_to": normalized_scope},
+            {"strategy": strategy_for_scope, "resampling_applied_to": normalized_scope},
         )
 
     splits: Dict[str, Dict[str, Any]] = {}
@@ -370,6 +454,7 @@ def main() -> int:
     train_stats = splits.get("train", {})
     train_ratio = train_stats.get("imbalance_ratio_majority_to_minority")
     train_minority = train_stats.get("minority_count")
+    strategy_resolved = resolve_auto_strategy(strategy, train_ratio if isinstance(train_ratio, (int, float)) else None)
 
     if isinstance(train_minority, int) and min_minority_cases is not None and train_minority < int(min_minority_cases):
         add_issue(
@@ -379,7 +464,7 @@ def main() -> int:
             {"minority_count": train_minority, "minimum_required": int(min_minority_cases)},
         )
 
-    if strategy == "none" and train_ratio is not None and ratio_alert is not None:
+    if strategy_resolved == "none" and train_ratio is not None and ratio_alert is not None:
         if math.isinf(train_ratio) or train_ratio > ratio_alert:
             add_issue(
                 failures,
@@ -388,7 +473,59 @@ def main() -> int:
                 {"train_ratio": train_ratio, "ratio_alert": ratio_alert},
             )
 
-    return finish(args, failures, warnings, spec, splits, strategy=strategy)
+    reconciliation: Dict[str, Any] = {
+        "policy_strategy_raw": strategy_raw,
+        "policy_strategy_canonical": strategy,
+        "policy_strategy_resolved": strategy_resolved,
+        "evaluation_report": None,
+        "evaluation_selected_strategy_raw": None,
+        "evaluation_selected_strategy_canonical": None,
+        "match": None,
+    }
+    if args.evaluation_report:
+        eval_payload = load_evaluation_report(args.evaluation_report, failures)
+        reconciliation["evaluation_report"] = str(Path(args.evaluation_report).expanduser().resolve())
+        if isinstance(eval_payload, dict):
+            selected_raw, selected_canonical = extract_evaluation_selected_strategy(eval_payload)
+            reconciliation["evaluation_selected_strategy_raw"] = selected_raw
+            reconciliation["evaluation_selected_strategy_canonical"] = selected_canonical
+            if selected_raw is None:
+                add_issue(
+                    failures,
+                    "evaluation_report_imbalance_metadata_missing",
+                    "evaluation_report.metadata.imbalance.selected_strategy is missing.",
+                    {},
+                )
+            elif selected_canonical is None:
+                add_issue(
+                    failures,
+                    "evaluation_report_imbalance_strategy_invalid",
+                    "evaluation_report selected imbalance strategy is unsupported.",
+                    {"selected_strategy": selected_raw, "allowed": sorted(SUPPORTED_STRATEGIES)},
+                )
+            elif strategy_resolved and selected_canonical != strategy_resolved:
+                add_issue(
+                    failures,
+                    "imbalance_execution_policy_mismatch",
+                    "Executed imbalance strategy does not match policy strategy.",
+                    {
+                        "policy_strategy_resolved": strategy_resolved,
+                        "evaluation_selected_strategy": selected_canonical,
+                    },
+                )
+                reconciliation["match"] = False
+            elif strategy_resolved:
+                reconciliation["match"] = True
+
+    return finish(
+        args,
+        failures,
+        warnings,
+        spec,
+        splits,
+        strategy=strategy_resolved,
+        reconciliation=reconciliation,
+    )
 
 
 def finish(
@@ -398,6 +535,7 @@ def finish(
     spec: Dict[str, Any],
     splits: Dict[str, Dict[str, Any]],
     strategy: Optional[str] = None,
+    reconciliation: Optional[Dict[str, Any]] = None,
 ) -> int:
     should_fail = bool(failures) or (args.strict and bool(warnings))
     split_summary: Dict[str, Any] = {}
@@ -426,6 +564,7 @@ def finish(
         "summary": {
             "policy_fields_present": sorted(spec.keys()) if isinstance(spec, dict) else [],
             "splits": split_summary,
+            "execution_reconciliation": reconciliation if isinstance(reconciliation, dict) else None,
         },
     }
 

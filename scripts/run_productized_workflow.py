@@ -150,6 +150,7 @@ def main() -> int:
             str(request_payload.get("patient_id_col", "patient_id")),
             "--time-col",
             str(request_payload.get("index_time_col", "event_time")),
+            "--strict",
             "--mapping-out",
             str(schema_mapping),
             "--report",

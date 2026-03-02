@@ -122,3 +122,63 @@ class TestCLIMissingSplitFiles:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15, cwd=str(SCRIPTS_DIR))
         assert proc.returncode == 2
         assert "not found" in proc.stderr.lower()
+
+
+class TestSchemaPreflightStrictForwarding:
+    def test_schema_preflight_receives_strict_flag(self, tmp_path):
+        project = tmp_path / "project"
+        data_dir = project / "data"
+        configs = project / "configs"
+        evidence = project / "evidence"
+        data_dir.mkdir(parents=True)
+        configs.mkdir(parents=True)
+        evidence.mkdir(parents=True)
+
+        csv_content = "patient_id,event_time,y,x1\nP1,2025-01-01,0,1.0\nP2,2025-01-02,1,2.0\n"
+        for split in ("train", "valid", "test"):
+            (data_dir / f"{split}.csv").write_text(csv_content, encoding="utf-8")
+
+        request = {
+            "split_paths": {
+                "train": "../data/train.csv",
+                "valid": "../data/valid.csv",
+                "test": "../data/test.csv",
+            },
+            "label_col": "y",
+            "patient_id_col": "patient_id",
+            "index_time_col": "event_time",
+        }
+        req_path = configs / "request.json"
+        req_path.write_text(json.dumps(request), encoding="utf-8")
+
+        fake_log = tmp_path / "fake_python.log"
+        fake_python = tmp_path / "fake_python.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            f"echo \"$@\" >> \"{fake_log}\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+
+        report_path = evidence / "productized_workflow_report.json"
+        cmd = [
+            sys.executable,
+            str(GATE_SCRIPT),
+            "--request",
+            str(req_path),
+            "--evidence-dir",
+            str(evidence),
+            "--strict",
+            "--allow-missing-compare",
+            "--python",
+            str(fake_python),
+            "--report",
+            str(report_path),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=str(SCRIPTS_DIR))
+        assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        log_text = fake_log.read_text(encoding="utf-8")
+        schema_lines = [line for line in log_text.splitlines() if "schema_preflight.py" in line]
+        assert schema_lines, "schema_preflight invocation not found in fake python log"
+        assert any("--strict" in line for line in schema_lines), "schema_preflight invocation must include --strict"

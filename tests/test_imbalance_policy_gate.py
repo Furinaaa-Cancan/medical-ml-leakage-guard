@@ -38,6 +38,18 @@ def _write_json(path: Path, data: dict) -> Path:
     return path
 
 
+def _write_evaluation_report(path: Path, selected_strategy: str) -> Path:
+    payload = {
+        "status": "pass",
+        "metadata": {
+            "imbalance": {
+                "selected_strategy": selected_strategy,
+            }
+        },
+    }
+    return _write_json(path, payload)
+
+
 def _good_policy():
     return {
         "strategy": "class_weight",
@@ -276,6 +288,16 @@ class TestCLI:
         result = self._run(tmp_path, setup)
         assert result.returncode == 0
 
+    def test_smote_alias_pass(self, tmp_path: Path):
+        policy = _good_policy()
+        policy["strategy"] = "smote"
+        policy["resampling_applied_to"] = ["train"]
+        setup = _make_setup(tmp_path, policy=policy, valid_labels=[0] * 10 + [1] * 10)
+        result = self._run(tmp_path, setup)
+        assert result.returncode == 0
+        report = json.loads((tmp_path / "report.json").read_text())
+        assert report["strategy"] == "smote"
+
     def test_smote_all_splits_fails(self, tmp_path: Path):
         policy = _good_policy()
         policy["strategy"] = "smote_train_only"
@@ -442,3 +464,37 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         codes = [f["code"] for f in report["failures"]]
         assert "invalid_postprocessing_split" in codes
+
+    def test_evaluation_reconciliation_match_pass(self, tmp_path: Path):
+        policy = _good_policy()
+        policy["strategy"] = "smote"
+        policy["resampling_applied_to"] = ["train"]
+        setup = _make_setup(tmp_path, policy=policy, valid_labels=[0] * 10 + [1] * 10)
+        eval_path = _write_evaluation_report(tmp_path / "evaluation_report.json", "smote")
+        result = self._run(tmp_path, setup, ["--evaluation-report", str(eval_path)])
+        assert result.returncode == 0
+        report = json.loads((tmp_path / "report.json").read_text())
+        recon = report.get("summary", {}).get("execution_reconciliation", {})
+        assert recon.get("match") is True
+
+    def test_evaluation_reconciliation_mismatch_fails(self, tmp_path: Path):
+        policy = _good_policy()
+        policy["strategy"] = "smote"
+        policy["resampling_applied_to"] = ["train"]
+        setup = _make_setup(tmp_path, policy=policy, valid_labels=[0] * 10 + [1] * 10)
+        eval_path = _write_evaluation_report(tmp_path / "evaluation_report.json", "class_weight")
+        result = self._run(tmp_path, setup, ["--evaluation-report", str(eval_path)])
+        assert result.returncode == 2
+        report = json.loads((tmp_path / "report.json").read_text())
+        codes = [f["code"] for f in report["failures"]]
+        assert "imbalance_execution_policy_mismatch" in codes
+
+    def test_evaluation_reconciliation_missing_metadata_fails(self, tmp_path: Path):
+        policy = _good_policy()
+        setup = _make_setup(tmp_path, policy=policy, valid_labels=[0] * 10 + [1] * 10)
+        _write_json(tmp_path / "evaluation_report.json", {"status": "pass", "metadata": {}})
+        result = self._run(tmp_path, setup, ["--evaluation-report", str(tmp_path / "evaluation_report.json")])
+        assert result.returncode == 2
+        report = json.loads((tmp_path / "report.json").read_text())
+        codes = [f["code"] for f in report["failures"]]
+        assert "evaluation_report_imbalance_metadata_missing" in codes
