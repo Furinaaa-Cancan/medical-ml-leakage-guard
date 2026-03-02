@@ -201,6 +201,8 @@ def test_tuning_max_trials_rejects_invalid_values() -> None:
         def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
             if title == play.t("pick_tuning"):
                 return 1
+            if title == play.t("pick_trials_preset"):
+                return len(opts) - 1  # custom
             if title == play.t("pick_calib"):
                 return 0
             if title == play.t("pick_device"):
@@ -225,6 +227,35 @@ def test_tuning_max_trials_rejects_invalid_values() -> None:
         play._notice = original_notice  # type: ignore[assignment]
 
 
+def test_tuning_trials_preset_exposes_quick_options() -> None:
+    print("\n=== play: tuning max-trials uses preset options + custom ===")
+    original_select = play.select
+    captured = {"options": []}
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return 1
+            if title == play.t("pick_trials_preset"):
+                captured["options"] = list(opts)
+                return 0
+            if title == play.t("pick_calib"):
+                return 0
+            if title == play.t("pick_device"):
+                return 1
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        state = {"source": "csv", "_n_rows": 569}
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds with preset path")
+        assert_true(len(captured["options"]) >= 6, "trials preset includes multiple quick options plus custom")
+        assert_true(any(str(x).startswith("1") for x in captured["options"]), "trials preset includes low-try option")
+        assert_true(any(str(x).startswith("50") for x in captured["options"]), "trials preset includes high-try option")
+        assert_true(any("Custom" in str(x) or "\u81ea\u5b9a\u4e49" in str(x) for x in captured["options"]), "trials preset includes custom option")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+
+
 def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
     print("\n=== play: advanced custom mode remains interactive and can finish ===")
     original_select = play.select
@@ -237,6 +268,8 @@ def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
                 return 1  # yes customize
             if title == play.t("adv_menu_title"):
                 return menu_sequence.pop(0)
+            if title == play.t("adv_ignore_mode_title"):
+                return 1  # manual input
             if title == play.t("adv_njobs"):
                 return 2  # 4 workers
             if title == play.t("adv_optional"):
@@ -422,6 +455,7 @@ def main() -> int:
     test_tuning_calibration_menu_includes_human_readable_descriptions()
     test_tuning_optuna_input_accepts_back_token()
     test_tuning_max_trials_rejects_invalid_values()
+    test_tuning_trials_preset_exposes_quick_options()
     test_advanced_custom_mode_is_fully_interactive_and_completes()
     test_advanced_njobs_custom_rejects_invalid_values()
     test_split_strategy_order_is_source_aware()

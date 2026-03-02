@@ -293,8 +293,16 @@ _T: Dict[str, Dict[str, str]] = {
     "adv_no":        {"en": "No, use defaults", "zh": "\u5426\uff0c\u4f7f\u7528\u9ed8\u8ba4\u503c"},
     "adv_ignore":    {"en": "Ignore columns (comma-separated, non-feature columns to exclude):",
                       "zh": "\u5ffd\u7565\u5217\uff08\u9017\u53f7\u5206\u9694\uff0c\u6392\u9664\u7684\u975e\u7279\u5f81\u5217\uff09\uff1a"},
+    "adv_ignore_mode_title": {"en": "How to edit ignore columns", "zh": "\u5ffd\u7565\u5217\u7f16\u8f91\u65b9\u5f0f"},
+    "adv_ignore_mode_select": {"en": "Select from detected columns (recommended)", "zh": "\u4ece\u68c0\u6d4b\u5230\u7684\u5217\u4e2d\u9009\u62e9\uff08\u63a8\u8350\uff09"},
+    "adv_ignore_mode_manual": {"en": "Manual comma-separated input", "zh": "\u624b\u52a8\u8f93\u5165\uff08\u9017\u53f7\u5206\u9694\uff09"},
+    "adv_ignore_pick_columns": {"en": "Select columns to ignore", "zh": "\u9009\u62e9\u8981\u5ffd\u7565\u7684\u5217"},
+    "adv_ignore_no_columns": {"en": "No detected columns available; switch to manual input.",
+                              "zh": "\u672a\u68c0\u6d4b\u5230\u53ef\u9009\u5217\uff0c\u8bf7\u6539\u7528\u624b\u52a8\u8f93\u5165\u3002"},
     "adv_njobs":     {"en": "CPU workers (-1 = all cores):", "zh": "CPU \u5de5\u4f5c\u8fdb\u7a0b\uff08-1 = \u6240\u6709\u6838\u5fc3\uff09\uff1a"},
     "adv_trials":    {"en": "Max tries per model (higher = slower):", "zh": "\u6bcf\u4e2a\u6a21\u578b\u6700\u591a\u5c1d\u8bd5\u6b21\u6570\uff08\u8d8a\u5927\u8d8a\u6162\uff09\uff1a"},
+    "pick_trials_preset": {"en": "Pick max tries per model", "zh": "\u9009\u62e9\u6bcf\u4e2a\u6a21\u578b\u7684\u6700\u591a\u5c1d\u8bd5\u6b21\u6570"},
+    "trials_custom": {"en": "Custom value...", "zh": "\u81ea\u5b9a\u4e49\u6570\u503c..."},
     "adv_optional":  {"en": "Include optional model backends when installed?",
                       "zh": "\u5305\u542b\u5df2\u5b89\u88c5\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1f"},
     "adv_menu_title":{"en": "Advanced settings (editable)", "zh": "\u9ad8\u7ea7\u8bbe\u7f6e\uff08\u53ef\u7f16\u8f91\uff09"},
@@ -1075,6 +1083,24 @@ def state_n_rows(state: Dict[str, Any]) -> int:
     return 0
 
 
+def available_columns_for_ignore(state: Dict[str, Any]) -> List[str]:
+    """Best-effort detected columns for advanced ignore-cols editing."""
+    cols = state.get("_columns")
+    if isinstance(cols, list):
+        out = [str(c).strip() for c in cols if str(c).strip()]
+        if out:
+            return out
+    csv_path = str(state.get("csv_path", "") or "").strip()
+    if csv_path and Path(csv_path).exists():
+        try:
+            out = [str(c).strip() for c in csv_cols(Path(csv_path)) if str(c).strip()]
+            if out:
+                return out
+        except Exception:
+            pass
+    return []
+
+
 def strict_small_sample_active(state: Dict[str, Any]) -> bool:
     if not bool(state.get("_strict_small_sample", False)):
         return False
@@ -1715,14 +1741,35 @@ def step_tuning(state: Dict) -> Any:
                 print(
                     f"  {DIM}{rec_text}{RST}"
                 )
-            print(f"  {s('W', t('adv_trials'))}")
+            base_presets = [1, 5, 10, 20, 50]
+            if strict_small_sample_active(state):
+                base_presets = [v for v in base_presets if v <= STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP]
+                if not base_presets:
+                    base_presets = [1]
+            if default_trials not in base_presets and 1 <= default_trials <= MAX_TRIALS_INPUT:
+                presets = [default_trials] + base_presets
+            else:
+                presets = list(base_presets)
+
+            preset_labels = [str(v) for v in presets]
+            choice = select(
+                preset_labels + [t("trials_custom")],
+                title=t("pick_trials_preset"),
+            )
+            if choice < 0:
+                sub = 1 if state["hyperparam_search"] == "optuna" else 0
+                continue
+            if choice < len(presets):
+                state["max_trials"] = int(presets[choice])
+                sub = 3
+                continue
+
+            print(f"\n  {s('W', t('adv_trials'))}")
             raw = _input_line(f"  {s('C','>')} [{default_trials}]: ")
             if raw is None:
-                sub = 1 if state["hyperparam_search"] == "optuna" else 0
                 continue
             raw_trim = raw.strip()
             if _is_back_text_token(raw_trim):
-                sub = 1 if state["hyperparam_search"] == "optuna" else 0
                 continue
             try:
                 parsed = int(raw_trim) if raw_trim else default_trials
@@ -1818,6 +1865,34 @@ def step_advanced(state: Dict) -> Any:
             return BACK
         if ai == 0:
             default_ignore = str(state.get("ignore_cols", ",".join(ignore_parts)))
+            mode = select(
+                [t("adv_ignore_mode_select"), t("adv_ignore_mode_manual")],
+                title=t("adv_ignore_mode_title"),
+            )
+            if mode < 0:
+                continue
+            if mode == 0:
+                cols = available_columns_for_ignore(state)
+                if not cols:
+                    _notice(t("adv_ignore_no_columns"))
+                    continue
+                current_tokens = {
+                    tok.strip()
+                    for tok in default_ignore.split(",")
+                    if tok.strip()
+                }
+                defaults = [idx for idx, name in enumerate(cols) if name in current_tokens]
+                selected_cols = multi_select(
+                    cols,
+                    title=t("adv_ignore_pick_columns"),
+                    defaults=defaults,
+                )
+                if selected_cols is None:
+                    continue
+                chosen = [cols[idx] for idx in selected_cols if 0 <= idx < len(cols)]
+                state["ignore_cols"] = ",".join(chosen)
+                continue
+
             print(f"\n  {s('W', t('adv_ignore'))}")
             raw = _input_line(f"  {s('C','>')} [{default_ignore}]: ")
             if raw is None:
