@@ -220,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --emit-junit /tmp/mlgg_benchmark.junit.xml\n"
             "  python3 scripts/mlgg.py authority-release\n"
             "  python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060\n"
+            "  python3 scripts/mlgg.py play -- --strict-small-sample\n"
             "\n"
             "Tip:\n"
             "  Use `<subcommand> --help` for direct script help (e.g., `mlgg.py onboarding --help`).\n"

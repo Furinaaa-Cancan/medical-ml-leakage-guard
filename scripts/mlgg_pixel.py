@@ -935,7 +935,12 @@ MODEL_POOL = [
     ("lightgbm",                  "m_lgbm"),
     ("tabpfn",                    "m_tabpfn"),
 ]
-DEFAULT_MODELS = [0, 1, 3, 5]  # L1, L2, RF, HGB
+# Conservative default for clinical small/medium datasets:
+# linear models are usually more stable and easier to calibrate.
+DEFAULT_MODELS = [0, 1, 2]  # L1, L2, ElasticNet
+STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = 1200
+STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP = 8
+STRICT_SMALL_SAMPLE_MODEL_POOL = ["logistic_l1", "logistic_l2", "logistic_elasticnet"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -952,6 +957,117 @@ _HISTORY_KEYS = [
     "out_dir", "ignore_cols", "n_jobs", "max_trials",
     "optuna_trials", "include_optional_models",
 ]
+
+
+def recommended_max_trials(state: Dict[str, Any]) -> int:
+    """Heuristic default for hyperparameter trials to reduce small-sample variance."""
+    search = str(state.get("hyperparam_search", "fixed_grid")).strip().lower()
+    try:
+        n_rows = int(state.get("_n_rows", 0) or 0)
+    except Exception:
+        n_rows = 0
+    if search == "fixed_grid":
+        return 1
+    if search == "optuna":
+        if 0 < n_rows <= 500:
+            return 20
+        if 500 < n_rows <= 1500:
+            return 30
+        return 50
+    # random_subsample
+    if 0 < n_rows <= 500:
+        return 8
+    if 500 < n_rows <= 1500:
+        return 12
+    return 20
+
+
+def state_n_rows(state: Dict[str, Any]) -> int:
+    """Best-effort row count resolution used for small-sample safeguards."""
+    for key in ("_n_rows", "_rows"):
+        try:
+            value = int(state.get(key, 0) or 0)
+            if value > 0:
+                return value
+        except Exception:
+            pass
+    csv_path = str(state.get("csv_path", "") or "").strip()
+    if csv_path and Path(csv_path).exists():
+        try:
+            return int(csv_rows(Path(csv_path)))
+        except Exception:
+            return 0
+    return 0
+
+
+def strict_small_sample_active(state: Dict[str, Any]) -> bool:
+    if not bool(state.get("_strict_small_sample", False)):
+        return False
+    try:
+        max_rows = int(state.get("_strict_small_sample_max_rows", STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS) or 0)
+    except Exception:
+        max_rows = STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS
+    n_rows = state_n_rows(state)
+    return bool(max_rows > 0 and n_rows > 0 and n_rows <= max_rows)
+
+
+def apply_strict_small_sample_profile(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enforce conservative training defaults for small datasets.
+    Returns a small audit payload of applied changes.
+    """
+    applied: List[str] = []
+    n_rows = state_n_rows(state)
+    if not strict_small_sample_active(state):
+        return {"active": False, "n_rows": n_rows, "applied": applied}
+
+    # 1) Restrict to linear regularized models.
+    current_models = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    filtered_models = [m for m in current_models if m in STRICT_SMALL_SAMPLE_MODEL_POOL]
+    if not filtered_models:
+        filtered_models = list(STRICT_SMALL_SAMPLE_MODEL_POOL)
+    new_pool = ",".join(filtered_models)
+    if new_pool != state.get("model_pool"):
+        state["model_pool"] = new_pool
+        applied.append("model_pool_linear_only")
+
+    # 2) Cap search complexity.
+    if str(state.get("hyperparam_search", "")).strip().lower() == "optuna":
+        state["hyperparam_search"] = "random_subsample"
+        applied.append("disable_optuna")
+
+    rec_trials = int(recommended_max_trials(state))
+    capped_trials = min(STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP, rec_trials)
+    try:
+        current_trials = int(state.get("max_trials", capped_trials) or capped_trials)
+    except Exception:
+        current_trials = capped_trials
+    new_trials = min(current_trials, capped_trials)
+    if int(state.get("max_trials", new_trials) or new_trials) != new_trials:
+        applied.append("cap_max_trials")
+    state["max_trials"] = int(new_trials)
+
+    # 3) Keep calibration conservative.
+    if str(state.get("calibration", "none")).strip().lower() not in {"none", "power"}:
+        state["calibration"] = "power"
+        applied.append("calibration_to_power")
+
+    return {
+        "active": True,
+        "n_rows": n_rows,
+        "max_rows": int(state.get("_strict_small_sample_max_rows", STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS)),
+        "applied": applied,
+    }
+
+
+def split_strategy_order_for_source(source: str) -> List[str]:
+    """Return split strategy order with source-aware default at index 0."""
+    token = str(source).strip().lower()
+    if token == "download":
+        # UCI packaged examples include synthetic event_time; default to
+        # prevalence-stable grouped split instead of pseudo-temporal ordering.
+        return ["stratified_grouped", "grouped_random", "grouped_temporal"]
+    return ["grouped_temporal", "grouped_random", "stratified_grouped"]
 
 
 def _save_history(state: Dict) -> None:
@@ -1053,6 +1169,7 @@ def step_dataset(state: Dict) -> Any:
         state["calibration"] = "none"
         state["device"] = "auto"
         state["out_dir"] = str(DEFAULT_OUT / "pipeline")
+        state["_n_rows"] = 0
         return SKIP
 
     if source == "full":
@@ -1096,6 +1213,10 @@ def step_dataset(state: Dict) -> Any:
         state["dataset_key"] = keys[ci]
         state["dataset_file"] = files[ci]
         state["csv_path"] = str(EXAMPLES_DIR / f"{files[ci]}.csv")
+        try:
+            state["_n_rows"] = int(csv_rows(Path(state["csv_path"])))
+        except Exception:
+            state["_n_rows"] = 0
         state["out_dir"] = str(DEFAULT_OUT / files[ci])
         state["pid"] = "patient_id"
         state["target"] = "y"
@@ -1142,6 +1263,10 @@ def step_dataset(state: Dict) -> Any:
 
     state["csv_path"] = path
     state["dataset_key"] = "custom"
+    try:
+        state["_n_rows"] = int(csv_rows(Path(path)))
+    except Exception:
+        state["_n_rows"] = 0
     state["out_dir"] = str(DEFAULT_OUT / Path(path).stem)
 
     default_name = Path(path).stem
@@ -1252,13 +1377,24 @@ def step_split(state: Dict) -> Any:
         if sub == 0:
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
+            strategy_order = split_strategy_order_for_source(source)
+            strategy_title = {
+                "grouped_temporal": t("strat_temporal"),
+                "grouped_random": t("strat_random"),
+                "stratified_grouped": t("strat_stratified"),
+            }
+            strategy_desc = {
+                "grouped_temporal": t("strat_temporal_d"),
+                "grouped_random": t("strat_random_d"),
+                "stratified_grouped": t("strat_stratified_d"),
+            }
             si = select(
-                [t("strat_temporal"), t("strat_random"), t("strat_stratified")],
-                [t("strat_temporal_d"), t("strat_random_d"), t("strat_stratified_d")],
+                [strategy_title[item] for item in strategy_order],
+                [strategy_desc[item] for item in strategy_order],
                 title=t("pick_strat"),
             )
             if si < 0: return BACK
-            strat = ["grouped_temporal", "grouped_random", "stratified_grouped"][si]
+            strat = strategy_order[si]
             state["strategy"] = strat
             tcol = ""
             if strat == "grouped_temporal" and source == "csv":
@@ -1409,6 +1545,11 @@ def step_models(state: Dict) -> Any:
 
     _clear()
     step_header(7, TOTAL_STEPS, t("s_models"))
+    if strict_small_sample_active(state):
+        if LANG == "zh":
+            print(f"  {s('C', '小样本严格模式：训练前将仅保留线性正则模型')}\n")
+        else:
+            print(f"  {s('C', 'Strict small-sample mode: non-linear models will be filtered before training')}\n")
 
     labels = [t(key) for _, key in MODEL_POOL]
     selected = multi_select(labels, title=t("pick_models"), defaults=DEFAULT_MODELS)
@@ -1460,19 +1601,41 @@ def step_tuning(state: Dict) -> Any:
         elif sub == 2:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
+            if strict_small_sample_active(state):
+                if LANG == "zh":
+                    print(f"  {s('C', '小样本严格模式已启用：将收紧模型复杂度与试验次数')}")
+                else:
+                    print(f"  {s('C', 'Strict small-sample mode enabled: complexity/trials will be tightened')}")
+                print()
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
             if state["hyperparam_search"] == "optuna":
                 print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
             print()
+            default_trials = int(state.get("max_trials", recommended_max_trials(state)))
+            if strict_small_sample_active(state):
+                default_trials = min(default_trials, STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP)
+            n_rows = int(state_n_rows(state) or 0)
+            if n_rows > 0:
+                rec_trials = recommended_max_trials(state)
+                if strict_small_sample_active(state):
+                    rec_trials = min(rec_trials, STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP)
+                rec_text = (
+                    f"\u5bf9\u4e8e n={n_rows} \u7684\u63a8\u8350\u8bd5\u9a8c\u6b21\u6570: {rec_trials}"
+                    if LANG == "zh"
+                    else f"Recommended max trials for n={n_rows}: {rec_trials}"
+                )
+                print(
+                    f"  {DIM}{rec_text}{RST}"
+                )
             print(f"  {s('W', t('adv_trials'))}")
-            raw = _input_line(f"  {s('C','>')} [{state.get('max_trials', 20)}]: ")
+            raw = _input_line(f"  {s('C','>')} [{default_trials}]: ")
             if raw is None:
                 sub = 1 if state["hyperparam_search"] == "optuna" else 0
                 continue
             try:
-                state["max_trials"] = int(raw) if raw else state.get("max_trials", 20)
+                state["max_trials"] = int(raw) if raw else default_trials
             except ValueError:
-                state["max_trials"] = 20
+                state["max_trials"] = default_trials
             sub = 3
 
         elif sub == 3:
@@ -1687,6 +1850,11 @@ def step_confirm(state: Dict) -> Any:
             f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
             f"{_p(t('c_ratio'))}{ratio_str}",
             f"{_p(t('c_validation'))}{valid_str}",
+        ]
+        if strict_small_sample_active(state):
+            mode_label = "小样本严格模式" if LANG == "zh" else "Strict small-sample mode"
+            lines.append(f"{_p(mode_label)}ON")
+        lines.extend([
             "",
             f"{_p(t('c_imbalance'))}{imb_str}",
             f"{_p(t('c_models'))}{models_str}",
@@ -1696,7 +1864,7 @@ def step_confirm(state: Dict) -> Any:
             f"{_p(t('c_device'))}{state.get('device', '?')}",
             "",
             f"{_p(t('c_output'))}{state['out_dir']}/",
-        ]
+        ])
         box(t("s_confirm"), lines, color="C")
 
     print()
@@ -1753,6 +1921,17 @@ def _friendly_error(err: str) -> str:
         if pattern.lower() in lower:
             return msgs.get(LANG, msgs["en"])
     return ""
+
+
+def _override_cli_arg(cmd: List[str], flag: str, value: str) -> List[str]:
+    """Return a copied command list with one --flag value updated/inserted."""
+    out = list(cmd)
+    for idx, token in enumerate(out):
+        if token == flag and idx + 1 < len(out):
+            out[idx + 1] = value
+            return out
+    out.extend([flag, value])
+    return out
 
 
 def step_run(state: Dict) -> Any:
@@ -1986,7 +2165,13 @@ def step_run(state: Dict) -> Any:
     print()
 
     # ── Phase 3: Train ──
-    model_count = len(state.get("model_pool", "").split(","))
+    strict_profile = apply_strict_small_sample_profile(state)
+    if strict_profile.get("active"):
+        # Keep labels consistent with any enforced model-pool adjustment.
+        pool_now = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+        label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
+        state["_model_labels"] = [label_map.get(name, name) for name in pool_now]
+    model_count = len([x for x in str(state.get("model_pool", "")).split(",") if x.strip()])
     train_label = t("x_train", n=model_count)
 
     evidence_dir = str(Path(state["out_dir"]) / "evidence")
@@ -2051,6 +2236,21 @@ def step_run(state: Dict) -> Any:
 
     # Show final results
     _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
+    if strict_profile.get("active"):
+        applied_items = strict_profile.get("applied", [])
+        if isinstance(applied_items, list) and applied_items:
+            if LANG == "zh":
+                print(
+                    f"\n  {s('C', '小样本严格模式已生效')}: "
+                    f"n={strict_profile.get('n_rows', '?')}, "
+                    f"阈值<={strict_profile.get('max_rows', '?')}"
+                )
+            else:
+                print(
+                    f"\n  {s('C', 'Strict small-sample profile applied')}: "
+                    f"n={strict_profile.get('n_rows', '?')}, "
+                    f"threshold<={strict_profile.get('max_rows', '?')}"
+                )
     print()
     box(t("r_train_ok"), [
         f"{t('c_output')} {state['out_dir']}/",
@@ -2199,6 +2399,8 @@ def step_run(state: Dict) -> Any:
                 cal = eval_data.get("calibration_assessment", {})
                 epv = eval_data.get("sample_size_adequacy", {})
                 vif = eval_data.get("multicollinearity", {})
+                tripod_warnings: List[str] = []
+                tripod_blockers: List[str] = []
                 if cal or epv:
                     ta_lines = []
                     # Calibration
@@ -2206,41 +2408,94 @@ def step_run(state: Dict) -> Any:
                     intercept = cal.get("calibration_intercept")
                     eo = cal.get("expected_observed_ratio")
                     if slope is not None:
-                        slope_ok = 0.8 <= float(slope) <= 1.2
-                        sl = s('G', f"{float(slope):.4f}") if slope_ok else s('Y', f"{float(slope):.4f}")
-                        ta_lines.append(f"  {'Cal. slope':<18} {sl}  {'(ideal=1.0)':>14}")
+                        slope_v = float(slope)
+                        slope_ok = 0.8 <= slope_v <= 1.2
+                        slope_bad = slope_v < 0.5 or slope_v > 1.5
+                        if slope_ok:
+                            sl = s('G', f"{slope_v:.4f}")
+                            tag = s('G', "OK")
+                        elif slope_bad:
+                            sl = s('R', f"{slope_v:.4f}")
+                            tag = s('R', "FAIL")
+                            tripod_blockers.append("calibration_slope")
+                        else:
+                            sl = s('Y', f"{slope_v:.4f}")
+                            tag = s('Y', "WARN")
+                            tripod_warnings.append("calibration_slope")
+                        ta_lines.append(f"  {'Cal. slope':<18} {sl}  {'(ideal=1.0)':>14}  [{tag}]")
                     if intercept is not None:
-                        int_ok = abs(float(intercept)) < 0.1
-                        il = s('G', f"{float(intercept):.4f}") if int_ok else s('Y', f"{float(intercept):.4f}")
-                        ta_lines.append(f"  {'Cal. intercept':<18} {il}  {'(ideal=0.0)':>14}")
+                        int_v = float(intercept)
+                        int_ok = abs(int_v) < 0.1
+                        int_bad = abs(int_v) > 1.0
+                        if int_ok:
+                            il = s('G', f"{int_v:.4f}")
+                            tag = s('G', "OK")
+                        elif int_bad:
+                            il = s('R', f"{int_v:.4f}")
+                            tag = s('R', "FAIL")
+                            tripod_blockers.append("calibration_intercept")
+                        else:
+                            il = s('Y', f"{int_v:.4f}")
+                            tag = s('Y', "WARN")
+                            tripod_warnings.append("calibration_intercept")
+                        ta_lines.append(f"  {'Cal. intercept':<18} {il}  {'(ideal=0.0)':>14}  [{tag}]")
                     if eo is not None:
-                        eo_ok = 0.8 <= float(eo) <= 1.2
-                        el = s('G', f"{float(eo):.4f}") if eo_ok else s('Y', f"{float(eo):.4f}")
-                        ta_lines.append(f"  {'E:O ratio':<18} {el}  {'(ideal=1.0)':>14}")
+                        eo_v = float(eo)
+                        eo_ok = 0.8 <= eo_v <= 1.2
+                        el = s('G', f"{eo_v:.4f}") if eo_ok else s('Y', f"{eo_v:.4f}")
+                        tag = s('G', "OK") if eo_ok else s('Y', "WARN")
+                        if not eo_ok:
+                            tripod_warnings.append("eo_ratio")
+                        ta_lines.append(f"  {'E:O ratio':<18} {el}  {'(ideal=1.0)':>14}  [{tag}]")
                     ece_val = cal.get("ece")
                     if ece_val is not None:
-                        ece_ok = float(ece_val) <= 0.06
-                        ece_s = s('G', f"{float(ece_val):.4f}") if ece_ok else s('Y', f"{float(ece_val):.4f}")
-                        ta_lines.append(f"  {'ECE':<18} {ece_s}  {'(ideal<0.05)':>14}")
+                        ece_f = float(ece_val)
+                        ece_ok = ece_f <= 0.05
+                        ece_bad = ece_f > 0.10
+                        if ece_ok:
+                            ece_s = s('G', f"{ece_f:.4f}")
+                            tag = s('G', "OK")
+                        elif ece_bad:
+                            ece_s = s('R', f"{ece_f:.4f}")
+                            tag = s('R', "FAIL")
+                            tripod_blockers.append("ece")
+                        else:
+                            ece_s = s('Y', f"{ece_f:.4f}")
+                            tag = s('Y', "WARN")
+                            tripod_warnings.append("ece")
+                        ta_lines.append(f"  {'ECE':<18} {ece_s}  {'(ideal<0.05)':>14}  [{tag}]")
                     # EPV
                     if epv.get("events_per_variable") is not None:
                         epv_v = float(epv["events_per_variable"])
                         adq = str(epv.get("adequacy", "?"))
                         if adq == "adequate":
                             epv_s = s('G', f"{epv_v:.1f} ({adq})")
+                            tag = s('G', "OK")
                         elif adq == "marginal":
                             epv_s = s('Y', f"{epv_v:.1f} ({adq})")
+                            tag = s('Y', "WARN")
+                            tripod_warnings.append("epv")
                         else:
                             epv_s = s('R', f"{epv_v:.1f} ({adq})")
-                        ta_lines.append(f"  {'EPV':<18} {epv_s}")
+                            tag = s('R', "FAIL")
+                            tripod_blockers.append("epv")
+                        ta_lines.append(f"  {'EPV':<18} {epv_s}  [{tag}]")
                     # VIF
                     if not vif.get("skipped", True):
                         max_vif = vif.get("max_vif", 0)
                         hvc = vif.get("high_vif_count", 0)
                         if hvc > 0:
-                            ta_lines.append(f"  {'VIF max':<18} {s('Y', f'{float(max_vif):.1f}')}  {s('Y', f'{hvc} features >10')}")
+                            if int(hvc) >= 10:
+                                tag = s('R', "FAIL")
+                                tripod_blockers.append("vif")
+                            else:
+                                tag = s('Y', "WARN")
+                                tripod_warnings.append("vif")
+                            ta_lines.append(
+                                f"  {'VIF max':<18} {s('Y', f'{float(max_vif):.1f}')}  {s('Y', f'{hvc} features >10')}  [{tag}]"
+                            )
                         else:
-                            ta_lines.append(f"  {'VIF max':<18} {s('G', f'{float(max_vif):.1f}')}")
+                            ta_lines.append(f"  {'VIF max':<18} {s('G', f'{float(max_vif):.1f}')}  [{s('G', 'OK')}]")
                     # NRI
                     nri_data = eval_data.get("net_reclassification_improvement", {})
                     nri_log = nri_data.get("vs_logistic_baseline", {})
@@ -2270,8 +2525,11 @@ def step_run(state: Dict) -> Any:
                     top_feats = perm.get("top_features", [])
                     if top_feats:
                         top3 = top_feats[:3]
-                        fi_parts = [f"{f['feature'][:12]}={f['importance_mean']:.3f}" for f in top3]
-                        ta_lines.append(f"  {'Perm. imp top3':<18} {', '.join(fi_parts)}")
+                        for idx, f in enumerate(top3, start=1):
+                            f_name = str(f.get("feature", "?"))[:16]
+                            f_imp = float(f.get("importance_mean", 0.0))
+                            key = "Perm. imp top1" if idx == 1 else ("top2" if idx == 2 else "top3")
+                            ta_lines.append(f"  {key:<18} {f_name}={f_imp:.3f}")
                     if ta_lines:
                         print()
                         box("TRIPOD+AI Checks", ta_lines, color="C")
@@ -2317,6 +2575,112 @@ def step_run(state: Dict) -> Any:
                     print()
                     box("Statistical Tests & Fairness", st_lines, color="C")
 
+                # Release readiness summary: aggregate key gates into one compact, actionable view.
+                readiness_lines = []
+                blockers: List[str] = []
+                advisories: List[str] = []
+                if constraints_ok is False:
+                    blockers.append("threshold_constraints")
+                elif constraints_ok is None:
+                    advisories.append("threshold_constraints_unknown")
+                if str(overfit.get("risk_level", "")).lower() == "high":
+                    blockers.append("overfitting_high_risk")
+                elif str(overfit.get("risk_level", "")).lower() == "medium":
+                    advisories.append("overfitting_medium_risk")
+                blockers.extend([x for x in tripod_blockers if x not in blockers])
+                advisories.extend([x for x in tripod_warnings if x not in advisories and x not in blockers])
+
+                if blockers:
+                    overall_tag = s('R', "FAIL", bold=True)
+                    verdict = "Not release-ready"
+                elif advisories:
+                    overall_tag = s('Y', "WARN", bold=True)
+                    verdict = "Usable with caution"
+                else:
+                    overall_tag = s('G', "PASS", bold=True)
+                    verdict = "Release-ready"
+                readiness_lines.append(f"  {'Overall':<16} {overall_tag}  {verdict}")
+                readiness_lines.append(f"  {'Constraints':<16} {s('G','PASS') if constraints_ok else s('R','FAIL') if constraints_ok is False else s('Y','N/A')}")
+                readiness_lines.append(f"  {'Overfitting':<16} {str(overfit.get('risk_level', 'unknown')).upper()}")
+                calibration_blockers = {
+                    "calibration_slope",
+                    "calibration_intercept",
+                    "ece",
+                    "epv",
+                }
+                if not (set(blockers) & {"overfitting_high_risk"}) and (set(blockers) & calibration_blockers):
+                    primary_issue_text = "校准/样本充足性" if LANG == "zh" else "Calibration / sample adequacy"
+                    primary_issue_label = "主要问题" if LANG == "zh" else "Primary issue"
+                    readiness_lines.append(
+                        f"  {primary_issue_label:<16} "
+                        f"{s('Y', primary_issue_text)}"
+                    )
+                if blockers:
+                    readiness_lines.append("")
+                    readiness_lines.append(f"  {s('R', 'Blocking items:')}")
+                    for b in blockers[:4]:
+                        readiness_lines.append(f"  - {b}")
+                elif advisories:
+                    readiness_lines.append("")
+                    readiness_lines.append(f"  {s('Y', 'Watch items:')}")
+                    for w in advisories[:4]:
+                        readiness_lines.append(f"  - {w}")
+                if set(blockers) & calibration_blockers:
+                    suggested_profile_title = "建议复跑配置：" if LANG == "zh" else "Suggested rerun profile:"
+                    suggested_models = "  - 模型：logistic_l2, logistic_elasticnet" if LANG == "zh" else "  - models: logistic_l2, logistic_elasticnet"
+                    suggested_trials = "  - max_trials_per_family：<= 8" if LANG == "zh" else "  - max_trials_per_family: <= 8"
+                    suggested_calib = "  - 校准：none 或 power" if LANG == "zh" else "  - calibration: none or power"
+                    readiness_lines.append("")
+                    readiness_lines.append(f"  {s('C', suggested_profile_title)}")
+                    readiness_lines.append(suggested_models)
+                    readiness_lines.append(suggested_trials)
+                    readiness_lines.append(suggested_calib)
+                    # Emit copy-ready rerun commands (same split files, conservative profile).
+                    import shlex as _shlex
+                    conservative_trials = min(
+                        STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP,
+                        max(1, int(recommended_max_trials(state))),
+                    )
+                    model_pool_conservative = "logistic_l2,logistic_elasticnet"
+                    rerun_power = list(train_cmd)
+                    rerun_power = _override_cli_arg(rerun_power, "--model-pool", model_pool_conservative)
+                    rerun_power = _override_cli_arg(rerun_power, "--hyperparam-search", "random_subsample")
+                    rerun_power = _override_cli_arg(rerun_power, "--max-trials-per-family", str(conservative_trials))
+                    rerun_power = _override_cli_arg(rerun_power, "--calibration-method", "power")
+                    rerun_none = list(train_cmd)
+                    rerun_none = _override_cli_arg(rerun_none, "--model-pool", "logistic_l2")
+                    rerun_none = _override_cli_arg(rerun_none, "--hyperparam-search", "fixed_grid")
+                    rerun_none = _override_cli_arg(rerun_none, "--max-trials-per-family", "1")
+                    rerun_none = _override_cli_arg(rerun_none, "--calibration-method", "none")
+                    rerun_cmd_power = _shlex.join(rerun_power)
+                    rerun_cmd_none = _shlex.join(rerun_none)
+                    rerun_script_path = Path(evidence_dir) / "suggested_rerun_commands.sh"
+                    try:
+                        rerun_script = (
+                            "#!/usr/bin/env bash\n"
+                            "set -euo pipefail\n\n"
+                            "# Conservative rerun (power calibration)\n"
+                            f"{rerun_cmd_power}\n\n"
+                            "# Minimal-complexity rerun (no calibration)\n"
+                            f"{rerun_cmd_none}\n"
+                        )
+                        rerun_script_path.write_text(rerun_script, encoding="utf-8")
+                        rerun_script_path.chmod(0o755)
+                        rerun_label = "复跑脚本" if LANG == "zh" else "Rerun script"
+                        readiness_lines.append(f"  {rerun_label:<16} {rerun_script_path}")
+                    except Exception:
+                        pass
+                print()
+                box("Release Readiness", readiness_lines, color="C")
+                if set(blockers) & calibration_blockers:
+                    print()
+                    if LANG == "zh":
+                        print(f"  {s('C', '可直接复制的复跑命令：')}")
+                    else:
+                        print(f"  {s('C', 'Copy-ready rerun commands:')}")
+                    print(f"  {s('W', rerun_cmd_power)}")
+                    print(f"  {s('W', rerun_cmd_none)}")
+
             # Model selection summary (mean±std from CV)
             ms_path = Path(evidence_dir) / "model_selection_report.json"
             if ms_path.exists():
@@ -2333,7 +2697,12 @@ def step_run(state: Dict) -> Any:
                     sel_lines.append(f"  {'':20} {'mean':>8}  {'std':>8}  {'folds':>5}")
                     top = sorted(candidates,
                                  key=lambda c: -float(c.get("selection_metrics", {}).get("pr_auc", {}).get("mean", 0)))
-                    for c in top[:5]:
+                    shown = list(top[:5])
+                    if sel_id and all(str(c.get("model_id")) != str(sel_id) for c in shown):
+                        selected_row = next((c for c in top if str(c.get("model_id")) == str(sel_id)), None)
+                        if selected_row is not None:
+                            shown.append(selected_row)
+                    for c in shown:
                         sm = c.get("selection_metrics", {}).get("pr_auc", {})
                         m = sm.get("mean")
                         sd = sm.get("std")
@@ -2361,11 +2730,20 @@ def step_run(state: Dict) -> Any:
 #  MAIN WIZARD
 # ══════════════════════════════════════════════════════════════════════════════
 
-def wizard(force_lang: str = "", dry_run: bool = False) -> int:
+def wizard(
+    force_lang: str = "",
+    dry_run: bool = False,
+    strict_small_sample: bool = False,
+    strict_small_sample_max_rows: int = STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS,
+) -> int:
     global LANG
     LANG = detect_lang()
 
-    state: Dict[str, Any] = {"_dry_run": dry_run}
+    state: Dict[str, Any] = {
+        "_dry_run": dry_run,
+        "_strict_small_sample": bool(strict_small_sample),
+        "_strict_small_sample_max_rows": int(strict_small_sample_max_rows),
+    }
     steps = [step_lang, step_source, step_dataset, step_config,
              step_split, step_imbalance, step_models, step_tuning,
              step_advanced, step_confirm, step_run]
@@ -2420,8 +2798,30 @@ def main() -> int:
                         help="Set language directly, skipping the language selection step.")
     parser.add_argument("--dry-run", action="store_true", default=False,
                         help="Print commands without executing them.")
+    parser.add_argument(
+        "--strict-small-sample",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable strict small-sample profile (linear-only model pool, capped trials, "
+            "conservative calibration) when rows <= threshold."
+        ),
+    )
+    parser.add_argument(
+        "--strict-small-sample-max-rows",
+        type=int,
+        default=STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS,
+        help=f"Row-count threshold for --strict-small-sample (default: {STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS}).",
+    )
     args, _ = parser.parse_known_args()
-    return wizard(force_lang=args.lang, dry_run=args.dry_run)
+    if int(args.strict_small_sample_max_rows) < 1:
+        raise SystemExit("--strict-small-sample-max-rows must be >= 1.")
+    return wizard(
+        force_lang=args.lang,
+        dry_run=args.dry_run,
+        strict_small_sample=bool(args.strict_small_sample),
+        strict_small_sample_max_rows=int(args.strict_small_sample_max_rows),
+    )
 
 
 if __name__ == "__main__":

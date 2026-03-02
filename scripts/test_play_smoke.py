@@ -86,11 +86,63 @@ def test_recommended_trials_respect_search_mode_and_rows() -> None:
     )
 
 
+def test_strict_small_sample_profile_enforces_conservative_training_setup() -> None:
+    print("\n=== play: strict small-sample profile enforces conservative setup ===")
+    state = {
+        "_strict_small_sample": True,
+        "_strict_small_sample_max_rows": 1200,
+        "_n_rows": 569,
+        "model_pool": "logistic_l1,random_forest_balanced,hist_gradient_boosting_l2",
+        "hyperparam_search": "optuna",
+        "max_trials": 30,
+        "calibration": "sigmoid",
+    }
+    result = play.apply_strict_small_sample_profile(state)
+    assert_true(bool(result.get("active")), "strict small-sample profile is active for n<=threshold")
+    assert_true(
+        state.get("model_pool") == "logistic_l1",
+        "strict small-sample profile filters model pool to linear-only selections",
+    )
+    assert_true(
+        state.get("hyperparam_search") == "random_subsample",
+        "strict small-sample profile disables optuna",
+    )
+    assert_true(
+        int(state.get("max_trials", 999)) <= play.STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP,
+        "strict small-sample profile caps max_trials",
+    )
+    assert_true(
+        state.get("calibration") == "power",
+        "strict small-sample profile switches to conservative calibration",
+    )
+
+
+def test_strict_small_sample_profile_inactive_on_large_data() -> None:
+    print("\n=== play: strict small-sample profile stays inactive on large data ===")
+    state = {
+        "_strict_small_sample": True,
+        "_strict_small_sample_max_rows": 1200,
+        "_n_rows": 5000,
+        "model_pool": "logistic_l1,random_forest_balanced",
+        "hyperparam_search": "random_subsample",
+        "max_trials": 20,
+        "calibration": "sigmoid",
+    }
+    result = play.apply_strict_small_sample_profile(state)
+    assert_true(not bool(result.get("active")), "strict small-sample profile inactive for large n")
+    assert_true(
+        state.get("model_pool") == "logistic_l1,random_forest_balanced",
+        "large-data profile does not force model-pool filtering",
+    )
+
+
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
+    test_strict_small_sample_profile_enforces_conservative_training_setup()
+    test_strict_small_sample_profile_inactive_on_large_data()
 
     print(f"\n{'='*50}")
     if _failures:
