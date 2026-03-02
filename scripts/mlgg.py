@@ -302,8 +302,7 @@ def main() -> int:
 
     parser = build_parser()
     args, passthrough = parser.parse_known_args()
-    if passthrough and passthrough[0] == "--":
-        passthrough = passthrough[1:]
+    passthrough = [token for token in passthrough if token != "--"]
 
     subcommand = str(args.subcommand)
     python_bin = str(args.python).strip() or sys.executable

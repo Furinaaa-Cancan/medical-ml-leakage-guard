@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Lightweight smoke checks for pixel play-mode defaults.
+
+Run:
+    python3 scripts/test_play_smoke.py
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import List
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import mlgg_pixel as play  # noqa: E402
+
+PASS = "\033[32mPASS\033[0m"
+FAIL = "\033[31mFAIL\033[0m"
+_failures: List[str] = []
+
+
+def assert_true(cond: bool, test_name: str, detail: str = "") -> None:
+    if cond:
+        print(f"  [{PASS}] {test_name}")
+    else:
+        print(f"  [{FAIL}] {test_name}" + (f": {detail}" if detail else ""))
+        _failures.append(test_name)
+
+
+def test_default_models_are_conservative_linear_pool() -> None:
+    print("\n=== play: default model pool is conservative ===")
+    expected = [0, 1, 2]
+    assert_true(play.DEFAULT_MODELS == expected, "DEFAULT_MODELS index set is [0,1,2]")
+    selected_names = [play.MODEL_POOL[idx][0] for idx in play.DEFAULT_MODELS]
+    assert_true(
+        selected_names == ["logistic_l1", "logistic_l2", "logistic_elasticnet"],
+        "DEFAULT_MODELS resolve to logistic l1/l2/elasticnet",
+    )
+
+
+def test_split_strategy_order_is_source_aware() -> None:
+    print("\n=== play: split strategy order is source-aware ===")
+    dl = play.split_strategy_order_for_source("download")
+    assert_true(dl[0] == "stratified_grouped", "download source default strategy is stratified_grouped")
+    assert_true(sorted(dl) == sorted(["grouped_temporal", "grouped_random", "stratified_grouped"]), "download strategy options complete")
+
+    csv_src = play.split_strategy_order_for_source("csv")
+    assert_true(csv_src[0] == "grouped_temporal", "csv source default strategy keeps grouped_temporal")
+
+    demo_src = play.split_strategy_order_for_source("demo")
+    assert_true(demo_src[0] == "grouped_temporal", "demo source default strategy keeps grouped_temporal")
+
+
+def test_recommended_trials_respect_search_mode_and_rows() -> None:
+    print("\n=== play: recommended max trials uses search mode + n_rows ===")
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "fixed_grid", "_n_rows": 300}) == 1,
+        "fixed_grid always recommends 1",
+    )
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "random_subsample", "_n_rows": 300}) == 8,
+        "random search n<=500 recommends 8",
+    )
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "random_subsample", "_n_rows": 1200}) == 12,
+        "random search 500<n<=1500 recommends 12",
+    )
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "random_subsample", "_n_rows": 5000}) == 20,
+        "random search large n recommends 20",
+    )
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "optuna", "_n_rows": 300}) == 20,
+        "optuna n<=500 recommends 20",
+    )
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "optuna", "_n_rows": 1200}) == 30,
+        "optuna 500<n<=1500 recommends 30",
+    )
+    assert_true(
+        play.recommended_max_trials({"hyperparam_search": "optuna", "_n_rows": 5000}) == 50,
+        "optuna large n recommends 50",
+    )
+
+
+def main() -> int:
+    print("Running play smoke tests...")
+    test_default_models_are_conservative_linear_pool()
+    test_split_strategy_order_is_source_aware()
+    test_recommended_trials_respect_search_mode_and_rows()
+
+    print(f"\n{'='*50}")
+    if _failures:
+        print(f"\033[31mFAILED {len(_failures)} test(s):\033[0m")
+        for name in _failures:
+            print(f"  - {name}")
+        return 1
+    print("\033[32mAll play smoke tests passed.\033[0m")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

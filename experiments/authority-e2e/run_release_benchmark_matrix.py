@@ -17,11 +17,39 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return int(default)
+    try:
+        return int(raw)
+    except Exception:
+        return int(default)
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 AUTHORITY_SCRIPT = EXPERIMENT_ROOT / "run_authority_e2e.py"
 ADVERSARIAL_SCRIPT = EXPERIMENT_ROOT / "run_adversarial_gate_checks.py"
 DEFAULT_REGISTRY_FILE = REPO_ROOT / "references" / "benchmark-registry.json"
+_IS_CI = str(os.environ.get("CI", "")).strip().lower() in {"1", "true", "yes", "on"}
+_IS_LOCAL_TTY = bool(sys.stdout.isatty() and not _IS_CI)
+DEFAULT_SUITE_TIMEOUT_SECONDS = _env_int(
+    "MLLG_SUITE_TIMEOUT_SECONDS",
+    2400 if _IS_LOCAL_TTY else 7200,
+)
+DEFAULT_AUTHORITY_SUBPROCESS_TIMEOUT_SECONDS = _env_int(
+    "MLLG_AUTHORITY_SUBPROCESS_TIMEOUT_SECONDS",
+    1800 if _IS_LOCAL_TTY else 3600,
+)
+DEFAULT_AUTHORITY_CASE_LOCK_TIMEOUT_SECONDS = _env_int(
+    "MLLG_AUTHORITY_CASE_LOCK_TIMEOUT_SECONDS",
+    900 if _IS_LOCAL_TTY else 1800,
+)
+DEFAULT_AUTHORITY_LOCK_WAIT_HEARTBEAT_SECONDS = _env_int(
+    "MLLG_AUTHORITY_LOCK_WAIT_HEARTBEAT_SECONDS",
+    15,
+)
 
 FAIL_BENCHMARK_REGISTRY_MISSING = "benchmark_registry_missing"
 FAIL_BENCHMARK_REGISTRY_MISMATCH = "benchmark_registry_mismatch"
@@ -206,8 +234,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--suite-timeout-seconds",
         type=int,
-        default=7200,
-        help="Per-suite subprocess timeout in seconds (default: 7200).",
+        default=DEFAULT_SUITE_TIMEOUT_SECONDS,
+        help=f"Per-suite subprocess timeout in seconds (default: {DEFAULT_SUITE_TIMEOUT_SECONDS}).",
+    )
+    parser.add_argument(
+        "--authority-subprocess-timeout-seconds",
+        type=int,
+        default=DEFAULT_AUTHORITY_SUBPROCESS_TIMEOUT_SECONDS,
+        help=(
+            "Forwarded to authority suites as --subprocess-timeout-seconds "
+            f"(default: {DEFAULT_AUTHORITY_SUBPROCESS_TIMEOUT_SECONDS})."
+        ),
+    )
+    parser.add_argument(
+        "--authority-case-lock-timeout-seconds",
+        type=int,
+        default=DEFAULT_AUTHORITY_CASE_LOCK_TIMEOUT_SECONDS,
+        help=(
+            "Forwarded to authority suites as --case-lock-timeout-seconds "
+            f"(default: {DEFAULT_AUTHORITY_CASE_LOCK_TIMEOUT_SECONDS})."
+        ),
+    )
+    parser.add_argument(
+        "--authority-lock-wait-heartbeat-seconds",
+        type=int,
+        default=DEFAULT_AUTHORITY_LOCK_WAIT_HEARTBEAT_SECONDS,
+        help=(
+            "Forwarded to authority suites as --lock-wait-heartbeat-seconds "
+            f"(default: {DEFAULT_AUTHORITY_LOCK_WAIT_HEARTBEAT_SECONDS})."
+        ),
     )
     parser.add_argument(
         "--observational-diagnostics-out",
@@ -334,6 +389,9 @@ def build_suites_from_registry(
     stress_seed_min: int,
     stress_seed_max: int,
     heart_blocking: bool,
+    authority_subprocess_timeout_seconds: int,
+    authority_case_lock_timeout_seconds: int,
+    authority_lock_wait_heartbeat_seconds: int,
 ) -> List[SuiteSpec]:
     profile_payload = registry["profiles"][profile]
     suites_raw = profile_payload["suites"]
@@ -360,6 +418,12 @@ def build_suites_from_registry(
                 str(AUTHORITY_SCRIPT),
                 "--summary-file",
                 str(summary_file),
+                "--subprocess-timeout-seconds",
+                str(int(authority_subprocess_timeout_seconds)),
+                "--case-lock-timeout-seconds",
+                str(int(authority_case_lock_timeout_seconds)),
+                "--lock-wait-heartbeat-seconds",
+                str(int(authority_lock_wait_heartbeat_seconds)),
                 *args_expanded,
             ]
         else:
@@ -782,6 +846,12 @@ def main() -> int:
         raise SystemExit("--suite-timeout-seconds must be >= 1.")
     if int(args.repeat) < 1:
         raise SystemExit("--repeat must be >= 1.")
+    if int(args.authority_subprocess_timeout_seconds) < 1:
+        raise SystemExit("--authority-subprocess-timeout-seconds must be >= 1.")
+    if int(args.authority_case_lock_timeout_seconds) < 1:
+        raise SystemExit("--authority-case-lock-timeout-seconds must be >= 1.")
+    if int(args.authority_lock_wait_heartbeat_seconds) < 0:
+        raise SystemExit("--authority-lock-wait-heartbeat-seconds must be >= 0.")
     run_tag = str(args.run_tag).strip() or datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output_path = Path(str(args.output)).expanduser().resolve()
     registry_file = Path(str(args.registry_file)).expanduser().resolve()
@@ -814,6 +884,9 @@ def main() -> int:
             "profile": str(args.profile),
             "registry_file": str(registry_file),
             "dataset_registry_sha256": registry_sha256,
+            "authority_subprocess_timeout_seconds": int(args.authority_subprocess_timeout_seconds),
+            "authority_case_lock_timeout_seconds": int(args.authority_case_lock_timeout_seconds),
+            "authority_lock_wait_heartbeat_seconds": int(args.authority_lock_wait_heartbeat_seconds),
             "overall_status": "fail",
             "status_reason": registry_fail_code,
             "failure_codes": [registry_fail_code],
@@ -868,6 +941,9 @@ def main() -> int:
         stress_seed_min=int(args.stress_seed_min),
         stress_seed_max=int(args.stress_seed_max),
         heart_blocking=bool(args.heart_blocking),
+        authority_subprocess_timeout_seconds=int(args.authority_subprocess_timeout_seconds),
+        authority_case_lock_timeout_seconds=int(args.authority_case_lock_timeout_seconds),
+        authority_lock_wait_heartbeat_seconds=int(args.authority_lock_wait_heartbeat_seconds),
     )
 
     suite_runs: List[Dict[str, Any]] = []
@@ -1065,6 +1141,9 @@ def main() -> int:
         "profile": str(args.profile),
         "registry_file": str(registry_file),
         "dataset_registry_sha256": registry_sha256,
+        "authority_subprocess_timeout_seconds": int(args.authority_subprocess_timeout_seconds),
+        "authority_case_lock_timeout_seconds": int(args.authority_case_lock_timeout_seconds),
+        "authority_lock_wait_heartbeat_seconds": int(args.authority_lock_wait_heartbeat_seconds),
         "overall_status": overall_status,
         "status_reason": status_reason,
         "failure_codes": failure_codes,

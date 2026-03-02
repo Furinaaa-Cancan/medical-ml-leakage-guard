@@ -421,8 +421,16 @@ def test_feature_engineering_audit_gate_error_codes() -> None:
 def test_feature_engineering_audit_gate_to_float_isfinite() -> None:
     print("\n=== feature_engineering_audit_gate: to_float rejects inf/nan ===")
     src = (SCRIPTS_DIR / "feature_engineering_audit_gate.py").read_text(encoding="utf-8")
-    assert_true("math.isfinite" in src, "feature_engineering_audit_gate.to_float uses math.isfinite")
-    assert_true("import math" in src, "feature_engineering_audit_gate imports math")
+    uses_local_guard = ("math.isfinite" in src) and ("import math" in src)
+    imports_shared_guard = ("from _gate_utils import" in src) and ("to_float" in src)
+    assert_true(
+        uses_local_guard or imports_shared_guard,
+        "feature_engineering_audit_gate uses local finite-check guard or shared _gate_utils.to_float guard",
+    )
+    if imports_shared_guard:
+        guard_src = (SCRIPTS_DIR / "_gate_utils.py").read_text(encoding="utf-8")
+        assert_true("def to_float" in guard_src, "_gate_utils exposes to_float helper")
+        assert_true("math.isfinite" in guard_src, "_gate_utils.to_float uses math.isfinite")
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +577,72 @@ def test_mlgg_interactive_accept_defaults_non_blocking() -> None:
         )
 
 
+def test_mlgg_interactive_accept_defaults_auto_detects_presplit_data() -> None:
+    print("\n=== mlgg interactive: --accept-defaults auto-detects pre-split data files ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        data_dir = td / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        headers = ["patient_id", "event_time", "age", "y"]
+        train_rows = [{"patient_id": f"tr{i}", "event_time": f"2024-01-{(i%28)+1:02d}", "age": "40", "y": str(i % 2)} for i in range(20)]
+        valid_rows = [{"patient_id": f"va{i}", "event_time": f"2024-02-{(i%28)+1:02d}", "age": "45", "y": str((i + 1) % 2)} for i in range(10)]
+        test_rows = [{"patient_id": f"te{i}", "event_time": f"2024-03-{(i%28)+1:02d}", "age": "50", "y": str(i % 2)} for i in range(10)]
+        train_csv = data_dir / "train.csv"
+        valid_csv = data_dir / "valid.csv"
+        test_csv = data_dir / "test.csv"
+        write_csv(train_csv, train_rows, headers)
+        write_csv(valid_csv, valid_rows, headers)
+        write_csv(test_csv, test_rows, headers)
+
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "train",
+                "--print-only",
+                "--accept-defaults",
+                "--cwd",
+                str(td),
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 0, "auto-detected pre-split defaults exit 0")
+        body = proc.stdout
+        assert_true("--train " in body and str(train_csv.resolve()) in body, "auto-detected train split path is used")
+        assert_true("--valid " in body and str(valid_csv.resolve()) in body, "auto-detected valid split path is used")
+        assert_true("--test " in body and str(test_csv.resolve()) in body, "auto-detected test split path is used")
+
+
+def test_mlgg_interactive_accept_defaults_missing_presplit_is_actionable() -> None:
+    print("\n=== mlgg interactive: --accept-defaults missing pre-split defaults is actionable ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "interactive",
+                "--command",
+                "train",
+                "--print-only",
+                "--accept-defaults",
+                "--cwd",
+                str(td),
+            ],
+            input_text=None,
+        )
+        assert_true(proc.returncode == 2, "missing auto-detected pre-split defaults exits 2")
+        stderr_text = proc.stderr + proc.stdout
+        assert_true(
+            "No default pre-split files detected for --accept-defaults" in stderr_text,
+            "missing pre-split defaults emits explicit error marker",
+        )
+        assert_true(
+            "--train/--valid/--test" in stderr_text and "--input-csv" in stderr_text,
+            "missing pre-split defaults emits actionable override guidance",
+        )
+
+
 def test_mlgg_authority_wrapper_release_and_research_presets() -> None:
     print("\n=== mlgg wrapper: authority-release and authority-research-heart presets ===")
     release = run_gate([str(SCRIPTS_DIR / "mlgg.py"), "authority-release", "--dry-run"])
@@ -672,6 +746,7 @@ def test_release_benchmark_contract_v2_fields_present() -> None:
             ],
         )
         out = td / "benchmark_report.json"
+        artifacts_dir = td / "_benchmark_matrix_runs"
         proc = run_gate(
             [
                 str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
@@ -699,6 +774,151 @@ def test_release_benchmark_contract_v2_fields_present() -> None:
         assert_true("nonblocking_suite_ids" in report, "benchmark report includes nonblocking_suite_ids")
         assert_true("blocking_failure_codes" in report, "benchmark report includes blocking_failure_codes")
         assert_true("observational_failure_codes" in report, "benchmark report includes observational_failure_codes")
+        assert_true(
+            isinstance(report.get("authority_subprocess_timeout_seconds"), int),
+            "benchmark report includes authority_subprocess_timeout_seconds",
+        )
+        assert_true(
+            isinstance(report.get("authority_case_lock_timeout_seconds"), int),
+            "benchmark report includes authority_case_lock_timeout_seconds",
+        )
+        assert_true(
+            isinstance(report.get("authority_lock_wait_heartbeat_seconds"), int),
+            "benchmark report includes authority_lock_wait_heartbeat_seconds",
+        )
+
+
+def test_release_benchmark_forwards_authority_timeout_and_lock_args() -> None:
+    print("\n=== benchmark-suite: forwards authority timeout/lock args ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "authority_smoke_forwarding",
+                    "name": "Authority forwarding smoke",
+                    "kind": "authority",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        fake_python = td / "fake_python.sh"
+        fake_python.write_text(
+            "#!/bin/sh\n"
+            "out=\"\"\n"
+            "log=\"\"\n"
+            "sub_to=\"\"\n"
+            "lock_to=\"\"\n"
+            "lock_hb=\"\"\n"
+            "prev=\"\"\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$prev\" = \"--summary-file\" ]; then out=\"$arg\"; fi\n"
+            "  if [ \"$prev\" = \"--subprocess-timeout-seconds\" ]; then sub_to=\"$arg\"; fi\n"
+            "  if [ \"$prev\" = \"--case-lock-timeout-seconds\" ]; then lock_to=\"$arg\"; fi\n"
+            "  if [ \"$prev\" = \"--lock-wait-heartbeat-seconds\" ]; then lock_hb=\"$arg\"; fi\n"
+            "  prev=\"$arg\"\n"
+            "done\n"
+            "mkdir -p \"$(dirname \"$out\")\"\n"
+            "printf '{\"overall_status\":\"pass\",\"results\":[]}' > \"$out\"\n"
+            "log=\"${out%.json}.args.txt\"\n"
+            "printf 'subprocess=%s\\ncase_lock=%s\\nheartbeat=%s\\n' \"$sub_to\" \"$lock_to\" \"$lock_hb\" > \"$log\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_python.chmod(0o755)
+        artifacts_dir = td / "_benchmark_matrix_runs"
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),
+                "--profile",
+                "quick",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--artifacts-dir",
+                str(artifacts_dir),
+                "--python",
+                str(fake_python),
+                "--repeat",
+                "1",
+                "--authority-subprocess-timeout-seconds",
+                "111",
+                "--authority-case-lock-timeout-seconds",
+                "222",
+                "--authority-lock-wait-heartbeat-seconds",
+                "7",
+            ]
+        )
+        assert_true(proc.returncode == 0, "benchmark forwarding run exits 0")
+        report = load_report(out)
+        assert_true(report.get("overall_status") == "pass", "benchmark forwarding run status=pass")
+        suite_runs = report.get("suite_runs", [])
+        assert_true(isinstance(suite_runs, list) and len(suite_runs) == 1, "benchmark forwarding run emits one suite row")
+        summary_file = Path(str((suite_runs[0] or {}).get("summary_file", "")))
+        args_log = summary_file.with_name(f"{summary_file.stem}.args.txt")
+        assert_true(args_log.exists(), "authority forwarding args log file exists")
+        if args_log.exists():
+            log_text = args_log.read_text(encoding="utf-8")
+            assert_true("subprocess=111" in log_text, "forwarded subprocess timeout matches CLI input")
+            assert_true("case_lock=222" in log_text, "forwarded case lock timeout matches CLI input")
+            assert_true("heartbeat=7" in log_text, "forwarded lock heartbeat matches CLI input")
+
+
+def test_mlgg_benchmark_passthrough_strips_separator_before_subcommand() -> None:
+    print("\n=== mlgg benchmark-suite: passthrough strips leading -- separator ===")
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        dataset_file = td / "dataset.csv"
+        dataset_file.write_text("x\n1\n", encoding="utf-8")
+        dataset_sha = sha256_text_file(dataset_file)
+        registry_file = td / "benchmark_registry.json"
+        write_benchmark_registry(
+            registry_file,
+            dataset_file=dataset_file,
+            dataset_sha256=dataset_sha,
+            suite_rows=[
+                {
+                    "suite_id": "adversarial_fail_closed",
+                    "name": "Adversarial fail-closed scenarios",
+                    "kind": "adversarial",
+                    "blocking": True,
+                    "args": [],
+                    "expected_case_ids": [],
+                }
+            ],
+        )
+        out = td / "benchmark_report.json"
+        proc = run_gate(
+            [
+                str(SCRIPTS_DIR / "mlgg.py"),
+                "benchmark-suite",
+                "--profile",
+                "quick",
+                "--repeat",
+                "1",
+                "--registry-file",
+                str(registry_file),
+                "--output",
+                str(out),
+                "--",
+                "--dry-run",
+            ]
+        )
+        assert_true(proc.returncode == 0, "mlgg benchmark-suite passthrough dry-run exits 0")
+        assert_true(out.exists(), "mlgg benchmark-suite passthrough creates output report")
+        report = load_report(out)
+        assert_true(report.get("overall_status") == "dry_run", "mlgg benchmark-suite passthrough keeps dry_run status")
 
 
 def test_release_benchmark_blocking_failure_sets_standard_code() -> None:
@@ -2149,6 +2369,8 @@ def main() -> int:
     test_mlgg_authority_wrapper_release_and_research_presets()
     test_mlgg_authority_wrapper_rejects_conflicting_route_flags()
     test_release_benchmark_contract_v2_fields_present()
+    test_release_benchmark_forwards_authority_timeout_and_lock_args()
+    test_mlgg_benchmark_passthrough_strips_separator_before_subcommand()
     test_release_benchmark_blocking_failure_sets_standard_code()
     test_release_benchmark_registry_mismatch_detected()
     test_release_benchmark_registry_failure_contract_fields_present()
