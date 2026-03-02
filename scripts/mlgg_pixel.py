@@ -327,18 +327,21 @@ _T: Dict[str, Dict[str, str]] = {
     "imb_weight_d":      {"en": "Always apply class_weight=balanced to all models",
                           "zh": "\u59cb\u7ec8\u5bf9\u6240\u6709\u6a21\u578b\u5e94\u7528 class_weight=balanced"},
     "imb_smote":         {"en": "SMOTE oversampling", "zh": "SMOTE \u8fc7\u91c7\u6837"},
-    "imb_smote_d":       {"en": "Planned \u2014 falls back to auto class_weight for now",
-                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
+    "imb_smote_d":       {"en": "Synthetic minority interpolation (train fold only)",
+                          "zh": "\u8bad\u7ec3\u6298\u5185\u5bf9\u5c11\u6570\u7c7b\u505a\u63d2\u503c\u8fc7\u91c7\u6837"},
     "imb_ros":           {"en": "Random oversampling", "zh": "\u968f\u673a\u8fc7\u91c7\u6837"},
-    "imb_ros_d":         {"en": "Planned \u2014 falls back to auto class_weight for now",
-                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
+    "imb_ros_d":         {"en": "Duplicate minority samples to rebalance (train fold only)",
+                          "zh": "\u8bad\u7ec3\u6298\u5185\u590d\u5236\u5c11\u6570\u7c7b\u6837\u672c"},
     "imb_rus":           {"en": "Random undersampling", "zh": "\u968f\u673a\u6b20\u91c7\u6837"},
-    "imb_rus_d":         {"en": "Planned \u2014 falls back to auto class_weight for now",
-                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
+    "imb_rus_d":         {"en": "Downsample majority class (train fold only)",
+                          "zh": "\u8bad\u7ec3\u6298\u5185\u4e0b\u91c7\u6837\u591a\u6570\u7c7b"},
     "imb_adasyn":        {"en": "ADASYN adaptive oversampling",
                           "zh": "ADASYN \u81ea\u9002\u5e94\u8fc7\u91c7\u6837"},
-    "imb_adasyn_d":      {"en": "Planned \u2014 falls back to auto class_weight for now",
-                          "zh": "\u8ba1\u5212\u4e2d \u2014 \u5f53\u524d\u56de\u9000\u81ea\u52a8 class_weight"},
+    "imb_adasyn_d":      {"en": "Adaptive synthetic oversampling by local difficulty (train fold only)",
+                          "zh": "\u57fa\u4e8e\u5c40\u90e8\u96be\u5ea6\u7684\u81ea\u9002\u5e94\u5408\u6210\u8fc7\u91c7\u6837"},
+    "pick_imb_metric":   {"en": "Metric for selecting best imbalance strategy", "zh": "\u9009\u62e9\u6700\u4f18\u4e0d\u5e73\u8861\u7b56\u7565\u7684\u6307\u6807"},
+    "imb_metric_pr_auc": {"en": "PR-AUC (recommended for imbalance)", "zh": "PR-AUC\uff08\u4e0d\u5e73\u8861\u63a8\u8350\uff09"},
+    "imb_metric_roc_auc":{"en": "ROC-AUC", "zh": "ROC-AUC"},
 
     "c_imbalance":       {"en": "Imbalance:", "zh": "\u4e0d\u5e73\u8861\uff1a"},
     "c_validation":      {"en": "Validation:", "zh": "\u9a8c\u8bc1\u65b9\u5f0f\uff1a"},
@@ -962,7 +965,7 @@ _HISTORY_PATH = Path.home() / ".mlgg" / "history.json"
 _HISTORY_KEYS = [
     "source", "dataset_key", "csv_path", "pid", "target", "time",
     "strategy", "train_ratio", "valid_ratio", "test_ratio",
-    "validation_method", "cv_folds", "imbalance_strategy",
+    "validation_method", "cv_folds", "imbalance_strategy", "imbalance_strategies", "imbalance_selection_metric",
     "model_pool", "hyperparam_search", "calibration", "device",
     "out_dir", "ignore_cols", "n_jobs", "max_trials",
     "optuna_trials", "include_optional_models",
@@ -1508,18 +1511,38 @@ def step_imbalance(state: Dict) -> Any:
     _clear()
     step_header(6, TOTAL_STEPS, t("s_imbalance"))
 
-    ci = select(
+    selected = multi_select(
         [t("imb_auto"), t("imb_none"), t("imb_weight"),
          t("imb_smote"), t("imb_ros"), t("imb_rus"), t("imb_adasyn")],
         [t("imb_auto_d"), t("imb_none_d"), t("imb_weight_d"),
          t("imb_smote_d"), t("imb_ros_d"), t("imb_rus_d"), t("imb_adasyn_d")],
         title=t("pick_imbalance"),
+        defaults=[0],
     )
-    if ci < 0:
+    if selected is None:
         return BACK
+    if not selected:
+        selected = [0]
     strategies = ["auto", "none", "class_weight", "smote",
                   "random_oversample", "random_undersample", "adasyn"]
-    state["imbalance_strategy"] = strategies[ci]
+    chosen = [strategies[i] for i in selected if 0 <= i < len(strategies)]
+    if not chosen:
+        chosen = ["auto"]
+    state["imbalance_strategies"] = chosen
+    state["imbalance_strategy"] = chosen[0]
+
+    if len(chosen) > 1:
+        _clear()
+        step_header(6, TOTAL_STEPS, t("s_imbalance"))
+        metric_idx = select(
+            [t("imb_metric_pr_auc"), t("imb_metric_roc_auc")],
+            title=t("pick_imb_metric"),
+        )
+        if metric_idx < 0:
+            return BACK
+        state["imbalance_selection_metric"] = "pr_auc" if metric_idx == 0 else "roc_auc"
+    else:
+        state["imbalance_selection_metric"] = "pr_auc"
     return True
 
 
@@ -1761,8 +1784,12 @@ def _export_cli(state: Dict) -> str:
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
     max_trials = state.get("max_trials", 20)
-    _imb = state.get("imbalance_strategy", "auto")
-    cw_override = {"auto": "auto", "none": "none", "class_weight": "balanced"}.get(_imb, "auto")
+    imbalance_strategies = state.get("imbalance_strategies")
+    if not isinstance(imbalance_strategies, list) or not imbalance_strategies:
+        imbalance_strategies = [str(state.get("imbalance_strategy", "auto"))]
+    imbalance_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+    if imbalance_metric not in {"pr_auc", "roc_auc"}:
+        imbalance_metric = "pr_auc"
     train_parts = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
         "--train", str(Path(out_data) / "train.csv"),
@@ -1776,7 +1803,8 @@ def _export_cli(state: Dict) -> str:
         "--max-trials-per-family", str(max_trials),
         "--cv-splits", str(cv_folds),
         "--selection-data", selection_data,
-        "--class-weight-override", cw_override,
+        "--imbalance-strategy-candidates", ",".join(str(x).strip() for x in imbalance_strategies if str(x).strip()),
+        "--imbalance-selection-metric", imbalance_metric,
         "--calibration-method", state.get("calibration", "none"),
         "--device", state.get("device", "auto"),
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
@@ -1814,7 +1842,13 @@ def step_confirm(state: Dict) -> Any:
             valid_str = f"CV {state.get('cv_folds', 5)}-fold"
         else:
             valid_str = t('valid_holdout')
-        imb_str = state.get('imbalance_strategy', 'auto')
+        imb_tokens = state.get("imbalance_strategies")
+        if not isinstance(imb_tokens, list) or not imb_tokens:
+            imb_tokens = [str(state.get("imbalance_strategy", "auto"))]
+        imb_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+        imb_str = ",".join(str(x) for x in imb_tokens)
+        if len(imb_tokens) > 1:
+            imb_str = f"{imb_str} (select_by={imb_metric})"
         trials_str = str(state.get('max_trials', 20))
         if state.get('hyperparam_search') == 'optuna':
             trials_str += f" (optuna={state.get('optuna_trials', 50)})"
@@ -1936,7 +1970,13 @@ def step_run(state: Dict) -> Any:
             models_str = ", ".join(state.get("_model_labels", ["?"]))
             vm = state.get('validation_method', 'holdout')
             valid_str = f"CV {state.get('cv_folds', 5)}-fold" if vm == 'cv' else t('valid_holdout')
-            imb_str = state.get('imbalance_strategy', 'auto')
+            imb_tokens = state.get("imbalance_strategies")
+            if not isinstance(imb_tokens, list) or not imb_tokens:
+                imb_tokens = [str(state.get("imbalance_strategy", "auto"))]
+            imb_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+            imb_str = ",".join(str(x) for x in imb_tokens)
+            if len(imb_tokens) > 1:
+                imb_str = f"{imb_str} (select_by={imb_metric})"
             trials_str = str(state.get('max_trials', 20))
             if state.get('hyperparam_search') == 'optuna':
                 trials_str += f" (optuna={state.get('optuna_trials', 50)})"
@@ -2177,8 +2217,12 @@ def step_run(state: Dict) -> Any:
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
     max_trials = state.get("max_trials", 20)
-    _imb = state.get("imbalance_strategy", "auto")
-    cw_override = {"auto": "auto", "none": "none", "class_weight": "balanced"}.get(_imb, "auto")
+    imbalance_strategies = state.get("imbalance_strategies")
+    if not isinstance(imbalance_strategies, list) or not imbalance_strategies:
+        imbalance_strategies = [str(state.get("imbalance_strategy", "auto"))]
+    imbalance_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+    if imbalance_metric not in {"pr_auc", "roc_auc"}:
+        imbalance_metric = "pr_auc"
 
     train_cmd = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "train", "--",
@@ -2193,7 +2237,8 @@ def step_run(state: Dict) -> Any:
         "--max-trials-per-family", str(max_trials),
         "--cv-splits", str(cv_folds),
         "--selection-data", selection_data,
-        "--class-weight-override", cw_override,
+        "--imbalance-strategy-candidates", ",".join(str(x).strip() for x in imbalance_strategies if str(x).strip()),
+        "--imbalance-selection-metric", imbalance_metric,
         "--calibration-method", state["calibration"],
         "--device", state["device"],
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),

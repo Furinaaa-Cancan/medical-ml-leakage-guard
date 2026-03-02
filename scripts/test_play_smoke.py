@@ -108,6 +108,30 @@ def test_download_dataset_step_no_project_name_prompt() -> None:
         play._input_line = original_input_line  # type: ignore[assignment]
 
 
+def test_imbalance_step_supports_multiselect_and_metric() -> None:
+    print("\n=== play: imbalance step supports multi-select with selection metric ===")
+    original_multi_select = play.multi_select
+    original_select = play.select
+    try:
+        play.multi_select = lambda *args, **kwargs: [0, 3, 6]  # auto, smote, adasyn  # type: ignore[assignment]
+        play.select = lambda *args, **kwargs: 1  # choose roc_auc for strategy selection  # type: ignore[assignment]
+        state = {"source": "csv"}
+        result = play.step_imbalance(state)
+        assert_true(result is True, "step_imbalance succeeds with multi-select")
+        assert_true(
+            state.get("imbalance_strategies") == ["auto", "smote", "adasyn"],
+            "step_imbalance records selected strategy list",
+        )
+        assert_true(state.get("imbalance_strategy") == "auto", "step_imbalance keeps first strategy for compatibility")
+        assert_true(
+            state.get("imbalance_selection_metric") == "roc_auc",
+            "step_imbalance stores strategy-selection metric",
+        )
+    finally:
+        play.multi_select = original_multi_select  # type: ignore[assignment]
+        play.select = original_select  # type: ignore[assignment]
+
+
 def test_recommended_trials_respect_search_mode_and_rows() -> None:
     print("\n=== play: recommended max trials uses search mode + n_rows ===")
     assert_true(
@@ -233,6 +257,7 @@ def main() -> int:
     test_default_models_are_conservative_linear_pool()
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
+    test_imbalance_step_supports_multiselect_and_metric()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()

@@ -69,6 +69,7 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
+from sklearn.neighbors import NearestNeighbors
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -122,6 +123,15 @@ SUPPORTED_MODEL_FAMILIES = {
 
 ENSEMBLE_FAMILIES = {"soft_voting", "weighted_voting", "stacking"}
 DEFAULT_ENSEMBLE_TOP_K = 3
+SUPPORTED_IMBALANCE_STRATEGIES = {
+    "auto",
+    "none",
+    "class_weight",
+    "random_oversample",
+    "random_undersample",
+    "smote",
+    "adasyn",
+}
 
 MODEL_ALIASES = {
     "lr_l1": "logistic_l1",
@@ -300,6 +310,29 @@ def parse_args() -> argparse.Namespace:
         choices=["auto", "none", "balanced"],
         help="Override class weight strategy. 'auto' uses balanced when imbalance ratio >= 1.5. "
         "'none' disables class weighting. 'balanced' always enables it.",
+    )
+    parser.add_argument(
+        "--imbalance-strategy",
+        default="",
+        help=(
+            "Explicit single imbalance strategy. Supported: "
+            "auto,none,class_weight,random_oversample,random_undersample,smote,adasyn. "
+            "If set, overrides --class-weight-override."
+        ),
+    )
+    parser.add_argument(
+        "--imbalance-strategy-candidates",
+        default="",
+        help=(
+            "Comma-separated candidate imbalance strategies. Trainer probes each candidate and "
+            "selects the best by --imbalance-selection-metric before model selection."
+        ),
+    )
+    parser.add_argument(
+        "--imbalance-selection-metric",
+        default="pr_auc",
+        choices=["pr_auc", "roc_auc"],
+        help="Metric used to select the best imbalance strategy from candidates.",
     )
     parser.add_argument("--random-seed", type=int, default=20260225, help="Random seed.")
     parser.add_argument("--primary-metric", default="pr_auc", help="Primary optimization metric.")
@@ -783,6 +816,308 @@ def impute_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
         median = float(series.median(skipna=True)) if series.notna().any() else 0.0
         out[col] = series.fillna(median)
     return out
+
+
+def _class_counts(y: np.ndarray) -> Tuple[int, int, int, int]:
+    """Return positive/negative/minority/majority counts for binary labels."""
+    y_int = np.asarray(y, dtype=int)
+    pos = int(np.sum(y_int == 1))
+    neg = int(np.sum(y_int == 0))
+    minority = int(min(pos, neg))
+    majority = int(max(pos, neg))
+    return pos, neg, minority, majority
+
+
+def resolve_imbalance_strategy_candidates(
+    candidates_arg: str,
+    single_arg: str,
+    class_weight_override: str,
+    imbalance_ratio: float,
+) -> List[str]:
+    """Resolve requested imbalance strategy candidates to concrete supported tokens."""
+    requested: List[str] = []
+    if isinstance(candidates_arg, str) and candidates_arg.strip():
+        requested.extend([token.strip().lower() for token in candidates_arg.split(",") if token.strip()])
+    elif isinstance(single_arg, str) and single_arg.strip():
+        requested.append(single_arg.strip().lower())
+    else:
+        legacy = str(class_weight_override).strip().lower()
+        if legacy == "balanced":
+            requested.append("class_weight")
+        elif legacy == "none":
+            requested.append("none")
+        else:
+            requested.append("auto")
+    if not requested:
+        requested = ["auto"]
+
+    resolved: List[str] = []
+    for token in requested:
+        strategy = token
+        if strategy == "balanced":
+            strategy = "class_weight"
+        if strategy == "auto":
+            strategy = "class_weight" if float(imbalance_ratio) >= 1.5 else "none"
+        if strategy not in SUPPORTED_IMBALANCE_STRATEGIES:
+            raise SystemExit(
+                f"unsupported_imbalance_strategy: '{token}'. "
+                f"supported={sorted(SUPPORTED_IMBALANCE_STRATEGIES)}"
+            )
+        if strategy not in resolved:
+            resolved.append(strategy)
+    return resolved
+
+
+def _random_oversample(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    seed: int,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """Randomly oversample minority class to match majority count."""
+    y_int = np.asarray(y, dtype=int)
+    unique = np.unique(y_int)
+    if unique.shape[0] < 2:
+        return X, y_int
+    rng = np.random.default_rng(int(seed))
+    counts = {int(label): int(np.sum(y_int == label)) for label in unique}
+    minority_label = min(counts, key=counts.get)
+    majority_label = max(counts, key=counts.get)
+    minority_idx = np.where(y_int == minority_label)[0]
+    majority_idx = np.where(y_int == majority_label)[0]
+    need = int(majority_idx.shape[0] - minority_idx.shape[0])
+    if need <= 0:
+        return X, y_int
+    sampled = rng.choice(minority_idx, size=need, replace=True)
+    X_new = pd.concat([X, X.iloc[sampled].copy()], axis=0, ignore_index=True)
+    y_new = np.concatenate([y_int, y_int[sampled]], axis=0).astype(int)
+    return X_new, y_new
+
+
+def _random_undersample(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    seed: int,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """Randomly undersample majority class to match minority count."""
+    y_int = np.asarray(y, dtype=int)
+    unique = np.unique(y_int)
+    if unique.shape[0] < 2:
+        return X, y_int
+    rng = np.random.default_rng(int(seed))
+    counts = {int(label): int(np.sum(y_int == label)) for label in unique}
+    minority_label = min(counts, key=counts.get)
+    majority_label = max(counts, key=counts.get)
+    minority_idx = np.where(y_int == minority_label)[0]
+    majority_idx = np.where(y_int == majority_label)[0]
+    keep_majority = int(minority_idx.shape[0])
+    if keep_majority <= 0 or majority_idx.shape[0] <= keep_majority:
+        return X, y_int
+    sampled_majority = rng.choice(majority_idx, size=keep_majority, replace=False)
+    keep_idx = np.concatenate([minority_idx, sampled_majority], axis=0)
+    rng.shuffle(keep_idx)
+    X_new = X.iloc[keep_idx].reset_index(drop=True)
+    y_new = y_int[keep_idx].astype(int)
+    return X_new, y_new
+
+
+def _smote_oversample(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    seed: int,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """Perform simple SMOTE-style oversampling on a numeric-imputed feature space."""
+    y_int = np.asarray(y, dtype=int)
+    unique = np.unique(y_int)
+    if unique.shape[0] < 2:
+        return X, y_int
+    counts = {int(label): int(np.sum(y_int == label)) for label in unique}
+    minority_label = min(counts, key=counts.get)
+    majority_label = max(counts, key=counts.get)
+    minority_idx = np.where(y_int == minority_label)[0]
+    majority_idx = np.where(y_int == majority_label)[0]
+    need = int(majority_idx.shape[0] - minority_idx.shape[0])
+    if need <= 0:
+        return X, y_int
+    if minority_idx.shape[0] < 2:
+        return _random_oversample(X, y_int, seed)
+
+    X_num = impute_numeric_frame(X)
+    X_min = X_num.iloc[minority_idx].to_numpy(dtype=float)
+    k = int(min(5, X_min.shape[0] - 1))
+    if k < 1:
+        return _random_oversample(X_num, y_int, seed)
+    rng = np.random.default_rng(int(seed))
+    nn = NearestNeighbors(n_neighbors=k + 1)
+    nn.fit(X_min)
+    neighbors = nn.kneighbors(X_min, return_distance=False)
+    synth_rows: List[np.ndarray] = []
+    for _ in range(need):
+        base_local = int(rng.integers(0, X_min.shape[0]))
+        neigh_local_pool = [idx for idx in neighbors[base_local].tolist() if idx != base_local]
+        if not neigh_local_pool:
+            neigh_local = base_local
+        else:
+            neigh_local = int(rng.choice(neigh_local_pool))
+        lam = float(rng.random())
+        x_base = X_min[base_local]
+        x_neigh = X_min[neigh_local]
+        synth_rows.append(x_base + lam * (x_neigh - x_base))
+    X_syn = pd.DataFrame(np.vstack(synth_rows), columns=X_num.columns)
+    X_new = pd.concat([X_num.reset_index(drop=True), X_syn], axis=0, ignore_index=True)
+    y_new = np.concatenate(
+        [y_int, np.full(shape=len(synth_rows), fill_value=int(minority_label), dtype=int)],
+        axis=0,
+    )
+    return X_new, y_new
+
+
+def _adasyn_oversample(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    seed: int,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """Perform ADASYN-style adaptive oversampling on numeric-imputed features."""
+    y_int = np.asarray(y, dtype=int)
+    unique = np.unique(y_int)
+    if unique.shape[0] < 2:
+        return X, y_int
+    counts = {int(label): int(np.sum(y_int == label)) for label in unique}
+    minority_label = min(counts, key=counts.get)
+    majority_label = max(counts, key=counts.get)
+    minority_idx = np.where(y_int == minority_label)[0]
+    majority_idx = np.where(y_int == majority_label)[0]
+    need = int(majority_idx.shape[0] - minority_idx.shape[0])
+    if need <= 0:
+        return X, y_int
+    if minority_idx.shape[0] < 2:
+        return _random_oversample(X, y_int, seed)
+
+    X_num = impute_numeric_frame(X)
+    X_arr = X_num.to_numpy(dtype=float)
+    rng = np.random.default_rng(int(seed))
+
+    k_all = int(min(5, max(1, X_arr.shape[0] - 1)))
+    nn_all = NearestNeighbors(n_neighbors=k_all + 1)
+    nn_all.fit(X_arr)
+
+    r_vals: List[float] = []
+    for idx in minority_idx:
+        neigh = nn_all.kneighbors(X_arr[idx].reshape(1, -1), return_distance=False)[0].tolist()
+        neigh = [n for n in neigh if int(n) != int(idx)]
+        if not neigh:
+            r_vals.append(1.0)
+            continue
+        majority_neigh = sum(1 for n in neigh if int(y_int[n]) == int(majority_label))
+        r_vals.append(float(majority_neigh) / float(len(neigh)))
+    r = np.asarray(r_vals, dtype=float)
+    if not np.any(np.isfinite(r)) or float(np.sum(r)) <= 0.0:
+        return _smote_oversample(X_num, y_int, seed)
+    r = np.clip(r, a_min=0.0, a_max=None)
+    if float(np.sum(r)) <= 0.0:
+        return _smote_oversample(X_num, y_int, seed)
+    r_norm = r / float(np.sum(r))
+    raw_g = r_norm * float(need)
+    g = np.floor(raw_g).astype(int)
+    remaining = int(need - int(np.sum(g)))
+    if remaining > 0:
+        order = np.argsort(raw_g - g)[::-1]
+        for idx in order[:remaining]:
+            g[int(idx)] += 1
+
+    X_min = X_arr[minority_idx]
+    k_min = int(min(5, max(1, X_min.shape[0] - 1)))
+    if k_min < 1:
+        return _random_oversample(X_num, y_int, seed)
+    nn_min = NearestNeighbors(n_neighbors=k_min + 1)
+    nn_min.fit(X_min)
+    neigh_min = nn_min.kneighbors(X_min, return_distance=False)
+
+    synth_rows: List[np.ndarray] = []
+    for local_idx, gen_count in enumerate(g.tolist()):
+        if int(gen_count) <= 0:
+            continue
+        pool = [j for j in neigh_min[local_idx].tolist() if j != local_idx]
+        for _ in range(int(gen_count)):
+            if pool:
+                neigh_local = int(rng.choice(pool))
+            else:
+                neigh_local = int(local_idx)
+            lam = float(rng.random())
+            x_base = X_min[local_idx]
+            x_neigh = X_min[neigh_local]
+            synth_rows.append(x_base + lam * (x_neigh - x_base))
+
+    if len(synth_rows) < need:
+        extra_need = int(need - len(synth_rows))
+        extra_idx = rng.choice(minority_idx, size=extra_need, replace=True)
+        extra = X_num.iloc[extra_idx].to_numpy(dtype=float)
+        synth_rows.extend(list(extra))
+
+    X_syn = pd.DataFrame(np.vstack(synth_rows[:need]), columns=X_num.columns)
+    X_new = pd.concat([X_num.reset_index(drop=True), X_syn], axis=0, ignore_index=True)
+    y_new = np.concatenate(
+        [y_int, np.full(shape=int(X_syn.shape[0]), fill_value=int(minority_label), dtype=int)],
+        axis=0,
+    )
+    return X_new, y_new
+
+
+def apply_imbalance_strategy_to_train(
+    X_train: pd.DataFrame,
+    y_train: np.ndarray,
+    strategy: str,
+    seed: int,
+) -> Tuple[pd.DataFrame, np.ndarray, Dict[str, Any]]:
+    """Apply a leakage-safe imbalance strategy on training data only."""
+    token = str(strategy).strip().lower()
+    if token not in SUPPORTED_IMBALANCE_STRATEGIES:
+        raise ValueError(f"Unsupported imbalance strategy: {token}")
+    y_int = np.asarray(y_train, dtype=int)
+    pos, neg, minority, majority = _class_counts(y_int)
+    meta: Dict[str, Any] = {
+        "strategy": token,
+        "input_rows": int(X_train.shape[0]),
+        "input_positive": int(pos),
+        "input_negative": int(neg),
+    }
+    if token in {"none", "class_weight"}:
+        meta["resampled"] = False
+        meta["output_rows"] = int(X_train.shape[0])
+        return X_train, y_int, meta
+    if minority <= 0 or majority <= 0 or minority == majority:
+        meta["resampled"] = False
+        meta["output_rows"] = int(X_train.shape[0])
+        meta["fallback_reason"] = "class_counts_not_resamplable"
+        return X_train, y_int, meta
+    if token == "random_oversample":
+        X_fit, y_fit = _random_oversample(X_train, y_int, seed)
+    elif token == "random_undersample":
+        X_fit, y_fit = _random_undersample(X_train, y_int, seed)
+    elif token == "smote":
+        X_fit, y_fit = _smote_oversample(X_train, y_int, seed)
+    elif token == "adasyn":
+        X_fit, y_fit = _adasyn_oversample(X_train, y_int, seed)
+    else:
+        X_fit, y_fit = X_train, y_int
+    pos_out, neg_out, _, _ = _class_counts(y_fit)
+    meta["resampled"] = bool(int(X_fit.shape[0]) != int(X_train.shape[0]))
+    meta["output_rows"] = int(X_fit.shape[0])
+    meta["output_positive"] = int(pos_out)
+    meta["output_negative"] = int(neg_out)
+    return X_fit, y_fit, meta
+
+
+def fit_estimator_with_imbalance(
+    estimator: BaseEstimator,
+    X_train: pd.DataFrame,
+    y_train: np.ndarray,
+    strategy: str,
+    seed: int,
+) -> Tuple[BaseEstimator, Dict[str, Any]]:
+    """Fit an estimator on a training set after applying imbalance strategy."""
+    X_fit, y_fit, meta = apply_imbalance_strategy_to_train(X_train, y_train, strategy=strategy, seed=int(seed))
+    estimator.fit(X_fit, y_fit)
+    return estimator, meta
 
 
 def feature_stability_frequency(
@@ -2357,6 +2692,8 @@ def cv_score_pr_auc(
     y: np.ndarray,
     n_splits: int,
     seed: int,
+    imbalance_strategy: str = "none",
+    score_metric: str = "pr_auc",
 ) -> Tuple[float, float, int, List[float]]:
     """Score an estimator by stratified CV PR-AUC.
 
@@ -2374,16 +2711,29 @@ def cv_score_pr_auc(
     Raises:
         ValueError: If fewer than 2 valid folds are produced.
     """
+    metric_token = str(score_metric).strip().lower()
+    if metric_token not in {"pr_auc", "roc_auc"}:
+        raise ValueError(f"Unsupported score metric for CV: {score_metric}")
     splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     fold_scores: List[float] = []
-    for tr_idx, va_idx in splitter.split(X, y):
+    for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X, y), start=1):
         y_val = y[va_idx]
         if len(np.unique(y_val)) < 2:
             continue
         model = clone(estimator)
-        model.fit(X.iloc[tr_idx], y[tr_idx])
+        model, _ = fit_estimator_with_imbalance(
+            estimator=model,
+            X_train=X.iloc[tr_idx],
+            y_train=y[tr_idx],
+            strategy=str(imbalance_strategy),
+            seed=int(seed) + int(fold_idx) * 1009,
+        )
         proba = predict_proba_1(model, X.iloc[va_idx])
-        fold_scores.append(clip01(float(average_precision_score(y_val, proba))))
+        if metric_token == "roc_auc":
+            score = float(roc_auc_score(y_val, proba))
+        else:
+            score = float(average_precision_score(y_val, proba))
+        fold_scores.append(clip01(score))
     if len(fold_scores) < 2:
         raise ValueError("Insufficient valid CV folds for PR-AUC scoring.")
     arr = np.asarray(fold_scores, dtype=float)
@@ -2819,7 +3169,14 @@ def stable_group_index(value: str, n_groups: int) -> int:
     return int.from_bytes(digest[:8], byteorder="big", signed=False) % n_groups
 
 
-def cv_oof_proba(estimator: BaseEstimator, X: pd.DataFrame, y: np.ndarray, n_splits: int, seed: int) -> np.ndarray:
+def cv_oof_proba(
+    estimator: BaseEstimator,
+    X: pd.DataFrame,
+    y: np.ndarray,
+    n_splits: int,
+    seed: int,
+    imbalance_strategy: str = "none",
+) -> np.ndarray:
     """Compute out-of-fold probabilities via stratified CV.
 
     Args:
@@ -2837,9 +3194,15 @@ def cv_oof_proba(estimator: BaseEstimator, X: pd.DataFrame, y: np.ndarray, n_spl
     """
     splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     out = np.full(shape=y.shape[0], fill_value=np.nan, dtype=float)
-    for tr_idx, va_idx in splitter.split(X, y):
+    for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X, y), start=1):
         model = clone(estimator)
-        model.fit(X.iloc[tr_idx], y[tr_idx])
+        model, _ = fit_estimator_with_imbalance(
+            estimator=model,
+            X_train=X.iloc[tr_idx],
+            y_train=y[tr_idx],
+            strategy=str(imbalance_strategy),
+            seed=int(seed) + int(fold_idx) * 2027,
+        )
         out[va_idx] = predict_proba_1(model, X.iloc[va_idx])
     if np.any(~np.isfinite(out)):
         raise ValueError("Failed to compute finite OOF probabilities for threshold selection.")
@@ -4335,6 +4698,7 @@ def _full_candidate_eval(
     ppv_floor: float,
     cv_splits: int,
     random_seed: int,
+    imbalance_strategy: str,
 ) -> Dict[str, Any]:
     """Full train-calibrate-threshold-evaluate-risk pipeline for one candidate.
 
@@ -4360,19 +4724,25 @@ def _full_candidate_eval(
         estimator, calibrator, and all per-split metrics/confusion matrices.
     """
     est = clone(estimator_map[model_id])
-    est.fit(X_train, y_train)
+    est, _ = fit_estimator_with_imbalance(
+        estimator=est,
+        X_train=X_train,
+        y_train=y_train,
+        strategy=imbalance_strategy,
+        seed=int(random_seed),
+    )
     # Threshold data
     if threshold_selection_split == "valid":
         t_y, t_raw = y_valid, predict_proba_1(est, X_valid)
     else:
         t_y = y_train
-        t_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed)
+        t_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed, imbalance_strategy=imbalance_strategy)
     # Calibration data
     if calibration_fit_split == "valid":
         c_y, c_raw = y_valid, predict_proba_1(est, X_valid)
     else:
         c_y = y_train
-        c_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed)
+        c_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed, imbalance_strategy=imbalance_strategy)
     cal = fit_probability_calibrator(c_y, c_raw, calibration_method, int(random_seed))
     t_proba = apply_probability_calibrator(cal, t_raw)
     # Guard split
@@ -4381,7 +4751,7 @@ def _full_candidate_eval(
         g_proba = apply_probability_calibrator(cal, predict_proba_1(est, X_valid))
     else:
         g_y = y_train
-        g_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed)
+        g_raw = cv_oof_proba(est, X_train, y_train, cv_splits, random_seed, imbalance_strategy=imbalance_strategy)
         g_proba = apply_probability_calibrator(cal, g_raw)
     info = choose_threshold(
         t_y, t_proba, beta, sensitivity_floor, npv_floor,
@@ -4580,15 +4950,97 @@ def main() -> int:
     minority_count = int(min(positive_count, negative_count))
     majority_count = int(max(positive_count, negative_count))
     imbalance_ratio = (float(majority_count) / float(minority_count)) if minority_count > 0 else float("inf")
-    _cw_override = str(getattr(args, 'class_weight_override', 'auto')).strip().lower()
-    if _cw_override == "balanced":
-        effective_class_weight: Optional[str] = "balanced"
-    elif _cw_override == "none":
-        effective_class_weight = None
-    else:
-        effective_class_weight = "balanced" if imbalance_ratio >= 1.5 else None
+    selected_imbalance_metric = str(getattr(args, "imbalance_selection_metric", "pr_auc")).strip().lower()
+    if selected_imbalance_metric not in {"pr_auc", "roc_auc"}:
+        raise SystemExit("--imbalance-selection-metric must be pr_auc or roc_auc.")
+    imbalance_candidates = resolve_imbalance_strategy_candidates(
+        candidates_arg=str(getattr(args, "imbalance_strategy_candidates", "")),
+        single_arg=str(getattr(args, "imbalance_strategy", "")),
+        class_weight_override=str(getattr(args, "class_weight_override", "auto")),
+        imbalance_ratio=float(imbalance_ratio),
+    )
+    if not imbalance_candidates:
+        imbalance_candidates = ["none"]
+    strategy_probe_rows: List[Dict[str, Any]] = []
+    selected_imbalance_strategy = str(imbalance_candidates[0])
 
     resolved_dev = resolve_device(str(getattr(args, 'device', 'cpu')))
+
+    if len(imbalance_candidates) > 1:
+        probe_results: List[Dict[str, Any]] = []
+        for idx, strategy in enumerate(imbalance_candidates):
+            probe_class_weight = "balanced" if strategy == "class_weight" else None
+            try:
+                probe_estimator = _build_estimator_for_family(
+                    family="logistic_l2",
+                    params={"C": 1.0},
+                    seed=int(args.random_seed),
+                    imputation_strategy=str(imputation["executed_strategy"]),
+                    class_weight=probe_class_weight,
+                    n_jobs=int(getattr(args, "n_jobs", -1)),
+                    device=resolved_dev,
+                )
+                mean_score, std_score, n_folds, _ = cv_score_pr_auc(
+                    estimator=probe_estimator,
+                    X=X_train,
+                    y=y_train,
+                    n_splits=args.cv_splits,
+                    seed=int(args.random_seed) + (idx * 17),
+                    imbalance_strategy=str(strategy),
+                    score_metric=selected_imbalance_metric,
+                )
+                probe_results.append(
+                    {
+                        "strategy": str(strategy),
+                        "status": "pass",
+                        "selection_metric": selected_imbalance_metric,
+                        "mean": float(mean_score),
+                        "std": float(std_score),
+                        "n_folds": int(n_folds),
+                    }
+                )
+            except Exception as exc:
+                probe_results.append(
+                    {
+                        "strategy": str(strategy),
+                        "status": "fail",
+                        "selection_metric": selected_imbalance_metric,
+                        "error": str(exc),
+                    }
+                )
+        passed = [row for row in probe_results if row.get("status") == "pass"]
+        if not passed:
+            error_tokens: List[str] = []
+            for row in probe_results:
+                strategy_name = str(row.get("strategy", "unknown"))
+                err = str(row.get("error", "unknown_error")).strip() or "unknown_error"
+                error_tokens.append(f"{strategy_name}={err}")
+            detail = "; ".join(error_tokens)
+            raise SystemExit(
+                "imbalance_strategy_probe_failed: all requested imbalance strategies failed during CV probe. "
+                f"details: {detail}"
+            )
+        selected_probe = sorted(
+            passed,
+            key=lambda row: (
+                -float(row.get("mean", 0.0)),
+                float(row.get("std", 0.0)),
+                str(row.get("strategy", "")),
+            ),
+        )[0]
+        selected_imbalance_strategy = str(selected_probe.get("strategy"))
+        strategy_probe_rows = probe_results
+    else:
+        strategy_probe_rows = [
+            {
+                "strategy": str(selected_imbalance_strategy),
+                "status": "pass",
+                "selection_metric": selected_imbalance_metric,
+                "selection_mode": "single_strategy_no_probe",
+            }
+        ]
+
+    effective_class_weight: Optional[str] = "balanced" if selected_imbalance_strategy == "class_weight" else None
     model_pool_config["train_rows"] = int(X_train.shape[0])
     model_pool_config["feature_count"] = len(selected_features)
     if str(model_pool_config.get("search_strategy", "")).strip().lower() == "optuna":
@@ -4634,11 +5086,23 @@ def main() -> int:
         print(f"[PROGRESS] {cand_idx + 1}/{n_candidates} {mid}", file=sys.stderr, flush=True)
         if selection_data == "cv_inner":
             mean_score, std_score, n_folds, fold_scores = cv_score_pr_auc(
-                cand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
+                cand["estimator"],
+                X_train,
+                y_train,
+                n_splits=args.cv_splits,
+                seed=args.random_seed,
+                imbalance_strategy=selected_imbalance_strategy,
+                score_metric="pr_auc",
             )
         else:
             model = clone(cand["estimator"])
-            model.fit(X_train, y_train)
+            model, _ = fit_estimator_with_imbalance(
+                estimator=model,
+                X_train=X_train,
+                y_train=y_train,
+                strategy=selected_imbalance_strategy,
+                seed=int(args.random_seed),
+            )
             valid_proba = predict_proba_1(model, X_valid)
             mean_score = float(average_precision_score(y_valid, valid_proba))
             std_score = 0.0
@@ -4688,11 +5152,23 @@ def main() -> int:
         for ecand in ensemble_cands:
             if selection_data == "cv_inner":
                 mean_score, std_score, n_folds, fold_scores = cv_score_pr_auc(
-                    ecand["estimator"], X_train, y_train, n_splits=args.cv_splits, seed=args.random_seed
+                    ecand["estimator"],
+                    X_train,
+                    y_train,
+                    n_splits=args.cv_splits,
+                    seed=args.random_seed,
+                    imbalance_strategy=selected_imbalance_strategy,
+                    score_metric="pr_auc",
                 )
             else:
                 emodel = clone(ecand["estimator"])
-                emodel.fit(X_train, y_train)
+                emodel, _ = fit_estimator_with_imbalance(
+                    estimator=emodel,
+                    X_train=X_train,
+                    y_train=y_train,
+                    strategy=selected_imbalance_strategy,
+                    seed=int(args.random_seed),
+                )
                 valid_proba = predict_proba_1(emodel, X_valid)
                 mean_score = float(average_precision_score(y_valid, valid_proba))
                 std_score = 0.0
@@ -4735,7 +5211,13 @@ def main() -> int:
         row["selected"] = bool(row["model_id"] == selected_model_id)
     selected_candidate_row = next((row for row in candidate_rows if bool(row.get("selected"))), None)
     selected_estimator = clone(estimator_map[selected_model_id])
-    selected_estimator.fit(X_train, y_train)
+    selected_estimator, selected_fit_meta = fit_estimator_with_imbalance(
+        estimator=selected_estimator,
+        X_train=X_train,
+        y_train=y_train,
+        strategy=selected_imbalance_strategy,
+        seed=int(args.random_seed),
+    )
     if threshold_selection_split == "valid":
         threshold_y = y_valid
         threshold_proba_raw = predict_proba_1(selected_estimator, X_valid)
@@ -4747,6 +5229,7 @@ def main() -> int:
             y=y_train,
             n_splits=args.cv_splits,
             seed=args.random_seed,
+            imbalance_strategy=selected_imbalance_strategy,
         )
     if calibration_fit_split == "valid":
         calibration_y = y_valid
@@ -4759,6 +5242,7 @@ def main() -> int:
             y=y_train,
             n_splits=args.cv_splits,
             seed=args.random_seed,
+            imbalance_strategy=selected_imbalance_strategy,
         )
     calibrator = fit_probability_calibrator(
         y_true=calibration_y,
@@ -4782,6 +5266,7 @@ def main() -> int:
             y=y_train,
             n_splits=args.cv_splits,
             seed=args.random_seed,
+            imbalance_strategy=selected_imbalance_strategy,
         )
         guard_proba = apply_probability_calibrator(calibrator, guard_proba_raw)
     threshold_info = choose_threshold(
@@ -4854,7 +5339,13 @@ def main() -> int:
             ),
         ]
     )
-    baseline_logit.fit(X_train, y_train)
+    baseline_logit, baseline_fit_meta = fit_estimator_with_imbalance(
+        estimator=baseline_logit,
+        X_train=X_train,
+        y_train=y_train,
+        strategy=selected_imbalance_strategy,
+        seed=int(args.random_seed) + 313,
+    )
     baseline_logit_proba_test = predict_proba_1(baseline_logit, X_test)
     logistic_baseline = {
         "roc_auc": float(roc_auc_score(y_test, baseline_logit_proba_test)),
@@ -4890,6 +5381,10 @@ def main() -> int:
             "one_se_rule": True,
             "complexity_tie_breaker": "prefer_lower_complexity_rank",
             "test_used_for_model_selection": False,
+            "imbalance_strategy": selected_imbalance_strategy,
+            "imbalance_strategy_candidates": list(imbalance_candidates),
+            "imbalance_selection_metric": selected_imbalance_metric,
+            "imbalance_probe": strategy_probe_rows,
             "model_pool": list(model_pool_config.get("model_pool", [])),
             "required_models": list(model_pool_config.get("required_models", [])),
             "auto_added_required_models": list(model_pool_config.get("auto_added_required_models", [])),
@@ -4959,6 +5454,7 @@ def main() -> int:
             npv_floor=npv_floor, specificity_floor=specificity_floor,
             ppv_floor=ppv_floor, cv_splits=args.cv_splits,
             random_seed=args.random_seed,
+            imbalance_strategy=selected_imbalance_strategy,
         )
         best_alt: Optional[Dict[str, Any]] = None
         for rnd, alt_row in enumerate(alt_candidates, start=1):
@@ -5257,6 +5753,7 @@ def main() -> int:
                 "threshold_guard_split": "valid" if threshold_selection_split == "cv_inner" else "cv_inner_oof_train",
                 "regularization_enabled": True,
                 "class_weight": effective_class_weight if effective_class_weight is not None else "none",
+                "imbalance_strategy": selected_imbalance_strategy,
             },
             "calibration": {
                 "method": calibration_method,
@@ -5281,6 +5778,12 @@ def main() -> int:
                 "imbalance_ratio_majority_to_minority": (
                     float(imbalance_ratio) if math.isfinite(imbalance_ratio) else None
                 ),
+                "selected_strategy": selected_imbalance_strategy,
+                "candidate_strategies": list(imbalance_candidates),
+                "selection_metric": selected_imbalance_metric,
+                "strategy_probe": strategy_probe_rows,
+                "selected_fit": selected_fit_meta,
+                "baseline_fit": baseline_fit_meta,
                 "effective_class_weight": effective_class_weight if effective_class_weight is not None else "none",
                 "class_weight_activation_threshold": 1.5,
             },
@@ -5640,7 +6143,13 @@ def main() -> int:
             if selected_model_id not in seed_estimator_map:
                 raise ValueError(f"Selected model_id not found in seeded candidate map: {selected_model_id}")
             seed_estimator = clone(seed_estimator_map[selected_model_id])
-            seed_estimator.fit(X_train, y_train)
+            seed_estimator, _ = fit_estimator_with_imbalance(
+                estimator=seed_estimator,
+                X_train=X_train,
+                y_train=y_train,
+                strategy=selected_imbalance_strategy,
+                seed=int(seed),
+            )
 
             if threshold_selection_split == "valid":
                 threshold_y_seed = y_valid
@@ -5653,6 +6162,7 @@ def main() -> int:
                     y=y_train,
                     n_splits=args.cv_splits,
                     seed=seed,
+                    imbalance_strategy=selected_imbalance_strategy,
                 )
             if calibration_fit_split == "valid":
                 calibration_y_seed = y_valid
@@ -5665,6 +6175,7 @@ def main() -> int:
                     y=y_train,
                     n_splits=args.cv_splits,
                     seed=seed,
+                    imbalance_strategy=selected_imbalance_strategy,
                 )
             calibrator_seed = fit_probability_calibrator(
                 y_true=calibration_y_seed,

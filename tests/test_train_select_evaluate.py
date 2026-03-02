@@ -716,3 +716,100 @@ class TestCLIMissingFile:
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=str(SCRIPTS_DIR))
         assert proc.returncode != 0
+
+
+class TestCLIImbalanceStrategyCandidates:
+    @staticmethod
+    def _write_split(path: Path, n_rows: int, seed: int) -> None:
+        rng = np.random.default_rng(seed)
+        x1 = rng.normal(loc=0.0, scale=1.0, size=n_rows)
+        x2 = rng.normal(loc=0.0, scale=1.0, size=n_rows)
+        logits = 1.3 * x1 + 0.8 * x2 - 0.1
+        prob = 1.0 / (1.0 + np.exp(-logits))
+        y = (rng.uniform(0.0, 1.0, size=n_rows) < prob).astype(int)
+        if int(np.sum(y == 1)) == 0:
+            y[0] = 1
+        if int(np.sum(y == 0)) == 0:
+            y[0] = 0
+        base_time = pd.Timestamp("2024-01-01")
+        df = pd.DataFrame(
+            {
+                "patient_id": [f"P{idx:05d}" for idx in range(n_rows)],
+                "event_time": [(base_time + pd.Timedelta(days=int(idx))).strftime("%Y-%m-%d %H:%M") for idx in range(n_rows)],
+                "y": y.astype(int),
+                "f1": x1.astype(float),
+                "f2": x2.astype(float),
+            }
+        )
+        df.to_csv(path, index=False)
+
+    def test_candidates_probe_runs_and_writes_selection(self, tmp_path):
+        train_csv = tmp_path / "train.csv"
+        valid_csv = tmp_path / "valid.csv"
+        test_csv = tmp_path / "test.csv"
+        out_ms = tmp_path / "model_selection_report.json"
+        out_eval = tmp_path / "evaluation_report.json"
+
+        self._write_split(train_csv, n_rows=160, seed=101)
+        self._write_split(valid_csv, n_rows=60, seed=102)
+        self._write_split(test_csv, n_rows=60, seed=103)
+
+        cmd = [
+            sys.executable,
+            str(SCRIPTS_DIR / "train_select_evaluate.py"),
+            "--train",
+            str(train_csv),
+            "--valid",
+            str(valid_csv),
+            "--test",
+            str(test_csv),
+            "--target-col",
+            "y",
+            "--patient-id-col",
+            "patient_id",
+            "--ignore-cols",
+            "patient_id,event_time",
+            "--selection-data",
+            "cv_inner",
+            "--cv-splits",
+            "3",
+            "--model-pool",
+            "logistic_l1,logistic_l2,logistic_elasticnet",
+            "--max-trials-per-family",
+            "1",
+            "--hyperparam-search",
+            "fixed_grid",
+            "--imbalance-strategy-candidates",
+            "auto,random_oversample,smote,adasyn",
+            "--imbalance-selection-metric",
+            "pr_auc",
+            "--bootstrap-resamples",
+            "30",
+            "--permutation-resamples",
+            "20",
+            "--fast-diagnostic-mode",
+            "--model-selection-report-out",
+            str(out_ms),
+            "--evaluation-report-out",
+            str(out_eval),
+        ]
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=str(SCRIPTS_DIR))
+        assert proc.returncode == 0, proc.stderr
+        assert out_ms.exists()
+        assert out_eval.exists()
+
+        ms = json.loads(out_ms.read_text(encoding="utf-8"))
+        policy = ms.get("selection_policy", {})
+        probe = policy.get("imbalance_probe", [])
+        assert isinstance(probe, list) and len(probe) >= 1
+        assert any(str(row.get("status")) == "pass" for row in probe)
+
+        selected_strategy = str(policy.get("imbalance_strategy", ""))
+        candidate_strategies = policy.get("imbalance_strategy_candidates", [])
+        assert selected_strategy
+        assert selected_strategy in candidate_strategies
+
+        evaluation = json.loads(out_eval.read_text(encoding="utf-8"))
+        metadata_imbalance = evaluation.get("metadata", {}).get("imbalance", {})
+        assert str(metadata_imbalance.get("selected_strategy", "")) == selected_strategy
