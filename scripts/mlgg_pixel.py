@@ -134,11 +134,12 @@ _T: Dict[str, Dict[str, str]] = {
     "s_confirm":     {"en": "Confirm", "zh": "\u786e\u8ba4"},
     "s_run":         {"en": "Execute", "zh": "\u6267\u884c"},
 
-    "src_download":  {"en": "Download UCI Dataset", "zh": "\u4e0b\u8f7d UCI \u6570\u636e\u96c6"},
-    "src_download_d":{"en": "Real medical datasets (heart, breast, kidney)",
-                      "zh": "\u771f\u5b9e\u533b\u5b66\u6570\u636e\u96c6\uff08\u5fc3\u810f\u3001\u4e73\u817a\u3001\u80be\u75c5\uff09"},
-    "src_csv":       {"en": "Use Your Own CSV", "zh": "\u4f7f\u7528\u4f60\u7684 CSV"},
-    "src_csv_d":     {"en": "Bring your own dataset", "zh": "\u4f7f\u7528\u81ea\u5df1\u7684\u6570\u636e\u96c6"},
+    "src_download":  {"en": "Built-in test datasets", "zh": "\u5185\u7f6e\u6d4b\u8bd5\u6570\u636e\u96c6"},
+    "src_download_d":{"en": "Choose from curated UCI medical datasets",
+                      "zh": "\u4ece\u9884\u7f6e UCI \u533b\u5b66\u6570\u636e\u96c6\u4e2d\u9009\u62e9"},
+    "src_csv":       {"en": "Use your own dataset (CSV)", "zh": "\u4f7f\u7528\u81ea\u5df1\u7684\u6570\u636e\u96c6\uff08CSV\uff09"},
+    "src_csv_d":     {"en": "Load your local CSV and map columns",
+                      "zh": "\u52a0\u8f7d\u672c\u5730 CSV \u5e76\u914d\u7f6e\u5b57\u6bb5\u6620\u5c04"},
     "src_demo":      {"en": "Demo (Synthetic Data)", "zh": "\u6f14\u793a\uff08\u5408\u6210\u6570\u636e\uff09"},
     "src_demo_d":    {"en": "Auto-generated, great for first run",
                       "zh": "\u81ea\u52a8\u751f\u6210\uff0c\u9002\u5408\u9996\u6b21\u4f53\u9a8c"},
@@ -1139,22 +1140,12 @@ def step_lang(state: Dict) -> Any:
 def step_source(state: Dict) -> Any:
     _clear()
     step_header(2, TOTAL_STEPS, t("s_source"))
-    hist = _load_history()
-    opts = [t("src_download"), t("src_csv"), t("src_demo"), t("src_full")]
-    descs = [t("src_download_d"), t("src_csv_d"), t("src_demo_d"), t("src_full_d")]
-    if hist:
-        opts.append(t("src_repeat"))
-        descs.append(t("src_repeat_d"))
+    opts = [t("src_download"), t("src_csv")]
+    descs = [t("src_download_d"), t("src_csv_d")]
     ci = select(opts, descs)
     if ci < 0:
         return BACK
-    if hist and ci == 4:
-        for k, v in hist.items():
-            if not k.startswith("_"):
-                state[k] = v
-        state["_from_history"] = True
-        return True
-    state["source"] = ["download", "csv", "demo", "full"][ci]
+    state["source"] = ["download", "csv"][ci]
     return True
 
 

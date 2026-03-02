@@ -54,6 +54,32 @@ def test_split_strategy_order_is_source_aware() -> None:
     assert_true(demo_src[0] == "grouped_temporal", "demo source default strategy keeps grouped_temporal")
 
 
+def test_source_step_has_only_builtin_or_csv_paths() -> None:
+    print("\n=== play: source step exposes only builtin dataset vs own csv ===")
+    original_select = play.select
+    captured = {}
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            captured["opts"] = list(opts)
+            captured["descs"] = list(descs) if isinstance(descs, list) else []
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        state = {}
+        result = play.step_source(state)
+        assert_true(result is True, "step_source returns success")
+        assert_true(len(captured.get("opts", [])) == 2, "step_source presents exactly two options")
+        assert_true(state.get("source") == "download", "source option 0 maps to download builtin datasets")
+
+        play.select = lambda opts, descs=None, title="", is_first=False: 1  # type: ignore[assignment]
+        state2 = {}
+        result2 = play.step_source(state2)
+        assert_true(result2 is True, "step_source returns success for option 1")
+        assert_true(state2.get("source") == "csv", "source option 1 maps to user csv")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+
+
 def test_recommended_trials_respect_search_mode_and_rows() -> None:
     print("\n=== play: recommended max trials uses search mode + n_rows ===")
     assert_true(
@@ -177,6 +203,7 @@ def test_wizard_exits_nonzero_when_run_step_fails() -> None:
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
+    test_source_step_has_only_builtin_or_csv_paths()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
