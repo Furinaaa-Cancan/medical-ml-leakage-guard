@@ -48,6 +48,8 @@ Important:
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - For small datasets (for example UCI heart/breast/ckd), prefer:
   `python3 scripts/mlgg.py play -- --strict-small-sample`
+- If you want `play` to exit non-zero on quick-readiness blockers, use:
+  `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
 
 **Want to use real medical data instead of demo?** Download a real UCI dataset:
 
@@ -618,6 +620,8 @@ python3 scripts/mlgg.py play
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - 小样本数据（如 UCI heart/breast/ckd）建议使用：
   `python3 scripts/mlgg.py play -- --strict-small-sample`
+- 如果你希望 `play` 在出现快速就绪阻断项时直接返回非 0 退出码，请使用：
+  `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
 
 **想用真实医学数据代替 demo？** 一键下载 UCI 公开数据集：
 

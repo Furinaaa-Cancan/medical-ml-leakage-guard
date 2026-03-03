@@ -370,6 +370,8 @@ _T: Dict[str, Dict[str, str]] = {
     "r_play_status_not_ready": {"en": "NOT READY (play)", "zh": "\u672a\u5c31\u7eea\uff08play\uff09"},
     "r_play_status_warn": {"en": "CAUTION (play)", "zh": "\u9700\u8c28\u614e\uff08play\uff09"},
     "r_play_status_pass": {"en": "GOOD (play)", "zh": "\u826f\u597d\uff08play\uff09"},
+    "r_play_blocking_fail": {"en": "Play run failed due to blocking readiness items.",
+                             "zh": "play \u8fd0\u884c\u56e0\u5c31\u7eea\u963b\u65ad\u9879\u5931\u8d25\u3002"},
     "r_pub_gate_not_run_label": {"en": "Publication gate", "zh": "\u51fa\u7248\u7ea7\u95e8\u63a7"},
     "r_pub_gate_not_run_value": {"en": "NOT RUN (use workflow --strict)", "zh": "\u672a\u8fd0\u884c\uff08\u8bf7\u7528 workflow --strict\uff09"},
     "r_verdict_not_ready": {"en": "Not strict release-ready", "zh": "\u672a\u8fbe\u4e25\u683c\u53d1\u5e03\u6761\u4ef6"},
@@ -2918,6 +2920,9 @@ def step_run(state: Dict) -> Any:
         "  data/      -- train / valid / test splits",
     ], color="G")
 
+    play_blockers: List[str] = []
+    play_advisories: List[str] = []
+
     # Show key metrics from evaluation report
     try:
         eval_path = Path(evidence_dir) / "evaluation_report.json"
@@ -3248,6 +3253,8 @@ def step_run(state: Dict) -> Any:
                     advisories.append("overfitting_medium_risk")
                 blockers.extend([x for x in tripod_blockers if x not in blockers])
                 advisories.extend([x for x in tripod_warnings if x not in advisories and x not in blockers])
+                play_blockers = list(blockers)
+                play_advisories = list(advisories)
 
                 if blockers:
                     overall_tag = s('R', t("r_play_status_not_ready"), bold=True)
@@ -3379,6 +3386,16 @@ def step_run(state: Dict) -> Any:
     except Exception:
         pass
 
+    state["_play_readiness_blockers"] = list(play_blockers)
+    state["_play_readiness_advisories"] = list(play_advisories)
+    if bool(state.get("_fail_on_play_blockers", False)) and play_blockers:
+        print(f"\n  {s('R', t('r_play_blocking_fail'))}")
+        for item in play_blockers[:6]:
+            print(f"  - {item}")
+        state.pop("_from_history", None)
+        _save_history(state)
+        return FAIL
+
     # Save run to history
     state.pop("_from_history", None)
     _save_history(state)
@@ -3395,6 +3412,7 @@ def wizard(
     dry_run: bool = False,
     strict_small_sample: bool = False,
     strict_small_sample_max_rows: int = STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS,
+    fail_on_play_blockers: bool = False,
 ) -> int:
     global LANG
     LANG = detect_lang()
@@ -3403,6 +3421,7 @@ def wizard(
         "_dry_run": dry_run,
         "_strict_small_sample": bool(strict_small_sample),
         "_strict_small_sample_max_rows": int(strict_small_sample_max_rows),
+        "_fail_on_play_blockers": bool(fail_on_play_blockers),
     }
     steps = [step_lang, step_source, step_dataset, step_config,
              step_split, step_imbalance, step_models, step_tuning,
@@ -3475,6 +3494,15 @@ def main() -> int:
         default=STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS,
         help=f"Row-count threshold for --strict-small-sample (default: {STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS}).",
     )
+    parser.add_argument(
+        "--fail-on-play-blockers",
+        action="store_true",
+        default=False,
+        help=(
+            "Return non-zero when play quick-readiness contains blocking items "
+            "(not a replacement for workflow --strict)."
+        ),
+    )
     args, _ = parser.parse_known_args()
     if int(args.strict_small_sample_max_rows) < 1:
         raise SystemExit("--strict-small-sample-max-rows must be >= 1.")
@@ -3483,6 +3511,7 @@ def main() -> int:
         dry_run=args.dry_run,
         strict_small_sample=bool(args.strict_small_sample),
         strict_small_sample_max_rows=int(args.strict_small_sample_max_rows),
+        fail_on_play_blockers=bool(args.fail_on_play_blockers),
     )
 
 
