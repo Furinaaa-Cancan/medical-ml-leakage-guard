@@ -228,6 +228,39 @@ def test_export_cli_uses_selected_features_via_ignore_cols() -> None:
     )
 
 
+def test_select_supports_inline_search_filtering() -> None:
+    print("\n=== play: single-select menu supports inline search filtering ===")
+    original_getch = play._getch
+    try:
+        keys = iter(["/", "c", "a", "d", "ENTER", "ENTER"])
+        play._getch = lambda text_mode=False: next(keys)  # type: ignore[assignment]
+        idx = play.select(
+            ["patient_id", "event_time", "cad", "age"],
+            ["id", "time", "binary", "numeric"],
+            title="search-test",
+        )
+        assert_true(idx == 2, "search filter narrows options and Enter selects filtered candidate")
+    finally:
+        play._getch = original_getch  # type: ignore[assignment]
+
+
+def test_multi_select_supports_inline_search_filtering() -> None:
+    print("\n=== play: multi-select menu supports inline search filtering ===")
+    original_getch = play._getch
+    try:
+        keys = iter(["/", "f", "e", "a", "t", "ENTER", "A", "ENTER"])
+        play._getch = lambda text_mode=False: next(keys)  # type: ignore[assignment]
+        selected = play.multi_select(
+            ["feat_a", "feat_b", "age", "bp"],
+            ["", "", "", ""],
+            title="search-ms-test",
+            defaults=[],
+        )
+        assert_true(selected == [0, 1], "search + A selects all filtered feature options")
+    finally:
+        play._getch = original_getch  # type: ignore[assignment]
+
+
 def test_imbalance_step_supports_multiselect_and_metric() -> None:
     print("\n=== play: imbalance step supports multi-select with selection metric ===")
     original_multi_select = play.multi_select
@@ -1430,6 +1463,8 @@ def main() -> int:
     test_download_dataset_menu_uses_stable_triplet()
     test_step_config_custom_csv_supports_target_and_feature_selection()
     test_export_cli_uses_selected_features_via_ignore_cols()
+    test_select_supports_inline_search_filtering()
+    test_multi_select_supports_inline_search_filtering()
     test_imbalance_step_supports_multiselect_and_metric()
     test_tuning_calibration_menu_includes_human_readable_descriptions()
     test_tuning_optuna_input_accepts_back_token()

@@ -122,6 +122,11 @@ _T: Dict[str, Dict[str, str]] = {
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u9000\u51fa"},
     "ms_hint":       {"en": "[\u2191\u2193] move  [Space] check/uncheck  [Enter] confirm  [a] all  [\u2190/q] back",
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u52fe\u9009/\u53d6\u6d88\u52fe\u9009  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [\u2190/q] \u8fd4\u56de"},
+    "nav_search_suffix": {"en": "  [/] search  [c] clear",
+                          "zh": "  [/] \u641c\u7d22  [c] \u6e05\u9664"},
+    "search_prompt": {"en": "Search keyword", "zh": "\u641c\u7d22\u5173\u952e\u8bcd"},
+    "search_no_match": {"en": "No match for current keyword.", "zh": "\u5f53\u524d\u5173\u952e\u8bcd\u65e0\u5339\u914d\u9879\u3002"},
+    "search_filter": {"en": "Filter: {q} ({m}/{n})", "zh": "\u8fc7\u6ee4\uff1a{q} ({m}/{n})"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
@@ -198,6 +203,9 @@ _T: Dict[str, Dict[str, str]] = {
     "target_binary_like": {"en": "binary-like in sample (positive≈{pct}%)", "zh": "\u6837\u672c\u4e2d\u7c7b\u4f3c\u4e8c\u5206\u7c7b\uff08\u9633\u6027\u2248{pct}%\uff09"},
     "target_binary_single_class": {"en": "binary-like but sample has one class only", "zh": "\u6837\u672c\u4e2d\u7c7b\u4f3c\u4e8c\u5206\u7c7b\uff0c\u4f46\u4ec5\u6709\u5355\u7c7b"},
     "target_not_binary": {"en": "sample appears non-binary", "zh": "\u6837\u672c\u503c\u57df\u4e0d\u50cf\u4e8c\u5206\u7c7b"},
+    "pid_unique_high": {"en": "high uniqueness (~{pct}%, good ID candidate)", "zh": "\u552f\u4e00\u6027\u9ad8\uff08~{pct}%\uff0c\u9002\u5408 ID\uff09"},
+    "pid_unique_low": {"en": "low uniqueness (~{pct}%, unlikely ID)", "zh": "\u552f\u4e00\u6027\u4f4e\uff08~{pct}%\uff0c\u4e0d\u50cf ID\uff09"},
+    "pid_unique_mid": {"en": "uniqueness ~{pct}%", "zh": "\u552f\u4e00\u6027 ~{pct}%"},
     "feature_time_hint": {"en": "time-like column (usually not a predictor)", "zh": "\u65f6\u95f4\u7c7b\u5217\uff08\u901a\u5e38\u4e0d\u4f5c\u4e3a\u9884\u6d4b\u7279\u5f81\uff09"},
     "feature_choose_at_least_one": {"en": "Please select at least one predictor feature.",
                                     "zh": "\u8bf7\u81f3\u5c11\u9009\u62e9 1 \u4e2a\u9884\u6d4b\u7279\u5f81\u3002"},
@@ -669,77 +677,128 @@ def select(options: List[str], descs: Optional[List[str]] = None,
     term_h = shutil.get_terminal_size((80, 24)).lines
     max_vis = max(min(n, term_h - 10), 5)
     offset = 0
+    search_query = ""
+    search_mode = False
+
+    def _filtered_indices() -> List[int]:
+        needle = search_query.strip().casefold()
+        if not needle:
+            return list(range(n))
+        out: List[int] = []
+        for idx, name in enumerate(options):
+            hay = str(name)
+            if has_desc and descs and descs[idx]:
+                hay += f" {descs[idx]}"
+            if needle in hay.casefold():
+                out.append(idx)
+        return out
+
+    def _normalize_selection(filtered: List[int]) -> int:
+        nonlocal sel, offset
+        if not filtered:
+            sel = 0
+            offset = 0
+            return -1
+        if sel not in filtered:
+            sel = filtered[0]
+        pos = filtered.index(sel)
+        if pos < offset:
+            offset = pos
+        if pos >= offset + max_vis:
+            offset = max(pos - max_vis + 1, 0)
+        return pos
 
     def _draw() -> int:
         sys.stdout.write(HIDE_CUR); sys.stdout.flush()
         lc = 0
+        filtered = _filtered_indices()
+        pos = _normalize_selection(filtered)
         if title:
             print(f"  {s('C', title, bold=True)}")
             print()
             lc += 2
-        end = min(offset + max_vis, n)
-        if offset > 0:
-            print(f"  {DIM}  \u25b2 {offset} more{RST}")
+        if search_query.strip():
+            typing_suffix = "  [typing]" if search_mode else ""
+            print(f"  {DIM}{t('search_filter', q=search_query, m=len(filtered), n=n)}{typing_suffix}{RST}")
             lc += 1
-        for i in range(offset, end):
-            lbl = _trunc(options[i], maxw - 4)
-            if i == sel:
-                line = f"  {s('C','>', bold=True)} {BG['b']}{FG['W']}{BOLD} {lbl} {RST}"
-                desc_room = maxw - _wlen(lbl) - 8
-                if has_desc and descs[i] and desc_room > 8:
-                    d = _trunc(descs[i], desc_room)
-                    line += f"  {s('C', d)}"
-                print(line)
-            else:
-                line = f"    {DIM}{lbl}{RST}"
-                desc_room = maxw - _wlen(lbl) - 8
-                if has_desc and descs[i] and desc_room > 8:
-                    d = _trunc(descs[i], desc_room)
-                    line += f"  {DIM}{d}{RST}"
-                print(line)
+        if not filtered:
+            print(f"  {s('Y', t('search_no_match'))}")
             lc += 1
-        if end < n:
-            print(f"  {DIM}  \u25bc {n - end} more{RST}")
-            lc += 1
+        else:
+            end = min(offset + max_vis, len(filtered))
+            if offset > 0:
+                print(f"  {DIM}  \u25b2 {offset} more{RST}")
+                lc += 1
+            for fidx in range(offset, end):
+                i = filtered[fidx]
+                lbl = _trunc(options[i], maxw - 4)
+                if fidx == pos:
+                    line = f"  {s('C','>', bold=True)} {BG['b']}{FG['W']}{BOLD} {lbl} {RST}"
+                    desc_room = maxw - _wlen(lbl) - 8
+                    if has_desc and descs and descs[i] and desc_room > 8:
+                        d = _trunc(descs[i], desc_room)
+                        line += f"  {s('C', d)}"
+                    print(line)
+                else:
+                    line = f"    {DIM}{lbl}{RST}"
+                    desc_room = maxw - _wlen(lbl) - 8
+                    if has_desc and descs and descs[i] and desc_room > 8:
+                        d = _trunc(descs[i], desc_room)
+                        line += f"  {DIM}{d}{RST}"
+                    print(line)
+                lc += 1
+            if end < len(filtered):
+                print(f"  {DIM}  \u25bc {len(filtered) - end} more{RST}")
+                lc += 1
         print()
-        hint = t("nav_first") if is_first else t("nav")
-        print(f"  {DIM}{hint}{RST}")
+        hint_base = t("nav_first") if is_first else t("nav")
+        print(f"  {DIM}{hint_base}{t('nav_search_suffix')}{RST}")
         lc += 2
         return lc
 
     lc = _draw()
     while True:
-        key = _getch()
-        if key == "UP" and sel > 0:
-            sel -= 1
-            if sel < offset:
-                offset = sel
-        elif key == "DOWN" and sel < n - 1:
-            sel += 1
-            if sel >= offset + max_vis:
-                offset = sel - max_vis + 1
-        elif key == "PAGE_UP":
-            sel = max(sel - max_vis, 0)
-            offset = max(offset - max_vis, 0)
-            if sel < offset:
-                offset = sel
-        elif key == "PAGE_DOWN":
-            sel = min(sel + max_vis, n - 1)
-            offset = min(offset + max_vis, max(n - max_vis, 0))
-            if sel >= offset + max_vis:
-                offset = sel - max_vis + 1
+        key = _getch(text_mode=search_mode)
+        filtered = _filtered_indices()
+        pos = _normalize_selection(filtered)
+
+        if search_mode:
+            if key == "ENTER":
+                search_mode = False
+            elif key in ("ESC", "LEFT"):
+                search_mode = False
+            elif key in ("\x7f", "\x08"):
+                search_query = search_query[:-1]
+            elif key in ("CTRL_C", "CTRL_D"):
+                search_mode = False
+            elif len(key) == 1 and key.isprintable():
+                search_query += key
+            else:
+                continue
+        elif key == "UP" and filtered:
+            if pos > 0:
+                sel = filtered[pos - 1]
+        elif key == "DOWN" and filtered:
+            if pos < len(filtered) - 1:
+                sel = filtered[pos + 1]
+        elif key == "PAGE_UP" and filtered:
+            sel = filtered[max(pos - max_vis, 0)]
+        elif key == "PAGE_DOWN" and filtered:
+            sel = filtered[min(pos + max_vis, len(filtered) - 1)]
         elif key == "ENTER":
-            sys.stdout.write(SHOW_CUR); sys.stdout.flush()
-            return sel
+            if filtered:
+                sys.stdout.write(SHOW_CUR); sys.stdout.flush()
+                return sel
         elif key in ("Q", "CTRL_C", "CTRL_D", "ESC", "LEFT"):
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return -1
-        elif len(key) == 1 and key.isdigit() and 1 <= int(key) <= min(n, 9):
-            sel = int(key) - 1
-            if sel < offset:
-                offset = sel
-            elif sel >= offset + max_vis:
-                offset = sel - max_vis + 1
+        elif key == "/":
+            search_mode = True
+        elif key in ("c", "C"):
+            search_query = ""
+            search_mode = False
+        elif len(key) == 1 and key.isdigit() and filtered and 1 <= int(key) <= min(len(filtered), 9):
+            sel = filtered[int(key) - 1]
         else:
             continue
         for _ in range(lc):
@@ -761,72 +820,126 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
     term_h = shutil.get_terminal_size((80, 24)).lines
     max_vis = max(min(n, term_h - 10), 5)
     offset = 0
+    search_query = ""
+    search_mode = False
+
+    def _filtered_indices() -> List[int]:
+        needle = search_query.strip().casefold()
+        if not needle:
+            return list(range(n))
+        out: List[int] = []
+        for idx, name in enumerate(options):
+            hay = str(name)
+            if has_desc and descs and descs[idx]:
+                hay += f" {descs[idx]}"
+            if needle in hay.casefold():
+                out.append(idx)
+        return out
+
+    def _normalize_selection(filtered: List[int]) -> int:
+        nonlocal sel, offset
+        if not filtered:
+            sel = 0
+            offset = 0
+            return -1
+        if sel not in filtered:
+            sel = filtered[0]
+        pos = filtered.index(sel)
+        if pos < offset:
+            offset = pos
+        if pos >= offset + max_vis:
+            offset = max(pos - max_vis + 1, 0)
+        return pos
 
     def _draw() -> int:
         sys.stdout.write(HIDE_CUR); sys.stdout.flush()
         lc = 0
+        filtered = _filtered_indices()
+        pos = _normalize_selection(filtered)
         if title:
             print(f"  {s('C', title, bold=True)}")
             print()
             lc += 2
-        end = min(offset + max_vis, n)
-        if offset > 0:
-            print(f"  {DIM}  \u25b2 {offset} more{RST}")
+        if search_query.strip():
+            typing_suffix = "  [typing]" if search_mode else ""
+            print(f"  {DIM}{t('search_filter', q=search_query, m=len(filtered), n=n)}{typing_suffix}{RST}")
             lc += 1
-        for i in range(offset, end):
-            mark = s('G', '\u2713') if i in checked else ' '
-            lbl = _trunc(options[i], maxw - 10)
-            if i == sel:
-                line = f"  {s('C','>', bold=True)} [{mark}] {BG['b']}{FG['W']}{BOLD}{lbl}{RST}"
-                desc_room = maxw - _wlen(options[i]) - 14
-                if has_desc and descs[i] and desc_room > 8:
-                    d = _trunc(descs[i], desc_room)
-                    line += f"  {s('C', d)}"
-                print(line)
-            else:
-                line = f"    [{mark}] {DIM}{lbl}{RST}"
-                desc_room = maxw - _wlen(options[i]) - 14
-                if has_desc and descs[i] and desc_room > 8:
-                    d = _trunc(descs[i], desc_room)
-                    line += f"  {DIM}{d}{RST}"
-                print(line)
+        if not filtered:
+            print(f"  {s('Y', t('search_no_match'))}")
             lc += 1
-        if end < n:
-            print(f"  {DIM}  \u25bc {n - end} more{RST}")
-            lc += 1
+        else:
+            end = min(offset + max_vis, len(filtered))
+            if offset > 0:
+                print(f"  {DIM}  \u25b2 {offset} more{RST}")
+                lc += 1
+            for fidx in range(offset, end):
+                i = filtered[fidx]
+                mark = s('G', '\u2713') if i in checked else ' '
+                lbl = _trunc(options[i], maxw - 10)
+                if fidx == pos:
+                    line = f"  {s('C','>', bold=True)} [{mark}] {BG['b']}{FG['W']}{BOLD}{lbl}{RST}"
+                    desc_room = maxw - _wlen(options[i]) - 14
+                    if has_desc and descs and descs[i] and desc_room > 8:
+                        d = _trunc(descs[i], desc_room)
+                        line += f"  {s('C', d)}"
+                    print(line)
+                else:
+                    line = f"    [{mark}] {DIM}{lbl}{RST}"
+                    desc_room = maxw - _wlen(options[i]) - 14
+                    if has_desc and descs and descs[i] and desc_room > 8:
+                        d = _trunc(descs[i], desc_room)
+                        line += f"  {DIM}{d}{RST}"
+                    print(line)
+                lc += 1
+            if end < len(filtered):
+                print(f"  {DIM}  \u25bc {len(filtered) - end} more{RST}")
+                lc += 1
         print()
-        print(f"  {DIM}{t('ms_hint')}{RST}")
-        lc += 2
+        print(f"  {DIM}{t('ms_hint')}{t('nav_search_suffix')}{RST}")
+        lc += 1
         return lc
 
     lc = _draw()
     while True:
-        key = _getch()
-        if key == "UP" and sel > 0:
-            sel -= 1
-            if sel < offset:
-                offset = sel
-        elif key == "DOWN" and sel < n - 1:
-            sel += 1
-            if sel >= offset + max_vis:
-                offset = sel - max_vis + 1
-        elif key == "PAGE_UP":
-            sel = max(sel - max_vis, 0)
-            offset = max(offset - max_vis, 0)
-            if sel < offset:
-                offset = sel
-        elif key == "PAGE_DOWN":
-            sel = min(sel + max_vis, n - 1)
-            offset = min(offset + max_vis, max(n - max_vis, 0))
-            if sel >= offset + max_vis:
-                offset = sel - max_vis + 1
-        elif key == "SPACE":
+        key = _getch(text_mode=search_mode)
+        filtered = _filtered_indices()
+        pos = _normalize_selection(filtered)
+
+        if search_mode:
+            if key == "ENTER":
+                search_mode = False
+            elif key in ("ESC", "LEFT"):
+                search_mode = False
+            elif key in ("\x7f", "\x08"):
+                search_query = search_query[:-1]
+            elif key in ("CTRL_C", "CTRL_D"):
+                search_mode = False
+            elif len(key) == 1 and key.isprintable():
+                search_query += key
+            else:
+                continue
+        elif key == "UP" and filtered:
+            if pos > 0:
+                sel = filtered[pos - 1]
+        elif key == "DOWN" and filtered:
+            if pos < len(filtered) - 1:
+                sel = filtered[pos + 1]
+        elif key == "PAGE_UP" and filtered:
+            sel = filtered[max(pos - max_vis, 0)]
+        elif key == "PAGE_DOWN" and filtered:
+            sel = filtered[min(pos + max_vis, len(filtered) - 1)]
+        elif key == "SPACE" and filtered:
             if sel in checked:
                 checked.discard(sel)
             else:
                 checked.add(sel)
         elif key == "A":
-            if len(checked) == n:
+            if filtered and any(idx not in checked for idx in filtered):
+                checked.update(filtered)
+            elif filtered:
+                for idx in filtered:
+                    checked.discard(idx)
+            elif len(checked) == n:
                 checked.clear()
             else:
                 checked = set(range(n))
@@ -836,6 +949,13 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
         elif key in ("Q", "CTRL_C", "CTRL_D", "ESC", "LEFT"):
             sys.stdout.write(SHOW_CUR); sys.stdout.flush()
             return None
+        elif key == "/":
+            search_mode = True
+        elif key in ("c", "C"):
+            search_query = ""
+            search_mode = False
+        elif len(key) == 1 and key.isdigit() and filtered and 1 <= int(key) <= min(len(filtered), 9):
+            sel = filtered[int(key) - 1]
         else:
             continue
         for _ in range(lc):
@@ -1102,9 +1222,11 @@ def csv_column_profile(path: Path, columns: List[str], max_rows: int = 2000) -> 
             "binary_mapped": 0,
             "bin_0": 0,
             "bin_1": 0,
+            "distinct": 0,
         }
         for col in columns
     }
+    distinct_values: Dict[str, set] = {str(col): set() for col in columns}
     if not columns:
         return profile
     try:
@@ -1124,6 +1246,9 @@ def csv_column_profile(path: Path, columns: List[str], max_rows: int = 2000) -> 
                     if not raw:
                         continue
                     stats["non_empty"] += 1
+                    dset = distinct_values.get(col)
+                    if dset is not None and len(dset) < max_rows:
+                        dset.add(raw)
                     mapped = _normalize_binary_value(raw)
                     if mapped is None:
                         continue
@@ -1134,6 +1259,9 @@ def csv_column_profile(path: Path, columns: List[str], max_rows: int = 2000) -> 
                         stats["bin_0"] += 1
     except Exception:
         return profile
+    for col, stats in profile.items():
+        dset = distinct_values.get(col)
+        stats["distinct"] = int(len(dset) if isinstance(dset, set) else 0)
     return profile
 
 
@@ -1151,6 +1279,29 @@ def _target_hint_from_profile(profile: Dict[str, Dict[str, int]], column: str) -
     if non_empty > 0:
         return t("target_not_binary")
     return ""
+
+
+def _pid_hint_from_profile(profile: Dict[str, Dict[str, int]], column: str) -> str:
+    stats = profile.get(column, {})
+    non_empty = int(stats.get("non_empty", 0))
+    distinct = int(stats.get("distinct", 0))
+    if non_empty <= 0:
+        return ""
+    pct = int(round(100.0 * float(distinct) / float(max(non_empty, 1))))
+    if pct >= 95:
+        return t("pid_unique_high", pct=pct)
+    if pct <= 20:
+        return t("pid_unique_low", pct=pct)
+    return t("pid_unique_mid", pct=pct)
+
+
+def _pid_uniqueness_ratio(profile: Dict[str, Dict[str, int]], column: str) -> float:
+    stats = profile.get(column, {})
+    non_empty = int(stats.get("non_empty", 0))
+    distinct = int(stats.get("distinct", 0))
+    if non_empty <= 0:
+        return 0.0
+    return float(distinct) / float(non_empty)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1936,10 +2087,17 @@ def step_config(state: Dict) -> Any:
         if sub == 0:
             _config_header()
             pid_opts = columns[:]
-            if detected["pid"] and detected["pid"] in pid_opts:
-                pid_opts.remove(detected["pid"])
-                pid_opts.insert(0, detected["pid"])
-            pi = select(pid_opts, title=t("pick_pid"))
+            detected_pid = detected.get("pid")
+            pid_opts = sorted(
+                pid_opts,
+                key=lambda col: (
+                    0 if (detected_pid and col == detected_pid) else 1,
+                    -_pid_uniqueness_ratio(profile, col),
+                    str(col).lower(),
+                ),
+            )
+            pid_descs = [_pid_hint_from_profile(profile, col) for col in pid_opts]
+            pi = select(pid_opts, pid_descs, title=t("pick_pid"))
             if pi < 0: return BACK
             pid = pid_opts[pi]
             sub = 1

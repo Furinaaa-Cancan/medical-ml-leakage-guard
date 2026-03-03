@@ -44,6 +44,8 @@ python3 scripts/mlgg.py play
 Important:
 - `play` is a quick train/evaluate launcher for interactive exploration.
 - The “Quick Readiness (play mode)” card is **not** the 28-gate publication verdict.
+- In column/model menus, press `/` to search, `Enter` to finish search mode, and `c` to clear the filter.
+- For custom CSV, Step 4 now supports explicit selection of `Patient ID`, `Target`, and `Feature columns` (unselected features are automatically excluded from training).
 - For publication-grade pass/fail, run:
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - For small datasets (for example UCI heart/breast/ckd), prefer:
@@ -618,6 +620,8 @@ python3 scripts/mlgg.py play
 重要说明：
 - `play` 是交互式快速训练/评估入口，适合探索与教学。
 - 输出中的“快速就绪检查（play 模式）”**不是** 28 关发布门结论。
+- 在列/模型选择菜单中，按 `/` 进入搜索，`Enter` 结束搜索，`c` 清空过滤。
+- 对于自有 CSV，Step 4 现已支持显式选择 `患者ID`、`结局变量`、`特征列`（未选特征会自动排除，不参与训练）。
 - 需要 publication-grade 通过/失败结论，请运行：
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - 小样本数据（如 UCI heart/breast/ckd）建议使用：
