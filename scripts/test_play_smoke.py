@@ -509,6 +509,7 @@ def test_step_run_prunes_unavailable_optional_model_backend() -> None:
     original_spinner = play.run_spinner
     original_progress = play.run_with_progress
     original_backend_available = play.optional_backend_available
+    original_select = play.select
     captured = {"train_cmd": None}
     try:
         play.run_spinner = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
@@ -519,6 +520,7 @@ def test_step_run_prunes_unavailable_optional_model_backend() -> None:
 
         play.run_with_progress = fake_progress  # type: ignore[assignment]
         play.optional_backend_available = lambda family: False if family == "lightgbm" else True  # type: ignore[assignment]
+        play.select = lambda *args, **kwargs: 1  # type: ignore[assignment]  # choose auto-downgrade in dependency resolver
 
         state = {
             "source": "csv",
@@ -553,6 +555,140 @@ def test_step_run_prunes_unavailable_optional_model_backend() -> None:
         play.run_spinner = original_spinner  # type: ignore[assignment]
         play.run_with_progress = original_progress  # type: ignore[assignment]
         play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+        play.select = original_select  # type: ignore[assignment]
+
+
+def test_step_run_dependency_install_path_covers_optional_and_optuna() -> None:
+    print("\n=== play: step_run can one-click install optional + optuna dependencies ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    original_backend_available = play.optional_backend_available
+    original_optuna_available = play.optuna_backend_available
+    original_select = play.select
+    install_state = {"xgboost": False, "optuna": False}
+    captured = {"train_cmd": None, "pip_cmd": None}
+    try:
+        def fake_spinner(cmd, label, cwd="", timeout=1800):  # type: ignore[override]
+            text = " ".join(str(x) for x in cmd)
+            if " -m pip install " in f" {text} ":
+                captured["pip_cmd"] = list(cmd)
+                install_state["xgboost"] = True
+                install_state["optuna"] = True
+                return (0, "", "")
+            return (0, "", "")
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            captured["train_cmd"] = list(cmd)
+            return (0, "", "")
+
+        play.run_spinner = fake_spinner  # type: ignore[assignment]
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+        play.optional_backend_available = lambda family: install_state["xgboost"] if family == "xgboost" else True  # type: ignore[assignment]
+        play.optuna_backend_available = lambda: bool(install_state["optuna"])  # type: ignore[assignment]
+        play.select = lambda *args, **kwargs: 0  # type: ignore[assignment]  # choose auto-install
+
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_dep_install_case",
+            "csv_path": "/tmp/mlgg_play_dep_install_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "xgboost,logistic_l2",
+            "_model_labels": [play.t("m_xgb"), play.t("m_logistic_l2")],
+            "hyperparam_search": "optuna",
+            "optuna_trials": 20,
+            "max_trials": 12,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+        }
+        result = play.step_run(state)
+        assert_true(result is True, "step_run succeeds after one-click dependency install")
+        assert_true(captured["pip_cmd"] is not None, "pip install command is executed")
+        train_cmd = " ".join(str(x) for x in (captured["train_cmd"] or []))
+        assert_true("--model-pool xgboost,logistic_l2" in train_cmd, "model pool is preserved after successful install")
+        assert_true("--hyperparam-search optuna" in train_cmd, "optuna mode remains after successful install")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+        play.optuna_backend_available = original_optuna_available  # type: ignore[assignment]
+        play.select = original_select  # type: ignore[assignment]
+
+
+def test_step_run_dependency_cancel_fails_closed() -> None:
+    print("\n=== play: step_run dependency unresolved + cancel fails closed ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    original_backend_available = play.optional_backend_available
+    original_select = play.select
+    try:
+        play.run_spinner = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
+        play.run_with_progress = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
+        play.optional_backend_available = lambda family: False if family == "catboost" else True  # type: ignore[assignment]
+        play.select = lambda *args, **kwargs: 2  # type: ignore[assignment]  # cancel
+
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_dep_cancel_case",
+            "csv_path": "/tmp/mlgg_play_dep_cancel_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "catboost,logistic_l2",
+            "_model_labels": [play.t("m_cat"), play.t("m_logistic_l2")],
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+        }
+        result = play.step_run(state)
+        assert_true(result is play.FAIL, "step_run returns FAIL when user cancels dependency resolution")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+        play.select = original_select  # type: ignore[assignment]
+
+
+def test_collect_runtime_dependency_issues_covers_all_optional_backends() -> None:
+    print("\n=== play: runtime dependency issue collector covers all optional backends ===")
+    original_backend_available = play.optional_backend_available
+    original_optuna_available = play.optuna_backend_available
+    try:
+        missing_set = {"xgboost", "catboost", "lightgbm", "tabpfn"}
+        play.optional_backend_available = lambda family: False if family in missing_set else True  # type: ignore[assignment]
+        play.optuna_backend_available = lambda: False  # type: ignore[assignment]
+        state = {
+            "model_pool": "xgboost,catboost,lightgbm,tabpfn,logistic_l2",
+            "hyperparam_search": "optuna",
+        }
+        issues = play.collect_runtime_dependency_issues(state)
+        missing = set(str(x) for x in issues.get("missing_optional", []))
+        assert_true(missing == missing_set, "all optional model backends are detected when unavailable")
+        assert_true(bool(issues.get("optuna_missing")), "optuna missing flag is detected")
+        assert_true(bool(issues.get("has_issues")), "has_issues is true when any dependency is missing")
+    finally:
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+        play.optuna_backend_available = original_optuna_available  # type: ignore[assignment]
 
 
 def test_wizard_exits_nonzero_when_run_step_fails() -> None:
@@ -603,6 +739,9 @@ def main() -> int:
     test_strict_small_sample_profile_inactive_on_large_data()
     test_step_run_failure_returns_fail_sentinel()
     test_step_run_prunes_unavailable_optional_model_backend()
+    test_step_run_dependency_install_path_covers_optional_and_optuna()
+    test_step_run_dependency_cancel_fails_closed()
+    test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()
 
     print(f"\n{'='*50}")

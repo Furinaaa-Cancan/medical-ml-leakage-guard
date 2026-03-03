@@ -319,6 +319,21 @@ _T: Dict[str, Dict[str, str]] = {
     "adv_njobs_4":   {"en": "4 workers", "zh": "4 \u4e2a\u8fdb\u7a0b"},
     "adv_njobs_8":   {"en": "8 workers", "zh": "8 \u4e2a\u8fdb\u7a0b"},
     "adv_njobs_custom":{"en": "Custom value...", "zh": "\u81ea\u5b9a\u4e49\u6570\u503c..."},
+    "dep_fix_title": {"en": "Runtime dependency check", "zh": "\u8fd0\u884c\u65f6\u4f9d\u8d56\u68c0\u67e5"},
+    "dep_missing_optional": {"en": "Missing optional model backends:", "zh": "\u7f3a\u5c11\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1a"},
+    "dep_missing_optuna": {"en": "Optuna is required by current tuning mode but not installed.", "zh": "\u5f53\u524d\u8c03\u4f18\u6a21\u5f0f\u9700\u8981 Optuna\uff0c\u4f46\u672a\u5b89\u88c5\u3002"},
+    "dep_action_install": {"en": "Auto-install missing dependencies (one-click)", "zh": "\u81ea\u52a8\u5b89\u88c5\u7f3a\u5931\u4f9d\u8d56\uff08\u4e00\u952e\uff09"},
+    "dep_action_downgrade": {"en": "Auto-downgrade and continue training", "zh": "\u81ea\u52a8\u964d\u7ea7\u5e76\u7ee7\u7eed\u8bad\u7ec3"},
+    "dep_action_cancel": {"en": "Cancel run", "zh": "\u53d6\u6d88\u8fd0\u884c"},
+    "dep_installing": {"en": "Installing missing dependencies...", "zh": "\u6b63\u5728\u5b89\u88c5\u7f3a\u5931\u4f9d\u8d56..."},
+    "dep_install_success": {"en": "Dependency install completed.", "zh": "\u4f9d\u8d56\u5b89\u88c5\u5b8c\u6210\u3002"},
+    "dep_install_failed": {"en": "Dependency install failed.", "zh": "\u4f9d\u8d56\u5b89\u88c5\u5931\u8d25\u3002"},
+    "dep_downgrade_optional_removed": {"en": "Removed unavailable optional models:", "zh": "\u5df2\u79fb\u9664\u4e0d\u53ef\u7528\u53ef\u9009\u6a21\u578b\uff1a"},
+    "dep_downgrade_optuna": {"en": "Downgraded tuning mode: optuna -> random_subsample.", "zh": "\u5df2\u964d\u7ea7\u8c03\u4f18\u6a21\u5f0f\uff1aoptuna -> random_subsample\u3002"},
+    "dep_downgrade_model_pool": {"en": "Continuing with model pool:", "zh": "\u7ee7\u7eed\u4f7f\u7528\u6a21\u578b\u6c60\uff1a"},
+    "dep_downgrade_fallback": {"en": "No usable model remained; auto-fallback to logistic_l2.", "zh": "\u65e0\u53ef\u7528\u6a21\u578b\uff0c\u5df2\u81ea\u52a8\u56de\u9000\u5230 logistic_l2\u3002"},
+    "dep_cancelled": {"en": "Run cancelled due to unresolved dependencies.", "zh": "\u7531\u4e8e\u4f9d\u8d56\u672a\u89e3\u51b3\uff0c\u8fd0\u884c\u5df2\u53d6\u6d88\u3002"},
+    "dep_install_cmd": {"en": "Install command:", "zh": "\u5b89\u88c5\u547d\u4ee4\uff1a"},
 
     "x_download":    {"en": "Downloading {ds}...", "zh": "\u6b63\u5728\u4e0b\u8f7d {ds}..."},
     "x_split":       {"en": "Splitting with safety checks...",
@@ -1031,6 +1046,12 @@ OPTIONAL_MODEL_MODULES = {
     "lightgbm": "lightgbm",
     "tabpfn": "tabpfn",
 }
+OPTIONAL_MODEL_INSTALL_PACKAGES = {
+    "xgboost": "xgboost",
+    "catboost": "catboost",
+    "lightgbm": "lightgbm",
+    "tabpfn": "tabpfn",
+}
 # Conservative default for clinical small/medium datasets:
 # linear models are usually more stable and easier to calibrate.
 DEFAULT_MODELS = [0, 1, 2]  # L1, L2, ElasticNet
@@ -1147,7 +1168,17 @@ def optional_backend_available(model_family: str) -> bool:
     if not module_name:
         return True
     try:
+        importlib.invalidate_caches()
         return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+def optuna_backend_available() -> bool:
+    """Return True when optuna can be imported in current runtime."""
+    try:
+        importlib.invalidate_caches()
+        return importlib.util.find_spec("optuna") is not None
     except Exception:
         return False
 
@@ -1183,6 +1214,115 @@ def prune_unavailable_optional_models(state: Dict[str, Any]) -> Dict[str, Any]:
         "kept": kept,
         "fallback_used": fallback_used,
     }
+
+
+def collect_runtime_dependency_issues(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Collect missing runtime dependencies implied by current wizard selections."""
+    raw_pool = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    missing_optional: List[str] = []
+    for family in raw_pool:
+        if family in OPTIONAL_MODEL_MODULES and not optional_backend_available(family):
+            if family not in missing_optional:
+                missing_optional.append(family)
+    need_optuna = str(state.get("hyperparam_search", "")).strip().lower() == "optuna"
+    optuna_missing = bool(need_optuna and not optuna_backend_available())
+    return {
+        "missing_optional": missing_optional,
+        "optuna_missing": optuna_missing,
+        "has_issues": bool(missing_optional or optuna_missing),
+    }
+
+
+def apply_dependency_downgrade(state: Dict[str, Any], issues: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply safe fallback when user chooses not to install missing dependencies."""
+    missing_optional = [str(x) for x in issues.get("missing_optional", []) if str(x).strip()]
+    optuna_missing = bool(issues.get("optuna_missing", False))
+    removed: List[str] = []
+    if missing_optional:
+        prune_result = prune_unavailable_optional_models(state)
+        removed = [str(x) for x in prune_result.get("removed", []) if str(x).strip()]
+    downgraded_optuna = False
+    if optuna_missing and str(state.get("hyperparam_search", "")).strip().lower() == "optuna":
+        state["hyperparam_search"] = "random_subsample"
+        try:
+            current_trials = int(state.get("max_trials", 0) or 0)
+        except Exception:
+            current_trials = 0
+        if current_trials < 1:
+            state["max_trials"] = int(recommended_max_trials(state))
+        downgraded_optuna = True
+    kept = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    fallback_used = bool(len(kept) == 1 and kept[0] == "logistic_l2" and not removed)
+    return {
+        "removed_optional": removed,
+        "downgraded_optuna": downgraded_optuna,
+        "kept_model_pool": kept,
+        "fallback_used": fallback_used,
+    }
+
+
+def ensure_runtime_dependencies(state: Dict[str, Any]) -> bool:
+    """
+    Interactive runtime dependency resolver for play mode.
+    Returns True when resolved; False when user cancels or issues remain unresolved.
+    """
+    while True:
+        issues = collect_runtime_dependency_issues(state)
+        if not issues.get("has_issues", False):
+            return True
+
+        lines: List[str] = []
+        missing_optional = [str(x) for x in issues.get("missing_optional", []) if str(x).strip()]
+        optuna_missing = bool(issues.get("optuna_missing", False))
+        if missing_optional:
+            lines.append(f"{t('dep_missing_optional')} {', '.join(missing_optional)}")
+            lines.append("")
+        if optuna_missing:
+            lines.append(t("dep_missing_optuna"))
+            lines.append("")
+        install_targets: List[str] = []
+        for family in missing_optional:
+            pkg = OPTIONAL_MODEL_INSTALL_PACKAGES.get(family)
+            if pkg and pkg not in install_targets:
+                install_targets.append(pkg)
+        if optuna_missing and "optuna" not in install_targets:
+            install_targets.append("optuna")
+        if install_targets:
+            lines.append(f"{t('dep_install_cmd')} {sys.executable} -m pip install {' '.join(install_targets)}")
+        box(t("dep_fix_title"), lines, color="Y")
+
+        choice = select(
+            [t("dep_action_install"), t("dep_action_downgrade"), t("dep_action_cancel")],
+            title=t("dep_fix_title"),
+        )
+        if choice < 0 or choice == 2:
+            return False
+        if choice == 0:
+            install_cmd = [sys.executable, "-m", "pip", "install"] + install_targets
+            rc, _, err = run_spinner(install_cmd, t("dep_installing"))
+            if rc != 0:
+                print(f"\n  {s('R', t('dep_install_failed'))}")
+                if err:
+                    for line in str(err).strip().split("\n")[-3:]:
+                        print(f"  {DIM}{line}{RST}")
+                print()
+                continue
+            print(f"\n  {s('G', t('dep_install_success'))}\n")
+            continue
+
+        downgrade = apply_dependency_downgrade(state, issues)
+        removed = [str(x) for x in downgrade.get("removed_optional", []) if str(x).strip()]
+        if removed:
+            print(f"\n  {s('Y', t('dep_downgrade_optional_removed'))} {', '.join(removed)}")
+        if bool(downgrade.get("downgraded_optuna", False)):
+            print(f"  {s('Y', t('dep_downgrade_optuna'))}")
+        kept = [str(x) for x in downgrade.get("kept_model_pool", []) if str(x).strip()]
+        if kept:
+            print(f"  {s('C', t('dep_downgrade_model_pool'))} {', '.join(kept)}")
+        if bool(downgrade.get("fallback_used", False)):
+            print(f"  {s('C', t('dep_downgrade_fallback'))}")
+        print()
+        return True
 
 
 def strict_small_sample_active(state: Dict[str, Any]) -> bool:
@@ -2504,6 +2644,11 @@ def step_run(state: Dict) -> Any:
         pool_now = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
         label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
         state["_model_labels"] = [label_map.get(name, name) for name in pool_now]
+
+    if not ensure_runtime_dependencies(state):
+        print(f"  {s('R', t('dep_cancelled'))}")
+        return FAIL
+
     backend_prune = prune_unavailable_optional_models(state)
     if backend_prune.get("removed"):
         removed_text = ", ".join(str(x) for x in backend_prune["removed"])
