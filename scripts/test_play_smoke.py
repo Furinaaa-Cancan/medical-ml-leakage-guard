@@ -328,12 +328,18 @@ def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
             if title == play.t("adv_njobs"):
                 return 2  # 4 workers
             if title == play.t("adv_optional"):
-                return 1  # include optional backends
+                return 0  # keep optional backends in pool
             return 0
 
         play.select = fake_select  # type: ignore[assignment]
         play._input_line = lambda *args, **kwargs: "patient_id,event_time,site_id"  # type: ignore[assignment]
-        state = {"source": "csv", "pid": "patient_id", "time": "event_time"}
+        state = {
+            "source": "csv",
+            "pid": "patient_id",
+            "time": "event_time",
+            "model_pool": "lightgbm,logistic_l2",
+            "_model_labels": [play.t("m_lgbm"), play.t("m_logistic_l2")],
+        }
         result = play.step_advanced(state)
         assert_true(result is True, "step_advanced custom mode completes")
         assert_true(state.get("ignore_cols") == "patient_id,event_time,site_id", "custom ignore_cols is applied")
@@ -409,6 +415,38 @@ def test_advanced_ignore_select_without_columns_uses_safe_defaults() -> None:
     finally:
         play.select = original_select  # type: ignore[assignment]
         play._notice = original_notice  # type: ignore[assignment]
+
+
+def test_advanced_optional_disable_removes_optional_models() -> None:
+    print("\n=== play: advanced optional disable prunes optional models from model_pool ===")
+    original_select = play.select
+    try:
+        menu_sequence = [2, 3]  # optional policy -> done
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("adv_ask"):
+                return 1  # yes customize
+            if title == play.t("adv_menu_title"):
+                return menu_sequence.pop(0)
+            if title == play.t("adv_optional"):
+                return 1  # disable optional models
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        state = {
+            "source": "csv",
+            "pid": "patient_id",
+            "time": "event_time",
+            "model_pool": "catboost,logistic_l2",
+            "_model_labels": [play.t("m_cat"), play.t("m_logistic_l2")],
+            "include_optional_models": True,
+        }
+        result = play.step_advanced(state)
+        assert_true(result is True, "step_advanced completes with optional-disable branch")
+        assert_true(state.get("model_pool") == "logistic_l2", "optional model is removed from model_pool")
+        assert_true(bool(state.get("include_optional_models")) is False, "include_optional_models flag is disabled")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
 
 
 def test_recommended_trials_respect_search_mode_and_rows() -> None:
@@ -604,6 +642,7 @@ def test_step_run_dependency_install_path_covers_optional_and_optuna() -> None:
             "imbalance_selection_metric": "pr_auc",
             "model_pool": "xgboost,logistic_l2",
             "_model_labels": [play.t("m_xgb"), play.t("m_logistic_l2")],
+            "include_optional_models": True,
             "hyperparam_search": "optuna",
             "optuna_trials": 20,
             "max_trials": 12,
@@ -617,6 +656,7 @@ def test_step_run_dependency_install_path_covers_optional_and_optuna() -> None:
         train_cmd = " ".join(str(x) for x in (captured["train_cmd"] or []))
         assert_true("--model-pool xgboost,logistic_l2" in train_cmd, "model pool is preserved after successful install")
         assert_true("--hyperparam-search optuna" in train_cmd, "optuna mode remains after successful install")
+        assert_true("--include-optional-models" in train_cmd, "train command carries include-optional-models when enabled")
     finally:
         play.run_spinner = original_spinner  # type: ignore[assignment]
         play.run_with_progress = original_progress  # type: ignore[assignment]
@@ -662,6 +702,81 @@ def test_step_run_dependency_cancel_fails_closed() -> None:
         }
         result = play.step_run(state)
         assert_true(result is play.FAIL, "step_run returns FAIL when user cancels dependency resolution")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+        play.select = original_select  # type: ignore[assignment]
+
+
+def test_step_run_dependency_partial_install_then_downgrade() -> None:
+    print("\n=== play: dependency partial install can downgrade and continue ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    original_backend_available = play.optional_backend_available
+    original_select = play.select
+    install_state = {"lightgbm": False}
+    captured = {"train_cmd": None}
+    try:
+        def fake_spinner(cmd, label, cwd="", timeout=1800):  # type: ignore[override]
+            text = " ".join(str(x) for x in cmd)
+            if " -m pip install " in f" {text} ":
+                pkg = str(cmd[-1])
+                if pkg == "catboost":
+                    return (1, "", "ERROR: No matching distribution found for catboost")
+                if pkg == "lightgbm":
+                    install_state["lightgbm"] = True
+                    return (0, "", "")
+                return (0, "", "")
+            return (0, "", "")
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            captured["train_cmd"] = list(cmd)
+            return (0, "", "")
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("dep_fix_title"):
+                if opts and str(opts[0]) == play.t("dep_action_install"):
+                    return 0  # first prompt: try install
+                if opts and str(opts[0]) == play.t("dep_action_retry_failed"):
+                    return 1  # partial-failure prompt: downgrade
+            return 0
+
+        play.run_spinner = fake_spinner  # type: ignore[assignment]
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+        play.optional_backend_available = lambda family: install_state["lightgbm"] if family == "lightgbm" else (False if family == "catboost" else True)  # type: ignore[assignment]
+        play.select = fake_select  # type: ignore[assignment]
+
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_dep_partial_case",
+            "csv_path": "/tmp/mlgg_play_dep_partial_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "catboost,lightgbm,logistic_l2",
+            "_model_labels": [play.t("m_cat"), play.t("m_lgbm"), play.t("m_logistic_l2")],
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+            "include_optional_models": True,
+        }
+        result = play.step_run(state)
+        assert_true(result is True, "step_run succeeds after partial install + downgrade")
+        assert_true(state.get("model_pool") == "lightgbm,logistic_l2", "downgrade removes only unresolved optional backend")
+        train_cmd = " ".join(str(x) for x in (captured["train_cmd"] or []))
+        assert_true("--model-pool lightgbm,logistic_l2" in train_cmd, "train command keeps available optional backend")
+        assert_true("--include-optional-models" in train_cmd, "train command keeps include-optional-models after partial downgrade")
     finally:
         play.run_spinner = original_spinner  # type: ignore[assignment]
         play.run_with_progress = original_progress  # type: ignore[assignment]
@@ -733,6 +848,7 @@ def main() -> int:
     test_advanced_custom_mode_is_fully_interactive_and_completes()
     test_advanced_njobs_custom_rejects_invalid_values()
     test_advanced_ignore_select_without_columns_uses_safe_defaults()
+    test_advanced_optional_disable_removes_optional_models()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
@@ -741,6 +857,7 @@ def main() -> int:
     test_step_run_prunes_unavailable_optional_model_backend()
     test_step_run_dependency_install_path_covers_optional_and_optuna()
     test_step_run_dependency_cancel_fails_closed()
+    test_step_run_dependency_partial_install_then_downgrade()
     test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()
 

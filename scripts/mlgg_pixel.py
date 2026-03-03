@@ -120,8 +120,8 @@ _T: Dict[str, Dict[str, str]] = {
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u8fd4\u56de"},
     "nav_first":     {"en": "[\u2191\u2193] move  [Enter] next  [\u2190/q] quit",
                       "zh": "[\u2191\u2193] \u79fb\u52a8  [Enter] \u4e0b\u4e00\u6b65  [\u2190/q] \u9000\u51fa"},
-    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] select/unselect  [Enter] confirm  [a] all  [\u2190/q] back",
-                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u9009\u62e9/\u53d6\u6d88\u9009\u62e9  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [\u2190/q] \u8fd4\u56de"},
+    "ms_hint":       {"en": "[\u2191\u2193] move  [Space] check/uncheck  [Enter] confirm  [a] all  [\u2190/q] back",
+                      "zh": "[\u2191\u2193] \u79fb\u52a8  [\u7a7a\u683c] \u52fe\u9009/\u53d6\u6d88\u52fe\u9009  [Enter] \u786e\u8ba4  [a] \u5168\u9009  [\u2190/q] \u8fd4\u56de"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
@@ -302,12 +302,23 @@ _T: Dict[str, Dict[str, str]] = {
                               "zh": "\u672a\u68c0\u6d4b\u5230\u53ef\u9009\u5217\uff0c\u8bf7\u6539\u7528\u624b\u52a8\u8f93\u5165\u3002"},
     "adv_ignore_default_applied": {"en": "No columns detected yet. Applied safe defaults (patient/time).",
                                    "zh": "\u5c1a\u672a\u68c0\u6d4b\u5230\u5217\uff0c\u5df2\u81ea\u52a8\u5e94\u7528\u5b89\u5168\u9ed8\u8ba4\uff08patient/time\uff09\u3002"},
+    "adv_ignore_manual_hint": {"en": "Tip: press Enter to keep current value; enter q to go back.",
+                               "zh": "\u63d0\u793a\uff1a\u76f4\u63a5\u56de\u8f66\u4fdd\u7559\u5f53\u524d\u503c\uff1b\u8f93\u5165 q \u8fd4\u56de\u4e0a\u4e00\u6b65\u3002"},
     "adv_njobs":     {"en": "CPU workers (-1 = all cores):", "zh": "CPU \u5de5\u4f5c\u8fdb\u7a0b\uff08-1 = \u6240\u6709\u6838\u5fc3\uff09\uff1a"},
     "adv_trials":    {"en": "Max tries per model (higher = slower):", "zh": "\u6bcf\u4e2a\u6a21\u578b\u6700\u591a\u5c1d\u8bd5\u6b21\u6570\uff08\u8d8a\u5927\u8d8a\u6162\uff09\uff1a"},
     "pick_trials_preset": {"en": "Pick max tries per model", "zh": "\u9009\u62e9\u6bcf\u4e2a\u6a21\u578b\u7684\u6700\u591a\u5c1d\u8bd5\u6b21\u6570"},
     "trials_custom": {"en": "Custom value...", "zh": "\u81ea\u5b9a\u4e49\u6570\u503c..."},
-    "adv_optional":  {"en": "Include optional model backends when installed?",
-                      "zh": "\u5305\u542b\u5df2\u5b89\u88c5\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1f"},
+    "adv_optional":  {"en": "Optional model backend policy", "zh": "\u53ef\u9009\u6a21\u578b\u540e\u7aef\u7b56\u7565"},
+    "adv_optional_enable": {"en": "Keep optional models in current model pool",
+                            "zh": "\u4fdd\u7559\u5f53\u524d\u6a21\u578b\u6c60\u4e2d\u7684\u53ef\u9009\u6a21\u578b"},
+    "adv_optional_enable_d": {"en": "Missing dependencies will be handled at runtime (install or downgrade).",
+                              "zh": "\u82e5\u7f3a\u5c11\u4f9d\u8d56\uff0c\u8fd0\u884c\u524d\u4f1a\u63d0\u793a\u5b89\u88c5\u6216\u964d\u7ea7\u3002"},
+    "adv_optional_disable": {"en": "Disable optional models in current model pool",
+                             "zh": "\u7981\u7528\u5f53\u524d\u6a21\u578b\u6c60\u4e2d\u7684\u53ef\u9009\u6a21\u578b"},
+    "adv_optional_disable_d": {"en": "Remove xgboost/catboost/lightgbm/tabpfn from this run.",
+                               "zh": "\u4ece\u672c\u6b21\u8fd0\u884c\u4e2d\u79fb\u9664 xgboost/catboost/lightgbm/tabpfn\u3002"},
+    "adv_optional_removed_notice": {"en": "Removed optional models:",
+                                    "zh": "\u5df2\u79fb\u9664\u53ef\u9009\u6a21\u578b\uff1a"},
     "adv_menu_title":{"en": "Advanced settings (editable)", "zh": "\u9ad8\u7ea7\u8bbe\u7f6e\uff08\u53ef\u7f16\u8f91\uff09"},
     "adv_edit_ignore":{"en": "Edit ignore columns", "zh": "\u7f16\u8f91\u5ffd\u7565\u5217"},
     "adv_edit_njobs":{"en": "Set CPU workers", "zh": "\u8bbe\u7f6e CPU \u5e76\u884c\u6570"},
@@ -323,11 +334,16 @@ _T: Dict[str, Dict[str, str]] = {
     "dep_missing_optional": {"en": "Missing optional model backends:", "zh": "\u7f3a\u5c11\u7684\u53ef\u9009\u6a21\u578b\u540e\u7aef\uff1a"},
     "dep_missing_optuna": {"en": "Optuna is required by current tuning mode but not installed.", "zh": "\u5f53\u524d\u8c03\u4f18\u6a21\u5f0f\u9700\u8981 Optuna\uff0c\u4f46\u672a\u5b89\u88c5\u3002"},
     "dep_action_install": {"en": "Auto-install missing dependencies (one-click)", "zh": "\u81ea\u52a8\u5b89\u88c5\u7f3a\u5931\u4f9d\u8d56\uff08\u4e00\u952e\uff09"},
+    "dep_action_retry_failed": {"en": "Retry failed packages only", "zh": "\u4ec5\u91cd\u8bd5\u5931\u8d25\u7684\u5305"},
     "dep_action_downgrade": {"en": "Auto-downgrade and continue training", "zh": "\u81ea\u52a8\u964d\u7ea7\u5e76\u7ee7\u7eed\u8bad\u7ec3"},
     "dep_action_cancel": {"en": "Cancel run", "zh": "\u53d6\u6d88\u8fd0\u884c"},
     "dep_installing": {"en": "Installing missing dependencies...", "zh": "\u6b63\u5728\u5b89\u88c5\u7f3a\u5931\u4f9d\u8d56..."},
+    "dep_installing_pkg": {"en": "Installing package: {pkg}", "zh": "\u6b63\u5728\u5b89\u88c5\u5305\uff1a{pkg}"},
     "dep_install_success": {"en": "Dependency install completed.", "zh": "\u4f9d\u8d56\u5b89\u88c5\u5b8c\u6210\u3002"},
     "dep_install_failed": {"en": "Dependency install failed.", "zh": "\u4f9d\u8d56\u5b89\u88c5\u5931\u8d25\u3002"},
+    "dep_install_partial": {"en": "Some packages failed to install.", "zh": "\u90e8\u5206\u5305\u5b89\u88c5\u5931\u8d25\u3002"},
+    "dep_install_ok_pkgs": {"en": "Installed successfully:", "zh": "\u5b89\u88c5\u6210\u529f\uff1a"},
+    "dep_install_failed_pkgs": {"en": "Failed packages:", "zh": "\u5b89\u88c5\u5931\u8d25\u7684\u5305\uff1a"},
     "dep_downgrade_optional_removed": {"en": "Removed unavailable optional models:", "zh": "\u5df2\u79fb\u9664\u4e0d\u53ef\u7528\u53ef\u9009\u6a21\u578b\uff1a"},
     "dep_downgrade_optuna": {"en": "Downgraded tuning mode: optuna -> random_subsample.", "zh": "\u5df2\u964d\u7ea7\u8c03\u4f18\u6a21\u5f0f\uff1aoptuna -> random_subsample\u3002"},
     "dep_downgrade_model_pool": {"en": "Continuing with model pool:", "zh": "\u7ee7\u7eed\u4f7f\u7528\u6a21\u578b\u6c60\uff1a"},
@@ -1183,13 +1199,55 @@ def optuna_backend_available() -> bool:
         return False
 
 
+def model_pool_tokens_from_state(state: Dict[str, Any]) -> List[str]:
+    return [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+
+
+def apply_model_pool_tokens(state: Dict[str, Any], tokens: List[str]) -> List[str]:
+    ordered: List[str] = []
+    seen = set()
+    for token in tokens:
+        name = str(token).strip()
+        if name and name not in seen:
+            ordered.append(name)
+            seen.add(name)
+    if not ordered:
+        ordered = ["logistic_l2"]
+    state["model_pool"] = ",".join(ordered)
+    label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
+    state["_model_labels"] = [label_map.get(name, name) for name in ordered]
+    return ordered
+
+
+def enforce_optional_backend_policy(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply include_optional_models flag to the already selected model pool."""
+    current = model_pool_tokens_from_state(state)
+    include_optional = bool(state.get("include_optional_models", False))
+    if include_optional:
+        has_optional = any(family in OPTIONAL_MODEL_MODULES for family in current)
+        if not has_optional:
+            state["include_optional_models"] = False
+        return {"changed": False, "removed": [], "kept": current, "fallback_used": False}
+
+    kept = [family for family in current if family not in OPTIONAL_MODEL_MODULES]
+    removed = [family for family in current if family in OPTIONAL_MODEL_MODULES]
+    fallback_used = False
+    if not kept:
+        kept = ["logistic_l2"]
+        fallback_used = True
+    changed = kept != current
+    if changed:
+        apply_model_pool_tokens(state, kept)
+    return {"changed": changed, "removed": removed, "kept": kept, "fallback_used": fallback_used}
+
+
 def prune_unavailable_optional_models(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Remove optional model families whose backend is unavailable.
 
     If all selected models are pruned, fall back to logistic_l2 to keep play flow usable.
     """
-    raw_pool = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    raw_pool = model_pool_tokens_from_state(state)
     kept: List[str] = []
     removed: List[str] = []
     for family in raw_pool:
@@ -1205,9 +1263,7 @@ def prune_unavailable_optional_models(state: Dict[str, Any]) -> Dict[str, Any]:
 
     changed = kept != raw_pool
     if changed:
-        state["model_pool"] = ",".join(kept)
-        label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
-        state["_model_labels"] = [label_map.get(name, name) for name in kept]
+        apply_model_pool_tokens(state, kept)
     return {
         "changed": changed,
         "removed": removed,
@@ -1218,7 +1274,7 @@ def prune_unavailable_optional_models(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def collect_runtime_dependency_issues(state: Dict[str, Any]) -> Dict[str, Any]:
     """Collect missing runtime dependencies implied by current wizard selections."""
-    raw_pool = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    raw_pool = model_pool_tokens_from_state(state)
     missing_optional: List[str] = []
     for family in raw_pool:
         if family in OPTIONAL_MODEL_MODULES and not optional_backend_available(family):
@@ -1251,7 +1307,7 @@ def apply_dependency_downgrade(state: Dict[str, Any], issues: Dict[str, Any]) ->
         if current_trials < 1:
             state["max_trials"] = int(recommended_max_trials(state))
         downgraded_optuna = True
-    kept = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    kept = model_pool_tokens_from_state(state)
     fallback_used = bool(len(kept) == 1 and kept[0] == "logistic_l2" and not removed)
     return {
         "removed_optional": removed,
@@ -1259,6 +1315,39 @@ def apply_dependency_downgrade(state: Dict[str, Any], issues: Dict[str, Any]) ->
         "kept_model_pool": kept,
         "fallback_used": fallback_used,
     }
+
+
+def _print_dependency_downgrade_summary(downgrade: Dict[str, Any]) -> None:
+    removed = [str(x) for x in downgrade.get("removed_optional", []) if str(x).strip()]
+    if removed:
+        print(f"\n  {s('Y', t('dep_downgrade_optional_removed'))} {', '.join(removed)}")
+    if bool(downgrade.get("downgraded_optuna", False)):
+        print(f"  {s('Y', t('dep_downgrade_optuna'))}")
+    kept = [str(x) for x in downgrade.get("kept_model_pool", []) if str(x).strip()]
+    if kept:
+        print(f"  {s('C', t('dep_downgrade_model_pool'))} {', '.join(kept)}")
+    if bool(downgrade.get("fallback_used", False)):
+        print(f"  {s('C', t('dep_downgrade_fallback'))}")
+    print()
+
+
+def _install_dependency_packages(packages: List[str]) -> Dict[str, Any]:
+    installed: List[str] = []
+    failed: List[Dict[str, Any]] = []
+    for pkg in packages:
+        pkg_name = str(pkg).strip()
+        if not pkg_name:
+            continue
+        rc, _, err = run_spinner(
+            [sys.executable, "-m", "pip", "install", pkg_name],
+            t("dep_installing_pkg", pkg=pkg_name),
+        )
+        if rc == 0:
+            installed.append(pkg_name)
+            continue
+        tail = [line for line in str(err).strip().split("\n") if line][-3:]
+        failed.append({"package": pkg_name, "stderr_tail": tail})
+    return {"installed": installed, "failed": failed}
 
 
 def ensure_runtime_dependencies(state: Dict[str, Any]) -> bool:
@@ -1298,30 +1387,42 @@ def ensure_runtime_dependencies(state: Dict[str, Any]) -> bool:
         if choice < 0 or choice == 2:
             return False
         if choice == 0:
-            install_cmd = [sys.executable, "-m", "pip", "install"] + install_targets
-            rc, _, err = run_spinner(install_cmd, t("dep_installing"))
-            if rc != 0:
-                print(f"\n  {s('R', t('dep_install_failed'))}")
-                if err:
-                    for line in str(err).strip().split("\n")[-3:]:
-                        print(f"  {DIM}{line}{RST}")
-                print()
-                continue
-            print(f"\n  {s('G', t('dep_install_success'))}\n")
+            pending_targets = list(install_targets)
+            while pending_targets:
+                install_result = _install_dependency_packages(pending_targets)
+                ok_pkgs = [str(x) for x in install_result.get("installed", []) if str(x).strip()]
+                failed_items = [
+                    item for item in install_result.get("failed", [])
+                    if isinstance(item, dict) and str(item.get("package", "")).strip()
+                ]
+                if ok_pkgs:
+                    print(f"\n  {s('G', t('dep_install_ok_pkgs'))} {', '.join(ok_pkgs)}")
+                if not failed_items:
+                    print(f"  {s('G', t('dep_install_success'))}\n")
+                    break
+
+                fail_lines = [t("dep_install_partial"), "", f"{t('dep_install_failed_pkgs')} {', '.join(str(item.get('package')) for item in failed_items)}"]
+                for item in failed_items:
+                    stderr_tail = [str(line).strip() for line in item.get("stderr_tail", []) if str(line).strip()]
+                    if stderr_tail:
+                        fail_lines.append(f"- {item.get('package')}: {stderr_tail[-1]}")
+                box(t("dep_install_failed"), fail_lines, color="R")
+
+                next_choice = select(
+                    [t("dep_action_retry_failed"), t("dep_action_downgrade"), t("dep_action_cancel")],
+                    title=t("dep_fix_title"),
+                )
+                if next_choice < 0 or next_choice == 2:
+                    return False
+                if next_choice == 1:
+                    downgrade = apply_dependency_downgrade(state, collect_runtime_dependency_issues(state))
+                    _print_dependency_downgrade_summary(downgrade)
+                    return True
+                pending_targets = [str(item.get("package")).strip() for item in failed_items if str(item.get("package", "")).strip()]
             continue
 
         downgrade = apply_dependency_downgrade(state, issues)
-        removed = [str(x) for x in downgrade.get("removed_optional", []) if str(x).strip()]
-        if removed:
-            print(f"\n  {s('Y', t('dep_downgrade_optional_removed'))} {', '.join(removed)}")
-        if bool(downgrade.get("downgraded_optuna", False)):
-            print(f"  {s('Y', t('dep_downgrade_optuna'))}")
-        kept = [str(x) for x in downgrade.get("kept_model_pool", []) if str(x).strip()]
-        if kept:
-            print(f"  {s('C', t('dep_downgrade_model_pool'))} {', '.join(kept)}")
-        if bool(downgrade.get("fallback_used", False)):
-            print(f"  {s('C', t('dep_downgrade_fallback'))}")
-        print()
+        _print_dependency_downgrade_summary(downgrade)
         return True
 
 
@@ -1875,14 +1976,29 @@ def step_models(state: Dict) -> Any:
         else:
             print(f"  {s('C', 'Strict small-sample mode: non-linear models will be filtered before training')}\n")
 
-    labels = [t(key) for _, key in MODEL_POOL]
+    labels: List[str] = []
+    canonical_labels: List[str] = []
+    for family, key in MODEL_POOL:
+        base = t(key)
+        canonical_labels.append(base)
+        if family in OPTIONAL_MODEL_MODULES:
+            if optional_backend_available(family):
+                suffix = " (installed)" if LANG == "en" else "（已安装）"
+            else:
+                suffix = " (not installed)" if LANG == "en" else "（未安装）"
+            labels.append(base + suffix)
+        else:
+            labels.append(base)
     selected = multi_select(labels, title=t("pick_models"), defaults=DEFAULT_MODELS)
     if selected is None:
         return BACK
     if not selected:
         selected = list(DEFAULT_MODELS)
     state["model_pool"] = ",".join(MODEL_POOL[i][0] for i in selected)
-    state["_model_labels"] = [labels[i] for i in selected]
+    state["_model_labels"] = [canonical_labels[i] for i in selected]
+    state["include_optional_models"] = any(
+        MODEL_POOL[i][0] in OPTIONAL_MODEL_MODULES for i in selected if 0 <= i < len(MODEL_POOL)
+    )
     return True
 
 
@@ -2065,6 +2181,9 @@ def step_advanced(state: Dict) -> Any:
     _clear()
     step_header(9, TOTAL_STEPS, t("s_advanced"))
 
+    pool_tokens = model_pool_tokens_from_state(state)
+    has_optional_in_pool = any(family in OPTIONAL_MODEL_MODULES for family in pool_tokens)
+
     ci = select([t("adv_no"), t("adv_yes")], title=t("adv_ask"))
     if ci < 0:
         return BACK
@@ -2074,7 +2193,8 @@ def step_advanced(state: Dict) -> Any:
             ignore_parts.append(state["time"])
         state.setdefault("ignore_cols", normalize_ignore_columns(state, ignore_parts))
         state.setdefault("n_jobs", 1)
-        state.setdefault("include_optional_models", False)
+        state.setdefault("include_optional_models", has_optional_in_pool)
+        enforce_optional_backend_policy(state)
         return True
 
     ignore_parts = [state.get("pid", "patient_id")]
@@ -2082,7 +2202,7 @@ def step_advanced(state: Dict) -> Any:
         ignore_parts.append(state["time"])
     state.setdefault("ignore_cols", normalize_ignore_columns(state, ignore_parts))
     state.setdefault("n_jobs", 1)
-    state.setdefault("include_optional_models", False)
+    state.setdefault("include_optional_models", has_optional_in_pool)
 
     while True:
         _clear()
@@ -2129,6 +2249,7 @@ def step_advanced(state: Dict) -> Any:
                 continue
 
             print(f"\n  {s('W', t('adv_ignore'))}")
+            print(f"  {DIM}{t('adv_ignore_manual_hint')}{RST}")
             raw = _input_line(f"  {s('C','>')} [{default_ignore}]: ")
             if raw is None:
                 continue
@@ -2179,12 +2300,24 @@ def step_advanced(state: Dict) -> Any:
             state["n_jobs"] = parsed
             continue
         if ai == 2:
-            oi = select([t("adv_no"), t("adv_yes")], title=t("adv_optional"))
+            oi = select(
+                [t("adv_optional_enable"), t("adv_optional_disable")],
+                [t("adv_optional_enable_d"), t("adv_optional_disable_d")],
+                title=t("adv_optional"),
+            )
             if oi < 0:
                 continue
-            state["include_optional_models"] = (oi == 1)
+            if oi == 0:
+                state["include_optional_models"] = True
+            else:
+                state["include_optional_models"] = False
+                policy_result = enforce_optional_backend_policy(state)
+                removed = [str(x) for x in policy_result.get("removed", []) if str(x).strip()]
+                if removed:
+                    _notice(f"{t('adv_optional_removed_notice')} {', '.join(removed)}")
             continue
         if ai == 3:
+            enforce_optional_backend_policy(state)
             break
 
     return True
@@ -2252,6 +2385,8 @@ def _export_cli(state: Dict) -> str:
         "--n-jobs", str(state.get("n_jobs", 1)),
         "--random-seed", "20260225",
     ]
+    if bool(state.get("include_optional_models", False)):
+        train_parts.append("--include-optional-models")
     if state.get("hyperparam_search") == "optuna":
         train_parts.extend(["--optuna-trials", str(state.get("optuna_trials", 50))])
     return _shlex.join(split_parts) + "\n" + _shlex.join(train_parts)
@@ -2714,6 +2849,8 @@ def step_run(state: Dict) -> Any:
         "--n-jobs", str(state.get("n_jobs", 1)),
         "--random-seed", "20260225",
     ]
+    if bool(state.get("include_optional_models", False)):
+        train_cmd.append("--include-optional-models")
     if state.get("hyperparam_search") == "optuna":
         train_cmd.extend(["--optuna-trials", str(state.get("optuna_trials", 50))])
 
