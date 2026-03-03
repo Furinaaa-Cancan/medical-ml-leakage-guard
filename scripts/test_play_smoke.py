@@ -834,6 +834,147 @@ def test_step_run_normalizes_stale_optional_flag_from_history() -> None:
         play.run_with_progress = original_progress  # type: ignore[assignment]
 
 
+def test_export_cli_normalizes_stale_optional_flag() -> None:
+    print("\n=== play: export cli normalizes stale optional flag ===")
+    state = {
+        "source": "csv",
+        "out_dir": "/tmp/mlgg_export_optional_case",
+        "csv_path": "/tmp/mlgg_export_optional_case_input.csv",
+        "pid": "patient_id",
+        "target": "y",
+        "time": "event_time",
+        "strategy": "stratified_grouped",
+        "train_ratio": 0.6,
+        "valid_ratio": 0.2,
+        "test_ratio": 0.2,
+        "validation_method": "holdout",
+        "cv_folds": 5,
+        "imbalance_strategies": ["auto"],
+        "imbalance_selection_metric": "pr_auc",
+        "model_pool": "logistic_l2",
+        "_model_labels": [play.t("m_logistic_l2")],
+        "include_optional_models": True,  # stale setting
+        "hyperparam_search": "fixed_grid",
+        "max_trials": 1,
+        "calibration": "none",
+        "device": "cpu",
+        "n_jobs": 1,
+    }
+    play.normalize_optional_backend_state(state)
+    cmd = play._export_cli(state)
+    assert_true("--include-optional-models" not in cmd, "export cli omits include-optional-models after normalization")
+
+
+def test_export_cli_keeps_optional_flag_when_model_pool_has_optional() -> None:
+    print("\n=== play: export cli keeps optional flag for optional model pools ===")
+    state = {
+        "source": "csv",
+        "out_dir": "/tmp/mlgg_export_optional_enabled_case",
+        "csv_path": "/tmp/mlgg_export_optional_enabled_case_input.csv",
+        "pid": "patient_id",
+        "target": "y",
+        "time": "event_time",
+        "strategy": "stratified_grouped",
+        "train_ratio": 0.6,
+        "valid_ratio": 0.2,
+        "test_ratio": 0.2,
+        "validation_method": "holdout",
+        "cv_folds": 5,
+        "imbalance_strategies": ["auto"],
+        "imbalance_selection_metric": "pr_auc",
+        "model_pool": "xgboost,logistic_l2",
+        "_model_labels": [play.t("m_xgb"), play.t("m_logistic_l2")],
+        "include_optional_models": True,
+        "hyperparam_search": "fixed_grid",
+        "max_trials": 1,
+        "calibration": "none",
+        "device": "cpu",
+        "n_jobs": 1,
+    }
+    play.normalize_optional_backend_state(state)
+    cmd = play._export_cli(state)
+    assert_true("--include-optional-models" in cmd, "export cli keeps include-optional-models for optional model pools")
+
+
+def test_step_run_dependency_partial_install_retry_then_success() -> None:
+    print("\n=== play: dependency partial install can retry failed package and succeed ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    original_backend_available = play.optional_backend_available
+    original_select = play.select
+    install_state = {"catboost": False, "lightgbm": False}
+    captured = {"train_cmd": None}
+    attempt = {"catboost": 0}
+    try:
+        def fake_spinner(cmd, label, cwd="", timeout=1800):  # type: ignore[override]
+            text = " ".join(str(x) for x in cmd)
+            if " -m pip install " in f" {text} ":
+                pkg = str(cmd[-1])
+                if pkg == "catboost":
+                    attempt["catboost"] += 1
+                    if attempt["catboost"] == 1:
+                        return (1, "", "temporary install failure")
+                    install_state["catboost"] = True
+                    return (0, "", "")
+                if pkg == "lightgbm":
+                    install_state["lightgbm"] = True
+                    return (0, "", "")
+                return (0, "", "")
+            return (0, "", "")
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            captured["train_cmd"] = list(cmd)
+            return (0, "", "")
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("dep_fix_title"):
+                if opts and str(opts[0]) == play.t("dep_action_install"):
+                    return 0  # first prompt: install all
+                if opts and str(opts[0]) == play.t("dep_action_retry_failed"):
+                    return 0  # retry failed package
+            return 0
+
+        play.run_spinner = fake_spinner  # type: ignore[assignment]
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+        play.optional_backend_available = lambda family: install_state.get(family, True) if family in {"catboost", "lightgbm"} else True  # type: ignore[assignment]
+        play.select = fake_select  # type: ignore[assignment]
+
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_dep_retry_case",
+            "csv_path": "/tmp/mlgg_play_dep_retry_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "catboost,lightgbm,logistic_l2",
+            "_model_labels": [play.t("m_cat"), play.t("m_lgbm"), play.t("m_logistic_l2")],
+            "include_optional_models": True,
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+        }
+        result = play.step_run(state)
+        assert_true(result is True, "step_run succeeds after retrying failed dependency package")
+        assert_true(state.get("model_pool") == "catboost,lightgbm,logistic_l2", "model pool keeps optional backends after successful retry")
+        train_cmd = " ".join(str(x) for x in (captured["train_cmd"] or []))
+        assert_true("--model-pool catboost,lightgbm,logistic_l2" in train_cmd, "train command preserves full model pool after retry success")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+        play.select = original_select  # type: ignore[assignment]
+
+
 def test_collect_runtime_dependency_issues_covers_all_optional_backends() -> None:
     print("\n=== play: runtime dependency issue collector covers all optional backends ===")
     original_backend_available = play.optional_backend_available
@@ -909,6 +1050,9 @@ def main() -> int:
     test_step_run_dependency_cancel_fails_closed()
     test_step_run_dependency_partial_install_then_downgrade()
     test_step_run_normalizes_stale_optional_flag_from_history()
+    test_export_cli_normalizes_stale_optional_flag()
+    test_export_cli_keeps_optional_flag_when_model_pool_has_optional()
+    test_step_run_dependency_partial_install_retry_then_success()
     test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()
 
