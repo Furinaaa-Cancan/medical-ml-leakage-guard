@@ -2738,6 +2738,36 @@ def step_run(state: Dict) -> Any:
             return FAIL
         completed.append((dl_label, "done"))
 
+    # Apply strict small-sample profile before dependency checks so
+    # optional backends are not requested for models that will be pruned anyway.
+    strict_profile = apply_strict_small_sample_profile(state)
+    if strict_profile.get("active"):
+        # Keep labels consistent with any enforced model-pool adjustment.
+        pool_now = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+        label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
+        state["_model_labels"] = [label_map.get(name, name) for name in pool_now]
+
+    # Resolve runtime dependencies before split/train to fail early.
+    if not ensure_runtime_dependencies(state):
+        print(f"  {s('R', t('dep_cancelled'))}")
+        return FAIL
+
+    backend_prune = prune_unavailable_optional_models(state)
+    if backend_prune.get("removed"):
+        removed_text = ", ".join(str(x) for x in backend_prune["removed"])
+        kept_text = ", ".join(str(x) for x in backend_prune["kept"])
+        if LANG == "zh":
+            print(f"  {s('Y', '提示：检测到未安装的可选模型后端，已自动移除：')} {removed_text}")
+            print(f"  {s('C', '继续训练模型池：')} {kept_text}")
+            if backend_prune.get("fallback_used"):
+                print(f"  {s('C', '未保留可用模型，已自动回退到 logistic_l2。')}")
+        else:
+            print(f"  {s('Y', 'Notice: unavailable optional model backends were removed:')} {removed_text}")
+            print(f"  {s('C', 'Continuing with model pool:')} {kept_text}")
+            if backend_prune.get("fallback_used"):
+                print(f"  {s('C', 'No usable model remained; auto-fallback to logistic_l2.')}")
+        print()
+
     # ── Phase 2: Split ──
     _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
     split_label = t("x_split")
@@ -2789,32 +2819,6 @@ def step_run(state: Dict) -> Any:
     print()
 
     # ── Phase 3: Train ──
-    strict_profile = apply_strict_small_sample_profile(state)
-    if strict_profile.get("active"):
-        # Keep labels consistent with any enforced model-pool adjustment.
-        pool_now = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
-        label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
-        state["_model_labels"] = [label_map.get(name, name) for name in pool_now]
-
-    if not ensure_runtime_dependencies(state):
-        print(f"  {s('R', t('dep_cancelled'))}")
-        return FAIL
-
-    backend_prune = prune_unavailable_optional_models(state)
-    if backend_prune.get("removed"):
-        removed_text = ", ".join(str(x) for x in backend_prune["removed"])
-        kept_text = ", ".join(str(x) for x in backend_prune["kept"])
-        if LANG == "zh":
-            print(f"  {s('Y', '提示：检测到未安装的可选模型后端，已自动移除：')} {removed_text}")
-            print(f"  {s('C', '继续训练模型池：')} {kept_text}")
-            if backend_prune.get("fallback_used"):
-                print(f"  {s('C', '未保留可用模型，已自动回退到 logistic_l2。')}")
-        else:
-            print(f"  {s('Y', 'Notice: unavailable optional model backends were removed:')} {removed_text}")
-            print(f"  {s('C', 'Continuing with model pool:')} {kept_text}")
-            if backend_prune.get("fallback_used"):
-                print(f"  {s('C', 'No usable model remained; auto-fallback to logistic_l2.')}")
-        print()
     model_count = len([x for x in str(state.get("model_pool", "")).split(",") if x.strip()])
     train_label = t("x_train", n=model_count)
 
