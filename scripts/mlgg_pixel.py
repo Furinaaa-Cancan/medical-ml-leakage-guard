@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import importlib.util
 import itertools
 import locale
 import os
@@ -299,6 +300,8 @@ _T: Dict[str, Dict[str, str]] = {
     "adv_ignore_pick_columns": {"en": "Select columns to ignore", "zh": "\u9009\u62e9\u8981\u5ffd\u7565\u7684\u5217"},
     "adv_ignore_no_columns": {"en": "No detected columns available; switch to manual input.",
                               "zh": "\u672a\u68c0\u6d4b\u5230\u53ef\u9009\u5217\uff0c\u8bf7\u6539\u7528\u624b\u52a8\u8f93\u5165\u3002"},
+    "adv_ignore_default_applied": {"en": "No columns detected yet. Applied safe defaults (patient/time).",
+                                   "zh": "\u5c1a\u672a\u68c0\u6d4b\u5230\u5217\uff0c\u5df2\u81ea\u52a8\u5e94\u7528\u5b89\u5168\u9ed8\u8ba4\uff08patient/time\uff09\u3002"},
     "adv_njobs":     {"en": "CPU workers (-1 = all cores):", "zh": "CPU \u5de5\u4f5c\u8fdb\u7a0b\uff08-1 = \u6240\u6709\u6838\u5fc3\uff09\uff1a"},
     "adv_trials":    {"en": "Max tries per model (higher = slower):", "zh": "\u6bcf\u4e2a\u6a21\u578b\u6700\u591a\u5c1d\u8bd5\u6b21\u6570\uff08\u8d8a\u5927\u8d8a\u6162\uff09\uff1a"},
     "pick_trials_preset": {"en": "Pick max tries per model", "zh": "\u9009\u62e9\u6bcf\u4e2a\u6a21\u578b\u7684\u6700\u591a\u5c1d\u8bd5\u6b21\u6570"},
@@ -405,6 +408,10 @@ _T: Dict[str, Dict[str, str]] = {
                           "zh": "\u6bcf\u4e2a\u6a21\u578b Optuna \u5c1d\u8bd5\u6b21\u6570\uff08\u8d8a\u5927\u8d8a\u6162\uff0c\u53ef\u80fd\u66f4\u597d\uff09\uff1a"},
     "optuna_trials_hint":{"en": "Quick suggestion: 20 (fast) / 50 (balanced) / 100 (thorough)",
                           "zh": "\u5feb\u901f\u5efa\u8bae\uff1a20\uff08\u5feb\uff09 / 50\uff08\u5e73\u8861\uff09 / 100\uff08\u7ec6\u81f4\uff09"},
+    "pick_optuna_trials_preset":{"en": "Pick Optuna trials per model",
+                                 "zh": "\u9009\u62e9\u6bcf\u4e2a\u6a21\u578b\u7684 Optuna \u5c1d\u8bd5\u6b21\u6570"},
+    "optuna_trials_custom":{"en": "Custom Optuna value...",
+                            "zh": "\u81ea\u5b9a\u4e49 Optuna \u6570\u503c..."},
 }
 
 
@@ -1018,12 +1025,23 @@ MODEL_POOL = [
     ("lightgbm",                  "m_lgbm"),
     ("tabpfn",                    "m_tabpfn"),
 ]
+OPTIONAL_MODEL_MODULES = {
+    "xgboost": "xgboost",
+    "catboost": "catboost",
+    "lightgbm": "lightgbm",
+    "tabpfn": "tabpfn",
+}
 # Conservative default for clinical small/medium datasets:
 # linear models are usually more stable and easier to calibrate.
 DEFAULT_MODELS = [0, 1, 2]  # L1, L2, ElasticNet
 STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = 1200
 STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP = 8
 STRICT_SMALL_SAMPLE_MODEL_POOL = ["logistic_l1", "logistic_l2", "logistic_elasticnet"]
+PLAY_DOWNLOAD_DATASETS = [
+    ("heart", "heart_disease", "ds_heart", "ds_heart_d"),
+    ("breast", "breast_cancer", "ds_breast", "ds_breast_d"),
+    ("ckd", "chronic_kidney_disease", "ds_kidney", "ds_kidney_d"),
+]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1099,6 +1117,72 @@ def available_columns_for_ignore(state: Dict[str, Any]) -> List[str]:
         except Exception:
             pass
     return []
+
+
+def normalize_ignore_columns(state: Dict[str, Any], tokens: List[str]) -> str:
+    """
+    Normalize ignore columns:
+    - trim whitespace
+    - de-duplicate while preserving order
+    - force patient_id/time columns to stay ignored
+    """
+    ordered: List[str] = []
+    seen = set()
+    for token in tokens:
+        val = str(token).strip()
+        if val and val not in seen:
+            ordered.append(val)
+            seen.add(val)
+    mandatory = [str(state.get("pid", "")).strip(), str(state.get("time", "")).strip()]
+    for col in mandatory:
+        if col and col not in seen:
+            ordered.append(col)
+            seen.add(col)
+    return ",".join(ordered)
+
+
+def optional_backend_available(model_family: str) -> bool:
+    """Return True when an optional model backend appears installed."""
+    module_name = OPTIONAL_MODEL_MODULES.get(str(model_family).strip())
+    if not module_name:
+        return True
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except Exception:
+        return False
+
+
+def prune_unavailable_optional_models(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove optional model families whose backend is unavailable.
+
+    If all selected models are pruned, fall back to logistic_l2 to keep play flow usable.
+    """
+    raw_pool = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+    kept: List[str] = []
+    removed: List[str] = []
+    for family in raw_pool:
+        if family in OPTIONAL_MODEL_MODULES and not optional_backend_available(family):
+            removed.append(family)
+            continue
+        kept.append(family)
+
+    fallback_used = False
+    if not kept:
+        kept = ["logistic_l2"]
+        fallback_used = True
+
+    changed = kept != raw_pool
+    if changed:
+        state["model_pool"] = ",".join(kept)
+        label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
+        state["_model_labels"] = [label_map.get(name, name) for name in kept]
+    return {
+        "changed": changed,
+        "removed": removed,
+        "kept": kept,
+        "fallback_used": fallback_used,
+    }
 
 
 def strict_small_sample_active(state: Dict[str, Any]) -> bool:
@@ -1293,25 +1377,20 @@ def step_dataset(state: Dict) -> Any:
     step_header(3, TOTAL_STEPS, t("s_dataset"))
 
     if source == "download":
-        ci = select(
-            [t("ds_heart"), t("ds_breast"), t("ds_kidney"),
-             t("ds_hepatitis"), t("ds_spect"), t("ds_dermatology")],
-            [t("ds_heart_d"), t("ds_breast_d"), t("ds_kidney_d"),
-             t("ds_hepatitis_d"), t("ds_spect_d"), t("ds_dermatology_d")],
-        )
+        labels = [t(label_key) for _, _, label_key, _ in PLAY_DOWNLOAD_DATASETS]
+        descs = [t(desc_key) for _, _, _, desc_key in PLAY_DOWNLOAD_DATASETS]
+        ci = select(labels, descs)
         if ci < 0:
             return BACK
-        keys = ["heart", "breast", "ckd", "hepatitis", "spect", "dermatology"]
-        files = ["heart_disease", "breast_cancer", "chronic_kidney_disease",
-                 "hepatitis", "spect_heart", "dermatology"]
-        state["dataset_key"] = keys[ci]
-        state["dataset_file"] = files[ci]
-        state["csv_path"] = str(EXAMPLES_DIR / f"{files[ci]}.csv")
+        key, file_stem, _, _ = PLAY_DOWNLOAD_DATASETS[ci]
+        state["dataset_key"] = key
+        state["dataset_file"] = file_stem
+        state["csv_path"] = str(EXAMPLES_DIR / f"{file_stem}.csv")
         try:
             state["_n_rows"] = int(csv_rows(Path(state["csv_path"])))
         except Exception:
             state["_n_rows"] = 0
-        state["out_dir"] = str(DEFAULT_OUT / files[ci])
+        state["out_dir"] = str(DEFAULT_OUT / file_stem)
         state["pid"] = "patient_id"
         state["target"] = "y"
         state["time"] = "event_time"
@@ -1693,16 +1772,31 @@ def step_tuning(state: Dict) -> Any:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
-            print(f"  {s('W', t('pick_optuna_trials'))}")
             print(f"  {DIM}{t('optuna_trials_hint')}{RST}")
-            raw = _input_line(f"  {s('C','>')} [{state.get('optuna_trials', 50)}]: ")
+            optuna_default = int(state.get("optuna_trials", 50))
+            preset_values = [20, 50, 100, 200]
+            if optuna_default not in preset_values and 1 <= optuna_default <= MAX_OPTUNA_TRIALS_INPUT:
+                preset_values = [optuna_default] + preset_values
+            oi = select(
+                [str(v) for v in preset_values] + [t("optuna_trials_custom")],
+                title=t("pick_optuna_trials_preset"),
+            )
+            if oi < 0:
+                sub = 0
+                continue
+            if oi < len(preset_values):
+                state["optuna_trials"] = int(preset_values[oi])
+                sub = 2
+                continue
+            print(f"\n  {s('W', t('pick_optuna_trials'))}")
+            raw = _input_line(f"  {s('C','>')} [{optuna_default}]: ")
             if raw is None:
-                sub = 0; continue
+                continue
             raw_trim = raw.strip()
             if _is_back_text_token(raw_trim):
-                sub = 0; continue
+                continue
             try:
-                parsed = int(raw_trim) if raw_trim else 50
+                parsed = int(raw_trim) if raw_trim else optuna_default
             except ValueError:
                 _notice(t("msg_positive_int"))
                 continue
@@ -1838,7 +1932,7 @@ def step_advanced(state: Dict) -> Any:
         ignore_parts = [state.get("pid", "patient_id")]
         if state.get("time"):
             ignore_parts.append(state["time"])
-        state.setdefault("ignore_cols", ",".join(ignore_parts))
+        state.setdefault("ignore_cols", normalize_ignore_columns(state, ignore_parts))
         state.setdefault("n_jobs", 1)
         state.setdefault("include_optional_models", False)
         return True
@@ -1846,7 +1940,7 @@ def step_advanced(state: Dict) -> Any:
     ignore_parts = [state.get("pid", "patient_id")]
     if state.get("time"):
         ignore_parts.append(state["time"])
-    state.setdefault("ignore_cols", ",".join(ignore_parts))
+    state.setdefault("ignore_cols", normalize_ignore_columns(state, ignore_parts))
     state.setdefault("n_jobs", 1)
     state.setdefault("include_optional_models", False)
 
@@ -1874,7 +1968,8 @@ def step_advanced(state: Dict) -> Any:
             if mode == 0:
                 cols = available_columns_for_ignore(state)
                 if not cols:
-                    _notice(t("adv_ignore_no_columns"))
+                    state["ignore_cols"] = normalize_ignore_columns(state, ignore_parts)
+                    _notice(t("adv_ignore_default_applied"))
                     continue
                 current_tokens = {
                     tok.strip()
@@ -1890,7 +1985,7 @@ def step_advanced(state: Dict) -> Any:
                 if selected_cols is None:
                     continue
                 chosen = [cols[idx] for idx in selected_cols if 0 <= idx < len(cols)]
-                state["ignore_cols"] = ",".join(chosen)
+                state["ignore_cols"] = normalize_ignore_columns(state, chosen)
                 continue
 
             print(f"\n  {s('W', t('adv_ignore'))}")
@@ -1900,7 +1995,10 @@ def step_advanced(state: Dict) -> Any:
             raw_trim = raw.strip()
             if _is_back_text_token(raw_trim):
                 continue
-            state["ignore_cols"] = raw_trim if raw_trim else default_ignore
+            if raw_trim:
+                state["ignore_cols"] = normalize_ignore_columns(state, raw_trim.split(","))
+            else:
+                state["ignore_cols"] = normalize_ignore_columns(state, default_ignore.split(","))
             continue
         if ai == 1:
             nj_idx = select(
@@ -2106,6 +2204,14 @@ def step_confirm(state: Dict) -> Any:
 
 
 _ERROR_PATTERNS = [
+    ("network error", {
+        "en": "Dataset download failed due to network/DNS. In play mode, use built-in stable datasets: heart, breast, ckd.",
+        "zh": "\u6570\u636e\u96c6\u4e0b\u8f7d\u5931\u8d25\uff08\u7f51\u7edc/DNS \u95ee\u9898\uff09\u3002play \u6a21\u5f0f\u8bf7\u4f18\u5148\u4f7f\u7528\u7a33\u5b9a\u5185\u7f6e\u6570\u636e\u96c6\uff1aheart\u3001breast\u3001ckd\u3002",
+    }),
+    ("nodename nor servname", {
+        "en": "DNS lookup failed. Check network, or choose built-in stable datasets (heart/breast/ckd).",
+        "zh": "DNS \u89e3\u6790\u5931\u8d25\u3002\u8bf7\u68c0\u67e5\u7f51\u7edc\uff0c\u6216\u6539\u7528\u7a33\u5b9a\u5185\u7f6e\u6570\u636e\u96c6\uff08heart/breast/ckd\uff09\u3002",
+    }),
     ("not enough positive", {
         "en": "Not enough positive (y=1) samples in one or more splits. Try a larger dataset or adjust ratios.",
         "zh": "一个或多个分割中正样本（y=1）不足。请尝试更大的数据集或调整比例。",
@@ -2398,6 +2504,21 @@ def step_run(state: Dict) -> Any:
         pool_now = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
         label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
         state["_model_labels"] = [label_map.get(name, name) for name in pool_now]
+    backend_prune = prune_unavailable_optional_models(state)
+    if backend_prune.get("removed"):
+        removed_text = ", ".join(str(x) for x in backend_prune["removed"])
+        kept_text = ", ".join(str(x) for x in backend_prune["kept"])
+        if LANG == "zh":
+            print(f"  {s('Y', '提示：检测到未安装的可选模型后端，已自动移除：')} {removed_text}")
+            print(f"  {s('C', '继续训练模型池：')} {kept_text}")
+            if backend_prune.get("fallback_used"):
+                print(f"  {s('C', '未保留可用模型，已自动回退到 logistic_l2。')}")
+        else:
+            print(f"  {s('Y', 'Notice: unavailable optional model backends were removed:')} {removed_text}")
+            print(f"  {s('C', 'Continuing with model pool:')} {kept_text}")
+            if backend_prune.get("fallback_used"):
+                print(f"  {s('C', 'No usable model remained; auto-fallback to logistic_l2.')}")
+        print()
     model_count = len([x for x in str(state.get("model_pool", "")).split(",") if x.strip()])
     train_label = t("x_train", n=model_count)
 

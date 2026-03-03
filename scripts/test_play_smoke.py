@@ -108,6 +108,24 @@ def test_download_dataset_step_no_project_name_prompt() -> None:
         play._input_line = original_input_line  # type: ignore[assignment]
 
 
+def test_download_dataset_menu_uses_stable_triplet() -> None:
+    print("\n=== play: builtin dataset menu contains stable triplet only ===")
+    original_select = play.select
+    captured = {"opts": []}
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            captured["opts"] = list(opts)
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        state = {"source": "download"}
+        result = play.step_dataset(state)
+        assert_true(result is True, "step_dataset(download) succeeds")
+        assert_true(len(captured["opts"]) == 3, "download dataset menu is restricted to 3 stable datasets")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+
+
 def test_imbalance_step_supports_multiselect_and_metric() -> None:
     print("\n=== play: imbalance step supports multi-select with selection metric ===")
     original_multi_select = play.multi_select
@@ -161,22 +179,27 @@ def test_tuning_calibration_menu_includes_human_readable_descriptions() -> None:
 
 
 def test_tuning_optuna_input_accepts_back_token() -> None:
-    print("\n=== play: tuning optuna trials input supports q/back token ===")
+    print("\n=== play: tuning optuna custom input supports q/back token ===")
     original_select = play.select
     original_input_line = play._input_line
     try:
-        tuning_choices = [2, 1]  # first optuna, then back and choose random
+        optuna_menu_choices = ["custom", "preset"]
 
         def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
             if title == play.t("pick_tuning"):
-                return tuning_choices.pop(0)
+                return 2  # optuna
+            if title == play.t("pick_optuna_trials_preset"):
+                mode = optuna_menu_choices.pop(0)
+                if mode == "custom":
+                    return len(opts) - 1
+                return 0
             if title == play.t("pick_calib"):
                 return 0
             if title == play.t("pick_device"):
                 return 1
             return 0
 
-        input_values = ["q", ""]  # q at optuna-trials prompt, then accept default max_trials
+        input_values = ["q"]  # q at custom optuna-trials prompt; should stay in optuna menu
 
         def fake_input_line(*args, **kwargs):
             return input_values.pop(0) if input_values else ""
@@ -185,8 +208,9 @@ def test_tuning_optuna_input_accepts_back_token() -> None:
         play._input_line = fake_input_line  # type: ignore[assignment]
         state = {"source": "csv", "_n_rows": 569}
         result = play.step_tuning(state)
-        assert_true(result is True, "step_tuning succeeds after q/back from optuna prompt")
-        assert_true(state.get("hyperparam_search") == "random_subsample", "q/back returns to tuning strategy selection")
+        assert_true(result is True, "step_tuning succeeds after q/back from optuna custom prompt")
+        assert_true(state.get("hyperparam_search") == "optuna", "q/back in custom prompt keeps optuna mode")
+        assert_true(int(state.get("optuna_trials", 0)) == 20, "optuna preset can be chosen after returning from custom prompt")
     finally:
         play.select = original_select  # type: ignore[assignment]
         play._input_line = original_input_line  # type: ignore[assignment]
@@ -252,6 +276,37 @@ def test_tuning_trials_preset_exposes_quick_options() -> None:
         assert_true(any(str(x).startswith("1") for x in captured["options"]), "trials preset includes low-try option")
         assert_true(any(str(x).startswith("50") for x in captured["options"]), "trials preset includes high-try option")
         assert_true(any("Custom" in str(x) or "\u81ea\u5b9a\u4e49" in str(x) for x in captured["options"]), "trials preset includes custom option")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+
+
+def test_tuning_optuna_preset_exposes_quick_options() -> None:
+    print("\n=== play: optuna trials uses preset options + custom ===")
+    original_select = play.select
+    captured = {"options": []}
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return 2
+            if title == play.t("pick_optuna_trials_preset"):
+                captured["options"] = list(opts)
+                return 0
+            if title == play.t("pick_trials_preset"):
+                return 0
+            if title == play.t("pick_calib"):
+                return 0
+            if title == play.t("pick_device"):
+                return 1
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        state = {"source": "csv", "_n_rows": 569}
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds with optuna preset path")
+        assert_true(len(captured["options"]) >= 5, "optuna preset includes multiple quick options plus custom")
+        assert_true(any(str(x).startswith("20") for x in captured["options"]), "optuna preset includes 20")
+        assert_true(any(str(x).startswith("50") for x in captured["options"]), "optuna preset includes 50")
+        assert_true(any("Custom" in str(x) or "自定义" in str(x) for x in captured["options"]), "optuna preset includes custom option")
     finally:
         play.select = original_select  # type: ignore[assignment]
 
@@ -323,6 +378,36 @@ def test_advanced_njobs_custom_rejects_invalid_values() -> None:
     finally:
         play.select = original_select  # type: ignore[assignment]
         play._input_line = original_input_line  # type: ignore[assignment]
+        play._notice = original_notice  # type: ignore[assignment]
+
+
+def test_advanced_ignore_select_without_columns_uses_safe_defaults() -> None:
+    print("\n=== play: advanced ignore editor falls back safely when columns unavailable ===")
+    original_select = play.select
+    original_notice = play._notice
+    try:
+        menu_sequence = [0, 3]  # edit ignore -> done
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("adv_ask"):
+                return 1
+            if title == play.t("adv_menu_title"):
+                return menu_sequence.pop(0)
+            if title == play.t("adv_ignore_mode_title"):
+                return 0  # select from detected columns
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._notice = lambda *args, **kwargs: None  # type: ignore[assignment]
+        state = {"source": "csv", "pid": "patient_id", "time": "event_time", "csv_path": "/tmp/does_not_exist.csv"}
+        result = play.step_advanced(state)
+        assert_true(result is True, "step_advanced completes with safe fallback")
+        assert_true(
+            state.get("ignore_cols") == "patient_id,event_time",
+            "ignore_cols fallback keeps mandatory patient/time columns",
+        )
+    finally:
+        play.select = original_select  # type: ignore[assignment]
         play._notice = original_notice  # type: ignore[assignment]
 
 
@@ -419,6 +504,57 @@ def test_step_run_failure_returns_fail_sentinel() -> None:
         play.run_spinner = original_spinner  # type: ignore[assignment]
 
 
+def test_step_run_prunes_unavailable_optional_model_backend() -> None:
+    print("\n=== play: step_run prunes unavailable optional backends before train ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    original_backend_available = play.optional_backend_available
+    captured = {"train_cmd": None}
+    try:
+        play.run_spinner = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            captured["train_cmd"] = list(cmd)
+            return (0, "", "")
+
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+        play.optional_backend_available = lambda family: False if family == "lightgbm" else True  # type: ignore[assignment]
+
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_prune_case",
+            "csv_path": "/tmp/mlgg_play_prune_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "lightgbm,logistic_l2",
+            "_model_labels": [play.t("m_lgbm"), play.t("m_logistic_l2")],
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+        }
+        result = play.step_run(state)
+        assert_true(result is True, "step_run succeeds after pruning unavailable optional backend")
+        assert_true(state.get("model_pool") == "logistic_l2", "state model_pool prunes unavailable lightgbm")
+        train_cmd = captured["train_cmd"] or []
+        joined = " ".join(str(x) for x in train_cmd)
+        assert_true("--model-pool logistic_l2" in joined, "train command uses pruned model_pool")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+
+
 def test_wizard_exits_nonzero_when_run_step_fails() -> None:
     print("\n=== play: wizard returns exit code 2 when execution step fails ===")
     step_names = [
@@ -451,18 +587,22 @@ def main() -> int:
     test_default_models_are_conservative_linear_pool()
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
+    test_download_dataset_menu_uses_stable_triplet()
     test_imbalance_step_supports_multiselect_and_metric()
     test_tuning_calibration_menu_includes_human_readable_descriptions()
     test_tuning_optuna_input_accepts_back_token()
     test_tuning_max_trials_rejects_invalid_values()
     test_tuning_trials_preset_exposes_quick_options()
+    test_tuning_optuna_preset_exposes_quick_options()
     test_advanced_custom_mode_is_fully_interactive_and_completes()
     test_advanced_njobs_custom_rejects_invalid_values()
+    test_advanced_ignore_select_without_columns_uses_safe_defaults()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
     test_strict_small_sample_profile_inactive_on_large_data()
     test_step_run_failure_returns_fail_sentinel()
+    test_step_run_prunes_unavailable_optional_model_backend()
     test_wizard_exits_nonzero_when_run_step_fails()
 
     print(f"\n{'='*50}")
