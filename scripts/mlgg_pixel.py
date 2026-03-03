@@ -385,6 +385,23 @@ _T: Dict[str, Dict[str, str]] = {
         "zh": "\u8bf7\u8fd0\u884c workflow --strict \u83b7\u53d6\u51fa\u7248\u7ea7\u5224\u5b9a",
     },
     "r_play_readiness_reason": {"en": "Reason:", "zh": "\u539f\u56e0\uff1a"},
+    "r_play_readiness_reason_code": {"en": "Code:", "zh": "\u4ee3\u7801\uff1a"},
+    "r_play_readiness_err_missing": {
+        "en": "evaluation_report.json is missing under evidence/",
+        "zh": "evidence/ \u76ee\u5f55\u4e0b\u7f3a\u5c11 evaluation_report.json",
+    },
+    "r_play_readiness_err_parse": {
+        "en": "evaluation_report.json cannot be parsed as valid JSON",
+        "zh": "evaluation_report.json \u65e0\u6cd5\u89e3\u6790\u4e3a\u5408\u6cd5 JSON",
+    },
+    "r_play_readiness_err_schema": {
+        "en": "evaluation_report.json is missing core metrics (pr_auc/roc_auc/f1/brier)",
+        "zh": "evaluation_report.json \u7f3a\u5c11\u6838\u5fc3\u6307\u6807\uff08pr_auc/roc_auc/f1/brier\uff09",
+    },
+    "r_play_readiness_err_unknown": {
+        "en": "Unknown quick-readiness evaluation error",
+        "zh": "\u672a\u77e5\u7684 quick-readiness \u8bc4\u4f30\u9519\u8bef",
+    },
     "r_pub_gate_not_run_label": {"en": "Publication gate", "zh": "\u51fa\u7248\u7ea7\u95e8\u63a7"},
     "r_pub_gate_not_run_value": {"en": "NOT RUN (use workflow --strict)", "zh": "\u672a\u8fd0\u884c\uff08\u8bf7\u7528 workflow --strict\uff09"},
     "r_verdict_not_ready": {"en": "Not strict release-ready", "zh": "\u672a\u8fbe\u4e25\u683c\u53d1\u5e03\u6761\u4ef6"},
@@ -466,6 +483,15 @@ def t(key: str, **kwargs: Any) -> str:
     if kwargs:
         val = val.format(**kwargs)
     return val
+
+
+def _readiness_reason_text(code: str) -> str:
+    mapping = {
+        "evaluation_report_missing": "r_play_readiness_err_missing",
+        "evaluation_report_parse_error": "r_play_readiness_err_parse",
+        "evaluation_report_schema_invalid": "r_play_readiness_err_schema",
+    }
+    return t(mapping.get(code, "r_play_readiness_err_unknown"))
 
 
 def detect_lang() -> str:
@@ -3412,12 +3438,15 @@ def step_run(state: Dict) -> Any:
     state["_play_readiness_blockers"] = list(play_blockers)
     state["_play_readiness_advisories"] = list(play_advisories)
     if not readiness_evaluated and readiness_error:
-        play_advisories.append("quick_readiness_unavailable")
+        if "quick_readiness_unavailable" not in play_advisories:
+            play_advisories.append("quick_readiness_unavailable")
         state["_play_readiness_advisories"] = list(play_advisories)
         if not bool(state.get("_fail_on_play_blockers", False)):
+            reason_code = readiness_error
             readiness_note_lines = [
                 f"  {'Overall':<16} {s('Y', t('r_play_readiness_not_evaluated'), bold=True)}",
-                f"  {t('r_play_readiness_reason'):<16} {readiness_error}",
+                f"  {t('r_play_readiness_reason'):<16} {_readiness_reason_text(reason_code)}",
+                f"  {t('r_play_readiness_reason_code'):<16} {reason_code}",
                 f"  {t('r_pub_gate_not_run_label'):<16} {s('Y', t('r_play_readiness_run_strict_hint'))}",
             ]
             print()
@@ -3429,8 +3458,11 @@ def step_run(state: Dict) -> Any:
         state.pop("_play_readiness_error", None)
     if bool(state.get("_fail_on_play_blockers", False)) and not readiness_evaluated:
         print(f"\n  {s('R', t('r_play_readiness_unavailable'))}")
+        reason_code = readiness_error or "unknown"
         reason_label = t("r_play_readiness_reason")
-        print(f"  {reason_label} {readiness_error or 'unknown'}")
+        reason_code_label = t("r_play_readiness_reason_code")
+        print(f"  {reason_label} {_readiness_reason_text(reason_code)}")
+        print(f"  {reason_code_label} {reason_code}")
         state.pop("_from_history", None)
         _save_history(state)
         return FAIL

@@ -42,6 +42,23 @@ def test_default_models_are_conservative_linear_pool() -> None:
     )
 
 
+def test_readiness_reason_text_mapping_is_user_friendly() -> None:
+    print("\n=== play: readiness reason code maps to user-friendly text ===")
+    original_lang = play.LANG
+    try:
+        play.LANG = "en"
+        msg_missing = play._readiness_reason_text("evaluation_report_missing")
+        msg_parse = play._readiness_reason_text("evaluation_report_parse_error")
+        msg_schema = play._readiness_reason_text("evaluation_report_schema_invalid")
+        msg_unknown = play._readiness_reason_text("some_unknown_reason")
+        assert_true("missing" in msg_missing.lower(), "missing-report reason text is user-friendly")
+        assert_true("json" in msg_parse.lower(), "parse-error reason text is user-friendly")
+        assert_true("core metrics" in msg_schema.lower(), "schema-invalid reason text is user-friendly")
+        assert_true("unknown" in msg_unknown.lower(), "unknown reason text has fallback message")
+    finally:
+        play.LANG = original_lang
+
+
 def test_split_strategy_order_is_source_aware() -> None:
     print("\n=== play: split strategy order is source-aware ===")
     dl = play.split_strategy_order_for_source("download")
@@ -1323,6 +1340,7 @@ def test_wizard_exits_nonzero_when_run_step_fails() -> None:
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
+    test_readiness_reason_text_mapping_is_user_friendly()
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
     test_download_dataset_menu_uses_stable_triplet()
