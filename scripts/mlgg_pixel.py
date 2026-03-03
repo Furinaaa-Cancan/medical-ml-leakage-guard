@@ -1241,6 +1241,20 @@ def enforce_optional_backend_policy(state: Dict[str, Any]) -> Dict[str, Any]:
     return {"changed": changed, "removed": removed, "kept": kept, "fallback_used": fallback_used}
 
 
+def normalize_optional_backend_state(state: Dict[str, Any]) -> None:
+    """
+    Ensure optional-backend flag and model_pool stay consistent.
+
+    Important for history replay paths where advanced/model steps are skipped.
+    """
+    source = str(state.get("source", "")).strip().lower()
+    if source not in {"download", "csv"}:
+        return
+    if "model_pool" not in state:
+        return
+    enforce_optional_backend_policy(state)
+
+
 def prune_unavailable_optional_models(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Remove optional model families whose backend is unavailable.
@@ -2314,7 +2328,7 @@ def step_advanced(state: Dict) -> Any:
                 policy_result = enforce_optional_backend_policy(state)
                 removed = [str(x) for x in policy_result.get("removed", []) if str(x).strip()]
                 if removed:
-                    _notice(f"{t('adv_optional_removed_notice')} {', '.join(removed)}")
+                    print(f"\n  {s('Y', t('adv_optional_removed_notice'))} {', '.join(removed)}")
             continue
         if ai == 3:
             enforce_optional_backend_policy(state)
@@ -2393,6 +2407,7 @@ def _export_cli(state: Dict) -> str:
 
 
 def step_confirm(state: Dict) -> Any:
+    normalize_optional_backend_state(state)
     _clear()
     title = t("s_confirm")
     if state.get("_dry_run"):
@@ -2535,6 +2550,7 @@ def _override_cli_arg(cmd: List[str], flag: str, value: str) -> List[str]:
 
 
 def step_run(state: Dict) -> Any:
+    normalize_optional_backend_state(state)
     _clear()
     step_header(11, TOTAL_STEPS, t("s_run"))
 

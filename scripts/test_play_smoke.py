@@ -694,6 +694,7 @@ def test_step_run_dependency_cancel_fails_closed() -> None:
             "imbalance_selection_metric": "pr_auc",
             "model_pool": "catboost,logistic_l2",
             "_model_labels": [play.t("m_cat"), play.t("m_logistic_l2")],
+            "include_optional_models": True,
             "hyperparam_search": "fixed_grid",
             "max_trials": 1,
             "calibration": "none",
@@ -784,6 +785,55 @@ def test_step_run_dependency_partial_install_then_downgrade() -> None:
         play.select = original_select  # type: ignore[assignment]
 
 
+def test_step_run_normalizes_stale_optional_flag_from_history() -> None:
+    print("\n=== play: step_run normalizes stale include_optional_models flag ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    captured = {"train_cmd": None}
+    try:
+        play.run_spinner = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            captured["train_cmd"] = list(cmd)
+            return (0, "", "")
+
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+
+        state = {
+            "source": "csv",
+            "_from_history": True,  # simulate replay path where advanced step is skipped
+            "out_dir": "/tmp/mlgg_play_history_optional_case",
+            "csv_path": "/tmp/mlgg_play_history_optional_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "logistic_l2",
+            "_model_labels": [play.t("m_logistic_l2")],
+            "include_optional_models": True,  # stale value from old run
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+        }
+        result = play.step_run(state)
+        assert_true(result is True, "step_run succeeds in history replay path")
+        assert_true(bool(state.get("include_optional_models")) is False, "stale optional flag is normalized to false")
+        train_cmd = " ".join(str(x) for x in (captured["train_cmd"] or []))
+        assert_true("--include-optional-models" not in train_cmd, "normalized run does not pass include-optional-models")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+
+
 def test_collect_runtime_dependency_issues_covers_all_optional_backends() -> None:
     print("\n=== play: runtime dependency issue collector covers all optional backends ===")
     original_backend_available = play.optional_backend_available
@@ -858,6 +908,7 @@ def main() -> int:
     test_step_run_dependency_install_path_covers_optional_and_optuna()
     test_step_run_dependency_cancel_fails_closed()
     test_step_run_dependency_partial_install_then_downgrade()
+    test_step_run_normalizes_stale_optional_flag_from_history()
     test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()
 
