@@ -1158,6 +1158,62 @@ def test_step_run_allows_readiness_unavailable_by_default_with_advisory() -> Non
         play.run_with_progress = original_progress  # type: ignore[assignment]
 
 
+def test_step_run_fail_on_play_blockers_fails_when_readiness_schema_invalid() -> None:
+    print("\n=== play: fail-on-play-blockers fails closed when readiness report schema is invalid ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    try:
+        play.run_spinner = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            out_dir = Path("/tmp/mlgg_play_readiness_invalid_schema_case")
+            evidence = out_dir / "evidence"
+            evidence.mkdir(parents=True, exist_ok=True)
+            # Write an invalid report schema: no core metrics.
+            report = {
+                "model_id": "logistic_l2",
+                "metrics": {},
+                "threshold_selection": {},
+            }
+            (evidence / "evaluation_report.json").write_text(json.dumps(report), encoding="utf-8")
+            return (0, "", "")
+
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_readiness_invalid_schema_case",
+            "csv_path": "/tmp/mlgg_play_readiness_invalid_schema_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "logistic_l2",
+            "_model_labels": [play.t("m_logistic_l2")],
+            "include_optional_models": False,
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+            "_fail_on_play_blockers": True,
+        }
+        result = play.step_run(state)
+        assert_true(result is play.FAIL, "step_run returns FAIL when readiness schema is invalid and fail-on-play-blockers is enabled")
+        assert_true(state.get("_play_readiness_evaluated") is False, "readiness evaluated state is false for invalid schema")
+        assert_true(state.get("_play_readiness_error") == "evaluation_report_schema_invalid", "invalid readiness report schema reason is recorded")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+
+
 def test_step_run_allows_play_blockers_by_default() -> None:
     print("\n=== play: blockers do not fail run when fail-on-play-blockers is disabled ===")
     original_spinner = play.run_spinner
@@ -1297,6 +1353,7 @@ def main() -> int:
     test_step_run_fail_on_play_blockers_returns_fail()
     test_step_run_fail_on_play_blockers_fails_when_readiness_unavailable()
     test_step_run_allows_readiness_unavailable_by_default_with_advisory()
+    test_step_run_fail_on_play_blockers_fails_when_readiness_schema_invalid()
     test_step_run_allows_play_blockers_by_default()
     test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()

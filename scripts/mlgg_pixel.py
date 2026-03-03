@@ -376,6 +376,14 @@ _T: Dict[str, Dict[str, str]] = {
         "en": "Quick readiness could not be evaluated.",
         "zh": "\u65e0\u6cd5\u5b8c\u6210 quick readiness \u8bc4\u4f30\u3002",
     },
+    "r_play_readiness_not_evaluated": {
+        "en": "NOT EVALUATED",
+        "zh": "\u672a\u8bc4\u4f30",
+    },
+    "r_play_readiness_run_strict_hint": {
+        "en": "Run workflow --strict for publication verdict",
+        "zh": "\u8bf7\u8fd0\u884c workflow --strict \u83b7\u53d6\u51fa\u7248\u7ea7\u5224\u5b9a",
+    },
     "r_play_readiness_reason": {"en": "Reason:", "zh": "\u539f\u56e0\uff1a"},
     "r_pub_gate_not_run_label": {"en": "Publication gate", "zh": "\u51fa\u7248\u7ea7\u95e8\u63a7"},
     "r_pub_gate_not_run_value": {"en": "NOT RUN (use workflow --strict)", "zh": "\u672a\u8fd0\u884c\uff08\u8bf7\u7528 workflow --strict\uff09"},
@@ -3406,6 +3414,14 @@ def step_run(state: Dict) -> Any:
     if not readiness_evaluated and readiness_error:
         play_advisories.append("quick_readiness_unavailable")
         state["_play_readiness_advisories"] = list(play_advisories)
+        if not bool(state.get("_fail_on_play_blockers", False)):
+            readiness_note_lines = [
+                f"  {'Overall':<16} {s('Y', t('r_play_readiness_not_evaluated'), bold=True)}",
+                f"  {t('r_play_readiness_reason'):<16} {readiness_error}",
+                f"  {t('r_pub_gate_not_run_label'):<16} {s('Y', t('r_play_readiness_run_strict_hint'))}",
+            ]
+            print()
+            box(t("r_quick_readiness"), readiness_note_lines, color="Y")
     state["_play_readiness_evaluated"] = bool(readiness_evaluated)
     if readiness_error:
         state["_play_readiness_error"] = readiness_error
