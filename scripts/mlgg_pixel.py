@@ -1305,12 +1305,15 @@ def collect_runtime_dependency_issues(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def apply_dependency_downgrade(state: Dict[str, Any], issues: Dict[str, Any]) -> Dict[str, Any]:
     """Apply safe fallback when user chooses not to install missing dependencies."""
+    before_pool = model_pool_tokens_from_state(state)
     missing_optional = [str(x) for x in issues.get("missing_optional", []) if str(x).strip()]
     optuna_missing = bool(issues.get("optuna_missing", False))
     removed: List[str] = []
+    fallback_used = False
     if missing_optional:
         prune_result = prune_unavailable_optional_models(state)
         removed = [str(x) for x in prune_result.get("removed", []) if str(x).strip()]
+        fallback_used = bool(prune_result.get("fallback_used", False))
     downgraded_optuna = False
     if optuna_missing and str(state.get("hyperparam_search", "")).strip().lower() == "optuna":
         state["hyperparam_search"] = "random_subsample"
@@ -1322,7 +1325,8 @@ def apply_dependency_downgrade(state: Dict[str, Any], issues: Dict[str, Any]) ->
             state["max_trials"] = int(recommended_max_trials(state))
         downgraded_optuna = True
     kept = model_pool_tokens_from_state(state)
-    fallback_used = bool(len(kept) == 1 and kept[0] == "logistic_l2" and not removed)
+    if not fallback_used and kept == ["logistic_l2"] and before_pool != ["logistic_l2"]:
+        fallback_used = True
     return {
         "removed_optional": removed,
         "downgraded_optuna": downgraded_optuna,

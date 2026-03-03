@@ -785,6 +785,29 @@ def test_step_run_dependency_partial_install_then_downgrade() -> None:
         play.select = original_select  # type: ignore[assignment]
 
 
+def test_apply_dependency_downgrade_sets_fallback_when_all_optional_removed() -> None:
+    print("\n=== play: dependency downgrade reports fallback when optional pool collapses ===")
+    original_backend_available = play.optional_backend_available
+    try:
+        play.optional_backend_available = lambda family: False if family in {"catboost", "lightgbm"} else True  # type: ignore[assignment]
+        state = {
+            "model_pool": "catboost,lightgbm",
+            "_model_labels": [play.t("m_cat"), play.t("m_lgbm")],
+            "include_optional_models": True,
+            "hyperparam_search": "fixed_grid",
+        }
+        issues = {
+            "missing_optional": ["catboost", "lightgbm"],
+            "optuna_missing": False,
+            "has_issues": True,
+        }
+        result = play.apply_dependency_downgrade(state, issues)
+        assert_true(result.get("kept_model_pool") == ["logistic_l2"], "downgrade falls back to logistic_l2 when optional pool empties")
+        assert_true(bool(result.get("fallback_used", False)), "downgrade marks fallback_used=true when optional pool collapses")
+    finally:
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+
+
 def test_step_run_normalizes_stale_optional_flag_from_history() -> None:
     print("\n=== play: step_run normalizes stale include_optional_models flag ===")
     original_spinner = play.run_spinner
@@ -1049,6 +1072,7 @@ def main() -> int:
     test_step_run_dependency_install_path_covers_optional_and_optuna()
     test_step_run_dependency_cancel_fails_closed()
     test_step_run_dependency_partial_install_then_downgrade()
+    test_apply_dependency_downgrade_sets_fallback_when_all_optional_removed()
     test_step_run_normalizes_stale_optional_flag_from_history()
     test_export_cli_normalizes_stale_optional_flag()
     test_export_cli_keeps_optional_flag_when_model_pool_has_optional()
