@@ -2936,9 +2936,14 @@ def step_run(state: Dict) -> Any:
         if eval_path.exists():
             import json as _json
             eval_data = _json.loads(eval_path.read_text())
-            readiness_evaluated = True
             metrics = eval_data.get("metrics", {})
-            if isinstance(metrics, dict):
+            has_core_metric = isinstance(metrics, dict) and any(
+                metrics.get(k) is not None for k in ("pr_auc", "roc_auc", "f1", "brier")
+            )
+            if not has_core_metric:
+                readiness_error = "evaluation_report_schema_invalid"
+            else:
+                readiness_evaluated = True
                 metric_lines = []
                 # Model ID
                 mid = eval_data.get("model_id")
@@ -3398,6 +3403,9 @@ def step_run(state: Dict) -> Any:
 
     state["_play_readiness_blockers"] = list(play_blockers)
     state["_play_readiness_advisories"] = list(play_advisories)
+    if not readiness_evaluated and readiness_error:
+        play_advisories.append("quick_readiness_unavailable")
+        state["_play_readiness_advisories"] = list(play_advisories)
     state["_play_readiness_evaluated"] = bool(readiness_evaluated)
     if readiness_error:
         state["_play_readiness_error"] = readiness_error
