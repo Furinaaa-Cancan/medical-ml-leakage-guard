@@ -372,6 +372,11 @@ _T: Dict[str, Dict[str, str]] = {
     "r_play_status_pass": {"en": "GOOD (play)", "zh": "\u826f\u597d\uff08play\uff09"},
     "r_play_blocking_fail": {"en": "Play run failed due to blocking readiness items.",
                              "zh": "play \u8fd0\u884c\u56e0\u5c31\u7eea\u963b\u65ad\u9879\u5931\u8d25\u3002"},
+    "r_play_readiness_unavailable": {
+        "en": "Quick readiness could not be evaluated.",
+        "zh": "\u65e0\u6cd5\u5b8c\u6210 quick readiness \u8bc4\u4f30\u3002",
+    },
+    "r_play_readiness_reason": {"en": "Reason:", "zh": "\u539f\u56e0\uff1a"},
     "r_pub_gate_not_run_label": {"en": "Publication gate", "zh": "\u51fa\u7248\u7ea7\u95e8\u63a7"},
     "r_pub_gate_not_run_value": {"en": "NOT RUN (use workflow --strict)", "zh": "\u672a\u8fd0\u884c\uff08\u8bf7\u7528 workflow --strict\uff09"},
     "r_verdict_not_ready": {"en": "Not strict release-ready", "zh": "\u672a\u8fbe\u4e25\u683c\u53d1\u5e03\u6761\u4ef6"},
@@ -2922,6 +2927,8 @@ def step_run(state: Dict) -> Any:
 
     play_blockers: List[str] = []
     play_advisories: List[str] = []
+    readiness_evaluated = False
+    readiness_error = ""
 
     # Show key metrics from evaluation report
     try:
@@ -2929,6 +2936,7 @@ def step_run(state: Dict) -> Any:
         if eval_path.exists():
             import json as _json
             eval_data = _json.loads(eval_path.read_text())
+            readiness_evaluated = True
             metrics = eval_data.get("metrics", {})
             if isinstance(metrics, dict):
                 metric_lines = []
@@ -3383,11 +3391,25 @@ def step_run(state: Dict) -> Any:
                     sel_lines.append(f"  {DIM}* = selected (1-SE rule){RST}")
                     print()
                     box("Model Selection (CV)", sel_lines, color="C")
+        else:
+            readiness_error = "evaluation_report_missing"
     except Exception:
-        pass
+        readiness_error = "evaluation_report_parse_error"
 
     state["_play_readiness_blockers"] = list(play_blockers)
     state["_play_readiness_advisories"] = list(play_advisories)
+    state["_play_readiness_evaluated"] = bool(readiness_evaluated)
+    if readiness_error:
+        state["_play_readiness_error"] = readiness_error
+    else:
+        state.pop("_play_readiness_error", None)
+    if bool(state.get("_fail_on_play_blockers", False)) and not readiness_evaluated:
+        print(f"\n  {s('R', t('r_play_readiness_unavailable'))}")
+        reason_label = t("r_play_readiness_reason")
+        print(f"  {reason_label} {readiness_error or 'unknown'}")
+        state.pop("_from_history", None)
+        _save_history(state)
+        return FAIL
     if bool(state.get("_fail_on_play_blockers", False)) and play_blockers:
         print(f"\n  {s('R', t('r_play_blocking_fail'))}")
         for item in play_blockers[:6]:

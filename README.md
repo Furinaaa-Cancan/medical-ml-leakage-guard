@@ -50,6 +50,8 @@ Important:
   `python3 scripts/mlgg.py play -- --strict-small-sample`
 - If you want `play` to exit non-zero on quick-readiness blockers, use:
   `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
+- With `--fail-on-play-blockers`, `play` also fails closed when quick-readiness cannot be evaluated
+  (for example missing/invalid `evaluation_report.json`).
 
 **Want to use real medical data instead of demo?** Download a real UCI dataset:
 
@@ -622,6 +624,8 @@ python3 scripts/mlgg.py play
   `python3 scripts/mlgg.py play -- --strict-small-sample`
 - 如果你希望 `play` 在出现快速就绪阻断项时直接返回非 0 退出码，请使用：
   `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
+- 开启 `--fail-on-play-blockers` 后，如果 quick-readiness 无法评估
+  （例如 `evaluation_report.json` 缺失或损坏），也会 fail-closed 直接失败。
 
 **想用真实医学数据代替 demo？** 一键下载 UCI 公开数据集：
 
