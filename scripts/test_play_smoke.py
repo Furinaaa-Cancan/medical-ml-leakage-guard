@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import List
 
@@ -142,6 +143,89 @@ def test_download_dataset_menu_uses_stable_triplet() -> None:
         assert_true(len(captured["opts"]) == 3, "download dataset menu is restricted to 3 stable datasets")
     finally:
         play.select = original_select  # type: ignore[assignment]
+
+
+def test_step_config_custom_csv_supports_target_and_feature_selection() -> None:
+    print("\n=== play: custom csv config supports explicit target + feature selection ===")
+    original_select = play.select
+    original_multi_select = play.multi_select
+    with tempfile.TemporaryDirectory(prefix="mlgg_cfg_") as td:
+        csv_path = Path(td) / "custom.csv"
+        csv_path.write_text(
+            "patient_id,event_time,y,feat_a,feat_b,feat_c\n"
+            "p1,2025-01-01,1,0.1,3.2,9\n"
+            "p2,2025-01-02,0,0.2,1.3,8\n"
+            "p3,2025-01-03,1,0.3,2.4,7\n",
+            encoding="utf-8",
+        )
+        try:
+            def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+                if title == play.t("pick_pid"):
+                    return opts.index("patient_id")
+                if title == play.t("pick_target"):
+                    has_binary_hint = isinstance(descs, list) and any(
+                        ("binary" in str(item).lower()) or ("\u4e8c\u5206\u7c7b" in str(item))
+                        for item in descs
+                    )
+                    assert_true(bool(has_binary_hint), "target picker exposes binary hint for candidate columns")
+                    return opts.index("y")
+                return 0
+
+            def fake_multi(opts, descs=None, title="", defaults=None):  # type: ignore[override]
+                assert_true("event_time" in opts, "feature picker lists all predictor candidates")
+                return [opts.index("feat_a"), opts.index("feat_b")]
+
+            play.select = fake_select  # type: ignore[assignment]
+            play.multi_select = fake_multi  # type: ignore[assignment]
+            state = {"source": "csv", "csv_path": str(csv_path)}
+            result = play.step_config(state)
+            assert_true(result is True, "step_config completes with explicit feature selection")
+            assert_true(
+                state.get("selected_features") == ["feat_a", "feat_b"],
+                "selected_features recorded from interactive picker",
+            )
+            ignore_set = {tok.strip() for tok in str(state.get("ignore_cols", "")).split(",") if tok.strip()}
+            assert_true(
+                ignore_set == {"patient_id", "event_time", "y", "feat_c"},
+                "ignore_cols auto-derived from non-selected columns",
+            )
+        finally:
+            play.select = original_select  # type: ignore[assignment]
+            play.multi_select = original_multi_select  # type: ignore[assignment]
+
+
+def test_export_cli_uses_selected_features_via_ignore_cols() -> None:
+    print("\n=== play: export cli keeps selected features by ignoring unselected columns ===")
+    state = {
+        "source": "csv",
+        "dataset_key": "custom",
+        "csv_path": "/tmp/custom.csv",
+        "_columns": ["patient_id", "event_time", "y", "feat_a", "feat_b", "feat_c"],
+        "pid": "patient_id",
+        "target": "y",
+        "time": "event_time",
+        "selected_features": ["feat_a", "feat_b"],
+        "strategy": "stratified_grouped",
+        "train_ratio": 0.6,
+        "valid_ratio": 0.2,
+        "test_ratio": 0.2,
+        "validation_method": "holdout",
+        "cv_folds": 5,
+        "imbalance_strategies": ["auto"],
+        "imbalance_selection_metric": "pr_auc",
+        "model_pool": "logistic_l2",
+        "hyperparam_search": "fixed_grid",
+        "max_trials": 1,
+        "calibration": "none",
+        "device": "cpu",
+        "out_dir": "/tmp/mlgg_export_features",
+    }
+    cli = play._export_cli(state)
+    assert_true("--ignore-cols" in cli, "export command includes ignore-cols")
+    assert_true(
+        "patient_id,event_time,y,feat_c" in cli,
+        "export command ignore-cols reflects selected feature subset",
+    )
 
 
 def test_imbalance_step_supports_multiselect_and_metric() -> None:
@@ -1344,6 +1428,8 @@ def main() -> int:
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
     test_download_dataset_menu_uses_stable_triplet()
+    test_step_config_custom_csv_supports_target_and_feature_selection()
+    test_export_cli_uses_selected_features_via_ignore_cols()
     test_imbalance_step_supports_multiselect_and_metric()
     test_tuning_calibration_menu_includes_human_readable_descriptions()
     test_tuning_optuna_input_accepts_back_token()

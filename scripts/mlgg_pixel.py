@@ -192,6 +192,17 @@ _T: Dict[str, Dict[str, str]] = {
 
     "pick_pid":      {"en": "Patient ID column", "zh": "\u60a3\u8005 ID \u5217"},
     "pick_target":   {"en": "Target column (0/1)", "zh": "\u76ee\u6807\u53d8\u91cf\u5217 (0/1)"},
+    "pick_features": {"en": "Select predictor feature columns", "zh": "\u9009\u62e9\u7528\u4e8e\u9884\u6d4b\u7684\u7279\u5f81\u5217"},
+    "pick_features_desc": {"en": "Choose variables used for prediction (you can adjust later in Advanced).",
+                           "zh": "\u9009\u62e9\u7528\u4e8e\u9884\u6d4b\u7684\u53d8\u91cf\uff08\u540e\u7eed\u53ef\u5728\u9ad8\u7ea7\u8bbe\u7f6e\u518d\u8c03\u6574\uff09\u3002"},
+    "target_binary_like": {"en": "binary-like in sample (positive≈{pct}%)", "zh": "\u6837\u672c\u4e2d\u7c7b\u4f3c\u4e8c\u5206\u7c7b\uff08\u9633\u6027\u2248{pct}%\uff09"},
+    "target_binary_single_class": {"en": "binary-like but sample has one class only", "zh": "\u6837\u672c\u4e2d\u7c7b\u4f3c\u4e8c\u5206\u7c7b\uff0c\u4f46\u4ec5\u6709\u5355\u7c7b"},
+    "target_not_binary": {"en": "sample appears non-binary", "zh": "\u6837\u672c\u503c\u57df\u4e0d\u50cf\u4e8c\u5206\u7c7b"},
+    "feature_time_hint": {"en": "time-like column (usually not a predictor)", "zh": "\u65f6\u95f4\u7c7b\u5217\uff08\u901a\u5e38\u4e0d\u4f5c\u4e3a\u9884\u6d4b\u7279\u5f81\uff09"},
+    "feature_choose_at_least_one": {"en": "Please select at least one predictor feature.",
+                                    "zh": "\u8bf7\u81f3\u5c11\u9009\u62e9 1 \u4e2a\u9884\u6d4b\u7279\u5f81\u3002"},
+    "feature_selected_n": {"en": "{n} feature(s) selected", "zh": "\u5df2\u9009\u62e9 {n} \u4e2a\u7279\u5f81"},
+    "feature_auto_all": {"en": "auto (all eligible columns)", "zh": "\u81ea\u52a8\uff08\u6240\u6709\u53ef\u7528\u5217\uff09"},
     "pick_time":     {"en": "Time / Date column", "zh": "\u65f6\u95f4\u5217"},
     "pick_strat":    {"en": "Split strategy", "zh": "\u5206\u5272\u7b56\u7565"},
     "auto":          {"en": "auto-detected", "zh": "\u81ea\u52a8\u68c0\u6d4b"},
@@ -276,6 +287,7 @@ _T: Dict[str, Dict[str, str]] = {
     "c_file":        {"en": "File:", "zh": "\u6587\u4ef6\uff1a"},
     "c_pid":         {"en": "Patient ID:", "zh": "\u60a3\u8005 ID\uff1a"},
     "c_target":      {"en": "Target:", "zh": "\u76ee\u6807\uff1a"},
+    "c_features":    {"en": "Features:", "zh": "\u7279\u5f81\uff1a"},
     "c_time":        {"en": "Time:", "zh": "\u65f6\u95f4\uff1a"},
     "c_strat":       {"en": "Strategy:", "zh": "\u7b56\u7565\uff1a"},
     "c_ratio":       {"en": "Ratio:", "zh": "\u6bd4\u4f8b\uff1a"},
@@ -1058,6 +1070,89 @@ def csv_rows(path: Path) -> int:
         return 0
 
 
+_BIN_TRUE_TOKENS = {"1", "true", "yes", "y", "pos", "positive", "case", "disease"}
+_BIN_FALSE_TOKENS = {"0", "false", "no", "n", "neg", "negative", "control", "healthy"}
+
+
+def _normalize_binary_value(raw: str) -> Optional[int]:
+    token = str(raw or "").strip().lower()
+    if not token:
+        return None
+    if token in _BIN_TRUE_TOKENS:
+        return 1
+    if token in _BIN_FALSE_TOKENS:
+        return 0
+    try:
+        value = float(token)
+    except Exception:
+        return None
+    if value == 0.0:
+        return 0
+    if value == 1.0:
+        return 1
+    return None
+
+
+def csv_column_profile(path: Path, columns: List[str], max_rows: int = 2000) -> Dict[str, Dict[str, int]]:
+    """Best-effort sampling profile used for target/feature guidance in play mode."""
+    profile: Dict[str, Dict[str, int]] = {
+        str(col): {
+            "rows": 0,
+            "non_empty": 0,
+            "binary_mapped": 0,
+            "bin_0": 0,
+            "bin_1": 0,
+        }
+        for col in columns
+    }
+    if not columns:
+        return profile
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for idx, row in enumerate(reader):
+                if idx >= max_rows:
+                    break
+                if not isinstance(row, dict):
+                    continue
+                for col in columns:
+                    stats = profile.get(col)
+                    if stats is None:
+                        continue
+                    stats["rows"] += 1
+                    raw = str(row.get(col, "") or "").strip()
+                    if not raw:
+                        continue
+                    stats["non_empty"] += 1
+                    mapped = _normalize_binary_value(raw)
+                    if mapped is None:
+                        continue
+                    stats["binary_mapped"] += 1
+                    if mapped == 1:
+                        stats["bin_1"] += 1
+                    else:
+                        stats["bin_0"] += 1
+    except Exception:
+        return profile
+    return profile
+
+
+def _target_hint_from_profile(profile: Dict[str, Dict[str, int]], column: str) -> str:
+    stats = profile.get(column, {})
+    non_empty = int(stats.get("non_empty", 0))
+    mapped = int(stats.get("binary_mapped", 0))
+    bin_1 = int(stats.get("bin_1", 0))
+    bin_0 = int(stats.get("bin_0", 0))
+    if non_empty > 0 and mapped == non_empty:
+        if bin_1 > 0 and bin_0 > 0:
+            pct = int(round(100.0 * float(bin_1) / float(max(bin_1 + bin_0, 1))))
+            return t("target_binary_like", pct=pct)
+        return t("target_binary_single_class")
+    if non_empty > 0:
+        return t("target_not_binary")
+    return ""
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  LOGO
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1130,6 +1225,7 @@ _HISTORY_PATH = Path.home() / ".mlgg" / "history.json"
 
 _HISTORY_KEYS = [
     "source", "dataset_key", "csv_path", "pid", "target", "time",
+    "selected_features",
     "strategy", "train_ratio", "valid_ratio", "test_ratio",
     "validation_method", "cv_folds", "imbalance_strategy", "imbalance_strategies", "imbalance_selection_metric",
     "model_pool", "hyperparam_search", "calibration", "device",
@@ -1197,6 +1293,20 @@ def available_columns_for_ignore(state: Dict[str, Any]) -> List[str]:
     return []
 
 
+def selected_feature_tokens(state: Dict[str, Any]) -> List[str]:
+    raw = state.get("selected_features")
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    seen = set()
+    for item in raw:
+        name = str(item).strip()
+        if name and name not in seen:
+            out.append(name)
+            seen.add(name)
+    return out
+
+
 def normalize_ignore_columns(state: Dict[str, Any], tokens: List[str]) -> str:
     """
     Normalize ignore columns:
@@ -1217,6 +1327,35 @@ def normalize_ignore_columns(state: Dict[str, Any], tokens: List[str]) -> str:
             ordered.append(col)
             seen.add(col)
     return ",".join(ordered)
+
+
+def default_ignore_columns(state: Dict[str, Any]) -> str:
+    """Build default ignore-cols from selected features when available."""
+    columns = available_columns_for_ignore(state)
+    selected = selected_feature_tokens(state)
+    if columns and selected:
+        allowed = set(selected)
+        tokens = [col for col in columns if col not in allowed]
+        return normalize_ignore_columns(state, tokens)
+    fallback = [str(state.get("pid", "")).strip()]
+    time_col = str(state.get("time", "")).strip()
+    if time_col:
+        fallback.append(time_col)
+    return normalize_ignore_columns(state, fallback)
+
+
+def selected_feature_summary(state: Dict[str, Any], limit: int = 6) -> str:
+    features = selected_feature_tokens(state)
+    if not features:
+        if str(state.get("source", "")).strip().lower() != "csv":
+            return t("feature_auto_all")
+        return t("c_none")
+    shown = features[:limit]
+    text = ",".join(shown)
+    remain = len(features) - len(shown)
+    if remain > 0:
+        text += f",...(+{remain})"
+    return f"{text} ({t('feature_selected_n', n=len(features))})"
 
 
 def optional_backend_available(model_family: str) -> bool:
@@ -1737,7 +1876,7 @@ def step_dataset(state: Dict) -> Any:
 
 
 def step_config(state: Dict) -> Any:
-    """Column selection -- Patient ID + Target (CSV mode only)."""
+    """Column selection for custom CSV: patient_id + target + predictor features."""
     if state.get("_from_history"):
         return SKIP
     if state.get("source") in ("demo", "download", "full"):
@@ -1768,9 +1907,11 @@ def step_config(state: Dict) -> Any:
         return BACK
 
     detected = detect_columns(columns)
+    profile = csv_column_profile(Path(csv_path), columns)
     rows = csv_rows(Path(csv_path))
     state["_columns"] = columns
     state["_detected"] = detected
+    state["_column_profile"] = profile
     state["_rows"] = rows
 
     def _config_header(*chosen: Tuple[str, str]) -> None:
@@ -1790,6 +1931,7 @@ def step_config(state: Dict) -> Any:
 
     sub = 0
     pid = tgt = ""
+    selected_features: List[str] = []
     while True:
         if sub == 0:
             _config_header()
@@ -1808,14 +1950,52 @@ def step_config(state: Dict) -> Any:
             if detected["target"] and detected["target"] in tgt_opts:
                 tgt_opts.remove(detected["target"])
                 tgt_opts.insert(0, detected["target"])
-            ti = select(tgt_opts, title=t("pick_target"))
+            tgt_descs = [_target_hint_from_profile(profile, col) for col in tgt_opts]
+            ti = select(tgt_opts, tgt_descs, title=t("pick_target"))
             if ti < 0:
                 sub = 0; continue
             tgt = tgt_opts[ti]
+            sub = 2
+        elif sub == 2:
+            _config_header((t("c_pid"), pid), (t("c_target"), tgt))
+            print(f"  {DIM}{t('pick_features_desc')}{RST}\n")
+            feature_candidates = [c for c in columns if c not in (pid, tgt)]
+            if not feature_candidates:
+                _notice(t("feature_choose_at_least_one"))
+                sub = 1
+                continue
+            feature_descs = [
+                t("feature_time_hint") if detected.get("time") and col == detected.get("time") else ""
+                for col in feature_candidates
+            ]
+            default_selected = [
+                idx for idx, col in enumerate(feature_candidates)
+                if not (detected.get("time") and col == detected.get("time"))
+            ]
+            if not default_selected:
+                default_selected = list(range(len(feature_candidates)))
+            fi = multi_select(
+                feature_candidates,
+                feature_descs,
+                title=t("pick_features"),
+                defaults=default_selected,
+            )
+            if fi is None:
+                sub = 1
+                continue
+            if not fi:
+                _notice(t("feature_choose_at_least_one"))
+                continue
+            selected_features = [feature_candidates[idx] for idx in fi if 0 <= idx < len(feature_candidates)]
+            if not selected_features:
+                _notice(t("feature_choose_at_least_one"))
+                continue
             break
 
     state["pid"] = pid
     state["target"] = tgt
+    state["selected_features"] = selected_features
+    state["ignore_cols"] = default_ignore_columns(state)
     return True
 
 
@@ -2247,19 +2427,13 @@ def step_advanced(state: Dict) -> Any:
     if ci < 0:
         return BACK
     if ci == 0:
-        ignore_parts = [state.get("pid", "patient_id")]
-        if state.get("time"):
-            ignore_parts.append(state["time"])
-        state.setdefault("ignore_cols", normalize_ignore_columns(state, ignore_parts))
+        state.setdefault("ignore_cols", default_ignore_columns(state))
         state.setdefault("n_jobs", 1)
         state.setdefault("include_optional_models", has_optional_in_pool)
         enforce_optional_backend_policy(state)
         return True
 
-    ignore_parts = [state.get("pid", "patient_id")]
-    if state.get("time"):
-        ignore_parts.append(state["time"])
-    state.setdefault("ignore_cols", normalize_ignore_columns(state, ignore_parts))
+    state.setdefault("ignore_cols", default_ignore_columns(state))
     state.setdefault("n_jobs", 1)
     state.setdefault("include_optional_models", has_optional_in_pool)
 
@@ -2277,7 +2451,7 @@ def step_advanced(state: Dict) -> Any:
         if ai < 0:
             return BACK
         if ai == 0:
-            default_ignore = str(state.get("ignore_cols", ",".join(ignore_parts)))
+            default_ignore = str(state.get("ignore_cols", default_ignore_columns(state)))
             mode = select(
                 [t("adv_ignore_mode_select"), t("adv_ignore_mode_manual")],
                 title=t("adv_ignore_mode_title"),
@@ -2287,7 +2461,7 @@ def step_advanced(state: Dict) -> Any:
             if mode == 0:
                 cols = available_columns_for_ignore(state)
                 if not cols:
-                    state["ignore_cols"] = normalize_ignore_columns(state, ignore_parts)
+                    state["ignore_cols"] = default_ignore_columns(state)
                     _notice(t("adv_ignore_default_applied"))
                     continue
                 current_tokens = {
@@ -2407,10 +2581,7 @@ def _export_cli(state: Dict) -> str:
     ]
     if state.get("time"):
         split_parts.extend(["--time-col", state["time"]])
-    default_ignore = [state.get("pid", "patient_id")]
-    if state.get("time"):
-        default_ignore.append(state["time"])
-    ignore_cols = state.get("ignore_cols", ",".join(default_ignore))
+    ignore_cols = state.get("ignore_cols", default_ignore_columns(state))
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
     max_trials = state.get("max_trials", 20)
@@ -2486,7 +2657,7 @@ def step_confirm(state: Dict) -> Any:
         if state.get('hyperparam_search') == 'optuna':
             trials_str += f" (optuna={state.get('optuna_trials', 50)})"
 
-        all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_time'),
+        all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_time'),
                       t('c_strat'), t('c_ratio'), t('c_validation'),
                       t('c_imbalance'), t('c_models'), t('c_tuning'),
                       t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
@@ -2498,6 +2669,7 @@ def step_confirm(state: Dict) -> Any:
             f"{_p(t('c_file'))}{fname}",
             f"{_p(t('c_pid'))}{state.get('pid', '?')}",
             f"{_p(t('c_target'))}{state.get('target', '?')}",
+            f"{_p(t('c_features'))}{selected_feature_summary(state)}",
             f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
             f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
             f"{_p(t('c_ratio'))}{ratio_str}",
@@ -2622,7 +2794,7 @@ def step_run(state: Dict) -> Any:
             trials_str = str(state.get('max_trials', 20))
             if state.get('hyperparam_search') == 'optuna':
                 trials_str += f" (optuna={state.get('optuna_trials', 50)})"
-            all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_time'),
+            all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_time'),
                           t('c_strat'), t('c_ratio'), t('c_validation'),
                           t('c_imbalance'), t('c_models'), t('c_tuning'),
                           t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
@@ -2633,6 +2805,7 @@ def step_run(state: Dict) -> Any:
                 f"{_p(t('c_file'))}{fname}",
                 f"{_p(t('c_pid'))}{state.get('pid', '?')}",
                 f"{_p(t('c_target'))}{state.get('target', '?')}",
+                f"{_p(t('c_features'))}{selected_feature_summary(state)}",
                 f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
                 f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
                 f"{_p(t('c_ratio'))}{ratio_str}",
@@ -2873,12 +3046,12 @@ def step_run(state: Dict) -> Any:
     Path(models_dir).mkdir(parents=True, exist_ok=True)
 
     # Use user-customized ignore_cols from step_advanced, or build default
-    default_ignore_parts = [state["pid"]]
-    if state.get("time"):
-        default_ignore_parts.append(state["time"])
-    if source == "download" and "event_time" not in default_ignore_parts:
-        default_ignore_parts.append("event_time")
-    ignore_cols = state.get("ignore_cols", ",".join(default_ignore_parts))
+    ignore_cols = state.get("ignore_cols", default_ignore_columns(state))
+    if source == "download":
+        keep = [tok.strip() for tok in str(ignore_cols).split(",") if tok.strip()]
+        if "event_time" not in keep:
+            keep.append("event_time")
+        ignore_cols = normalize_ignore_columns(state, keep)
 
     cv_folds = state.get("cv_folds", 5)
     selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
