@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue, load_json_from_str as load_json
+from _gate_utils import add_issue, load_json_from_str as load_json, to_int as _shared_to_int
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,13 +108,7 @@ def validate_component_status(
 
 
 def parse_int_like(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
-        return int(value)
-    return None
+    return _shared_to_int(value)
 
 
 def enforce_execution_attestation_publication_contract(

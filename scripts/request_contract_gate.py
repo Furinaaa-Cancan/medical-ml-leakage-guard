@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue, resolve_path, to_float
+from _gate_utils import add_issue, is_finite_number as _shared_is_finite_number, resolve_path, to_float, to_int as _shared_to_int
 
 
 REQUIRED_STRING_FIELDS = [
@@ -149,7 +149,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def is_finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+    return _shared_is_finite_number(value)
 
 
 def sha256_file(path: Path) -> str:
@@ -297,13 +297,7 @@ def canonical_metric_token(value: str) -> str:
 
 
 def to_int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
-        return int(value)
-    return None
+    return _shared_to_int(value)
 
 
 def get_gap_pair_block(gap_thresholds: Dict[str, Any], left: str, right: str) -> Optional[Dict[str, Any]]:

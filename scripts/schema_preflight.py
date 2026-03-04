@@ -188,7 +188,7 @@ def run_single_file_preflight(
                       {"column": patient_id_col, "null_count": file_stats["patient_id_null_count"]})
         time_err = int(file_stats.get("time_parse_error_count", 0))
         if time_err > 0:
-            add_issue(warnings, "index_time_parse_issues", "Some index time values could not be parsed.",
+            add_issue(failures, "index_time_parse_failed", "Index time column contains non-parseable timestamps.",
                       {"column": time_col, "invalid_count": time_err})
         pos_rate = file_stats.get("positive_rate")
         if isinstance(pos_rate, (int, float)) and math.isfinite(float(pos_rate)):
