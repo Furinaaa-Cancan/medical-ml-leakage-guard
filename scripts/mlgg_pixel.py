@@ -70,6 +70,12 @@ def _wlen(text: str) -> int:
 def _cols() -> int:
     return shutil.get_terminal_size((80, 24)).columns
 
+def _vlines(text: str, cols: Optional[int] = None) -> int:
+    """Return how many terminal rows this text occupies after wrapping."""
+    width = max(cols or _cols(), 1)
+    visible = max(_wlen(text), 0)
+    return max(1, (visible + width - 1) // width)
+
 _TEST_MODE = bool(os.environ.get("MLGG_TEST"))
 MAX_TRIALS_INPUT = 1000
 MAX_OPTUNA_TRIALS_INPUT = 2000
@@ -711,24 +717,27 @@ def select(options: List[str], descs: Optional[List[str]] = None,
     def _draw() -> int:
         sys.stdout.write(HIDE_CUR); sys.stdout.flush()
         lc = 0
+        cols = _cols()
+
+        def _emit(line: str = "") -> None:
+            nonlocal lc
+            print(line)
+            lc += _vlines(line, cols)
+
         filtered = _filtered_indices()
         pos = _normalize_selection(filtered)
         if title:
-            print(f"  {s('C', title, bold=True)}")
-            print()
-            lc += 2
+            _emit(f"  {s('C', title, bold=True)}")
+            _emit()
         if search_query.strip():
             typing_suffix = "  [typing]" if search_mode else ""
-            print(f"  {DIM}{t('search_filter', q=search_query, m=len(filtered), n=n)}{typing_suffix}{RST}")
-            lc += 1
+            _emit(f"  {DIM}{t('search_filter', q=search_query, m=len(filtered), n=n)}{typing_suffix}{RST}")
         if not filtered:
-            print(f"  {s('Y', t('search_no_match'))}")
-            lc += 1
+            _emit(f"  {s('Y', t('search_no_match'))}")
         else:
             end = min(offset + max_vis, len(filtered))
             if offset > 0:
-                print(f"  {DIM}  \u25b2 {offset} more{RST}")
-                lc += 1
+                _emit(f"  {DIM}  \u25b2 {offset} more{RST}")
             for fidx in range(offset, end):
                 i = filtered[fidx]
                 lbl = _trunc(options[i], maxw - 4)
@@ -738,22 +747,19 @@ def select(options: List[str], descs: Optional[List[str]] = None,
                     if has_desc and descs and descs[i] and desc_room > 8:
                         d = _trunc(descs[i], desc_room)
                         line += f"  {s('C', d)}"
-                    print(line)
+                    _emit(line)
                 else:
                     line = f"    {DIM}{lbl}{RST}"
                     desc_room = maxw - _wlen(lbl) - 8
                     if has_desc and descs and descs[i] and desc_room > 8:
                         d = _trunc(descs[i], desc_room)
                         line += f"  {DIM}{d}{RST}"
-                    print(line)
-                lc += 1
+                    _emit(line)
             if end < len(filtered):
-                print(f"  {DIM}  \u25bc {len(filtered) - end} more{RST}")
-                lc += 1
-        print()
+                _emit(f"  {DIM}  \u25bc {len(filtered) - end} more{RST}")
+        _emit()
         hint_base = t("nav_first") if is_first else t("nav")
-        print(f"  {DIM}{hint_base}{t('nav_search_suffix')}{RST}")
-        lc += 2
+        _emit(f"  {DIM}{hint_base}{t('nav_search_suffix')}{RST}")
         return lc
 
     lc = _draw()
@@ -854,24 +860,27 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
     def _draw() -> int:
         sys.stdout.write(HIDE_CUR); sys.stdout.flush()
         lc = 0
+        cols = _cols()
+
+        def _emit(line: str = "") -> None:
+            nonlocal lc
+            print(line)
+            lc += _vlines(line, cols)
+
         filtered = _filtered_indices()
         pos = _normalize_selection(filtered)
         if title:
-            print(f"  {s('C', title, bold=True)}")
-            print()
-            lc += 2
+            _emit(f"  {s('C', title, bold=True)}")
+            _emit()
         if search_query.strip():
             typing_suffix = "  [typing]" if search_mode else ""
-            print(f"  {DIM}{t('search_filter', q=search_query, m=len(filtered), n=n)}{typing_suffix}{RST}")
-            lc += 1
+            _emit(f"  {DIM}{t('search_filter', q=search_query, m=len(filtered), n=n)}{typing_suffix}{RST}")
         if not filtered:
-            print(f"  {s('Y', t('search_no_match'))}")
-            lc += 1
+            _emit(f"  {s('Y', t('search_no_match'))}")
         else:
             end = min(offset + max_vis, len(filtered))
             if offset > 0:
-                print(f"  {DIM}  \u25b2 {offset} more{RST}")
-                lc += 1
+                _emit(f"  {DIM}  \u25b2 {offset} more{RST}")
             for fidx in range(offset, end):
                 i = filtered[fidx]
                 mark = s('G', '\u2713') if i in checked else ' '
@@ -882,21 +891,18 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
                     if has_desc and descs and descs[i] and desc_room > 8:
                         d = _trunc(descs[i], desc_room)
                         line += f"  {s('C', d)}"
-                    print(line)
+                    _emit(line)
                 else:
                     line = f"    [{mark}] {DIM}{lbl}{RST}"
                     desc_room = maxw - _wlen(options[i]) - 14
                     if has_desc and descs and descs[i] and desc_room > 8:
                         d = _trunc(descs[i], desc_room)
                         line += f"  {DIM}{d}{RST}"
-                    print(line)
-                lc += 1
+                    _emit(line)
             if end < len(filtered):
-                print(f"  {DIM}  \u25bc {len(filtered) - end} more{RST}")
-                lc += 1
-        print()
-        print(f"  {DIM}{t('ms_hint')}{t('nav_search_suffix')}{RST}")
-        lc += 1
+                _emit(f"  {DIM}  \u25bc {len(filtered) - end} more{RST}")
+        _emit()
+        _emit(f"  {DIM}{t('ms_hint')}{t('nav_search_suffix')}{RST}")
         return lc
 
     lc = _draw()
