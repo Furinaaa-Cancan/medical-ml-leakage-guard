@@ -77,8 +77,33 @@
   - `test_train_e2e.py` (13): E2E 依赖完整流水线（预置）
   - `test_leakage_gate.py` (1): 时间边界精度（预置）
 
+## 预置测试修复
+
+| 测试文件 | 失败数 | 根因 | 修复 |
+|---------|-------|------|------|
+| `test_gate_utils.py` | 4 | `load_json_*` 抛出 `ValueError` 而非 `json.JSONDecodeError` | 更新测试期望为 `ValueError` |
+| `test_gate_utils.py` | 1 | `load_json_optional` 捕获异常返回 `None` | 更新测试期望为 `None` |
+| `test_leakage_gate.py` | 1 | 代码使用 `>=`（fail-closed），测试期望 `>` | 更新测试匹配 fail-closed 设计 |
+
+## 测试覆盖增强
+
+为 `_gate_utils.py` 新增共享函数编写单元测试：
+- `TestCanonicalMetricToken` — 8 个用例（大小写、分隔符、等价性）
+- `TestIsFiniteNumber` — 11 个用例（int/float/bool/inf/nan/None）
+- `TestToInt` — 11 个用例（int/float/bool/str/None）
+
+## 工作流脚本评审
+
+| 脚本 | 评审结论 |
+|------|---------|
+| `run_strict_pipeline.py` | 28 步门控流水线结构良好，并行批次支持正确，`publication_eligible` 标志逻辑严谨 |
+| `run_productized_workflow.py` | Bootstrap 恢复逻辑设计合理，阻塞步骤分类正确 |
+
 ## 提交记录
 
-两次提交已推送至远程仓库：
+五次提交已推送至远程仓库：
 1. `schema_preflight.py` 时间严重性修复 + `request_contract_gate.py` / `publication_gate.py` 去重
 2. `canonical_metric_token` 集中化 + `normalize_binary` / `safe_ratio` / `is_finite_number` 去重 + `intercept_abs_max` 范围修复
+3. 评审总结报告
+4. 修复 5 个预置测试失败（JSON 异常类型 + 时间边界 fail-closed）
+5. 新增 30 个单元测试（canonical_metric_token / is_finite_number / to_int）
