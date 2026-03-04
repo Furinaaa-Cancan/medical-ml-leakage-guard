@@ -35,12 +35,24 @@ def _split_data(tmp_path: Path) -> Path:
     return out_dir
 
 
+def _write_feature_group_spec(tmp_path: Path) -> Path:
+    """Create a minimal feature group spec JSON for testing."""
+    spec_path = tmp_path / "feature_group_spec.json"
+    spec_path.write_text(json.dumps({
+        "groups": {},
+        "forbidden_features": []
+    }), encoding="utf-8")
+    return spec_path
+
+
 def _run_train(tmp_path: Path, data_dir: Path, extra_args: list = None,
                timeout: int = 300) -> subprocess.CompletedProcess:
     evidence = tmp_path / "evidence"
     models = tmp_path / "models"
     evidence.mkdir(exist_ok=True)
     models.mkdir(exist_ok=True)
+
+    feature_group_spec = _write_feature_group_spec(tmp_path)
 
     cmd = [
         sys.executable, str(SCRIPTS_DIR / "train_select_evaluate.py"),
@@ -67,6 +79,7 @@ def _run_train(tmp_path: Path, data_dir: Path, extra_args: list = None,
         "--robustness-time-slices", "2",
         "--robustness-group-count", "2",
         "--distribution-report-out", str(evidence / "distribution_report.json"),
+        "--feature-group-spec", str(feature_group_spec),
         "--feature-engineering-report-out", str(evidence / "feature_engineering_report.json"),
         "--calibration-method", "power",
     ]
