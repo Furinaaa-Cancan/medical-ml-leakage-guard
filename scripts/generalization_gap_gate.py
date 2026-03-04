@@ -52,8 +52,6 @@ def get_nested_threshold(
             if pair_block is None:
                 pair_block = gap.get(f"{left}-{right}")
             if pair_block is None:
-                pair_block = gap.get(left + "_" + right)
-            if pair_block is None:
                 pair_block = gap.get(left + right)
             if isinstance(pair_block, dict):
                 metric_block = pair_block.get(metric)
