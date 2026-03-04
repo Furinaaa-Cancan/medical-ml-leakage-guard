@@ -1,0 +1,84 @@
+# ml-leakage-guard 门控脚本深度评审总结
+
+## 评审范围
+
+对 `scripts/` 目录下 20+ 门控脚本进行深度代码评审，重点关注：
+- 代码重复与模块化
+- 统计严谨性与阈值一致性
+- 数据泄漏防控逻辑
+- 边界条件与错误处理
+
+## 已修复问题
+
+### 1. 时间解析严重性不一致 (P0)
+- **文件**: `schema_preflight.py`
+- **问题**: 单文件模式下时间解析错误标记为 `warning`，拆分模式下为 `failure`。在医学预测中，不可解析时间戳可能掩盖时间泄漏。
+- **修复**: 统一提升为 `failure`。
+
+### 2. `intercept_abs_max` 策略范围不一致 (P1)
+- **文件**: `calibration_dca_gate.py`
+- **问题**: `parse_policy_thresholds` 将 `intercept_abs_max` 限制在 `(0.0, 1.0)`，而 `request_contract_gate.py` 允许 `(0.0, 10.0)`，导致静默策略覆盖。
+- **修复**: 扩展范围至 `(0.0, 10.0)` 与合约门控保持一致。
+
+### 3. 工具函数重复消除 (P2)
+跨 9 个门控脚本消除了 5 类重复函数，统一委托至 `_gate_utils.py`：
+
+| 函数 | 受影响脚本数 | 处理方式 |
+|------|-------------|---------|
+| `canonical_metric_token` | 5 | 新增至 `_gate_utils.py`，5 脚本改为 thin wrapper |
+| `is_finite_number` | 2 | 2 脚本改为委托 `_gate_utils` |
+| `to_int` | 3 | 3 脚本改为委托 `_gate_utils` |
+| `normalize_binary` | 3 | 3 脚本改为委托 `_gate_utils` |
+| `safe_ratio` | 1 | `ci_matrix_gate.py` 改为委托 `_gate_utils` |
+| `parse_int_like` | 1 | `publication_gate.py` 改为委托 `to_int` |
+
+**受影响文件清单**:
+- `_gate_utils.py` — 新增 `canonical_metric_token`
+- `request_contract_gate.py` — `is_finite_number`, `to_int`, `canonical_metric_token`
+- `publication_gate.py` — `parse_int_like`
+- `clinical_metrics_gate.py` — `to_int`, `canonical_metric_token`
+- `ci_matrix_gate.py` — `to_int`, `normalize_binary`, `safe_ratio`
+- `calibration_dca_gate.py` — `normalize_binary`, `intercept_abs_max` 范围
+- `distribution_generalization_gate.py` — `normalize_binary`
+- `evaluation_quality_gate.py` — `canonical_metric_token`, `is_finite_number`
+- `metric_consistency_gate.py` — `canonical_metric_token`, `is_finite_number`
+- `model_selection_audit_gate.py` — `canonical_metric_token`
+
+## 评审确认（无问题）
+
+| 脚本 | 评审结论 |
+|------|---------|
+| `train_select_evaluate.py` | 自包含架构系有意设计，二次深审无新问题 |
+| `split_protocol_gate.py` | 结构良好，已使用共享工具 |
+| `leakage_gate.py` | 结构良好，已使用共享工具 |
+| `generalization_gap_gate.py` | Brier 分数方向处理正确 |
+| `external_validation_gate.py` | 已使用 thin wrapper 模式 |
+| `prediction_replay_gate.py` | 已使用 thin wrapper 模式 |
+| `robustness_gate.py` | 阈值和桶验证逻辑正确 |
+| `seed_stability_gate.py` | 标准差/范围阈值合理 |
+| `execution_attestation_gate.py` | 签名验证和密钥吊销逻辑严谨 |
+| `tuning_leakage_gate.py` | 超参调优泄漏检查完备 |
+| `feature_lineage_gate.py` | 疾病定义变量谱系检查完备 |
+| `imbalance_policy_gate.py` | 标签分布策略校验完备 |
+| `missingness_policy_gate.py` | 缺失值策略校验完备 |
+| `permutation_significance_gate.py` | 置换检验逻辑正确 |
+| `covariate_shift_gate.py` | 协变量漂移检测完备 |
+
+## 设计亮点保留
+
+- **`safe_ratio` 语义差异**: `clinical_metrics_gate.py` 和 `covariate_shift_gate.py` 返回 `Optional[float]`（None 表示无效），`_gate_utils.safe_ratio` 返回 `float`（默认 0.0）。保持语义差异不强行统一。
+- **`train_select_evaluate.py` 自包含**: 作为独立流水线脚本，刻意不依赖 `_gate_utils`，避免循环依赖。
+
+## 测试验证
+
+- **494 个直接相关测试全部通过**（10 个门控脚本测试文件）
+- 18 个预置失败与本次修改无关：
+  - `test_gate_utils.py` (4): `load_json` 异常类型不匹配（预置）
+  - `test_train_e2e.py` (13): E2E 依赖完整流水线（预置）
+  - `test_leakage_gate.py` (1): 时间边界精度（预置）
+
+## 提交记录
+
+两次提交已推送至远程仓库：
+1. `schema_preflight.py` 时间严重性修复 + `request_contract_gate.py` / `publication_gate.py` 去重
+2. `canonical_metric_token` 集中化 + `normalize_binary` / `safe_ratio` / `is_finite_number` 去重 + `intercept_abs_max` 范围修复
