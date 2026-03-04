@@ -211,6 +211,17 @@ _T: Dict[str, Dict[str, str]] = {
     "pick_features": {"en": "Select predictor feature columns", "zh": "\u9009\u62e9\u7528\u4e8e\u9884\u6d4b\u7684\u7279\u5f81\u5217"},
     "pick_features_desc": {"en": "Choose variables used for prediction (you can adjust later in Advanced).",
                            "zh": "\u9009\u62e9\u7528\u4e8e\u9884\u6d4b\u7684\u53d8\u91cf\uff08\u540e\u7eed\u53ef\u5728\u9ad8\u7ea7\u8bbe\u7f6e\u518d\u8c03\u6574\uff09\u3002"},
+    "config_mode_title": {"en": "Column mapping mode", "zh": "\u5217\u6620\u5c04\u6a21\u5f0f"},
+    "config_mode_auto": {"en": "Use auto-detected mapping (recommended)", "zh": "\u4f7f\u7528\u81ea\u52a8\u68c0\u6d4b\u6620\u5c04\uff08\u63a8\u8350\uff09"},
+    "config_mode_auto_d": {"en": "Auto fill patient ID/target/time and keep editable later.",
+                           "zh": "\u81ea\u52a8\u586b\u5145\u60a3\u8005ID/\u76ee\u6807/\u65f6\u95f4\uff0c\u540e\u7eed\u4ecd\u53ef\u7f16\u8f91\u3002"},
+    "config_mode_manual": {"en": "Manual mapping", "zh": "\u624b\u52a8\u6620\u5c04"},
+    "config_mode_manual_d": {"en": "Choose patient ID, target, and features step by step.",
+                             "zh": "\u9010\u6b65\u9009\u62e9\u60a3\u8005ID\u3001\u76ee\u6807\u548c\u7279\u5f81\u3002"},
+    "config_auto_fallback_manual": {"en": "Auto mapping could not pick predictor features. Switching to manual mode.",
+                                    "zh": "\u81ea\u52a8\u6620\u5c04\u672a\u80fd\u9009\u51fa\u53ef\u7528\u9884\u6d4b\u7279\u5f81\uff0c\u5df2\u5207\u6362\u4e3a\u624b\u52a8\u6a21\u5f0f\u3002"},
+    "config_search_tip": {"en": "Tip: press '/' to search columns, press 'c' to clear filter.",
+                          "zh": "\u63d0\u793a\uff1a\u6309 '/' \u641c\u7d22\u5217\u540d\uff0c\u6309 'c' \u6e05\u9664\u8fc7\u6ee4\u3002"},
     "target_binary_like": {"en": "binary-like in sample (positive≈{pct}%)", "zh": "\u6837\u672c\u4e2d\u7c7b\u4f3c\u4e8c\u5206\u7c7b\uff08\u9633\u6027\u2248{pct}%\uff09"},
     "target_binary_single_class": {"en": "binary-like but sample has one class only", "zh": "\u6837\u672c\u4e2d\u7c7b\u4f3c\u4e8c\u5206\u7c7b\uff0c\u4f46\u4ec5\u6709\u5355\u7c7b"},
     "target_not_binary": {"en": "sample appears non-binary", "zh": "\u6837\u672c\u503c\u57df\u4e0d\u50cf\u4e8c\u5206\u7c7b"},
@@ -2161,9 +2172,40 @@ def step_config(state: Dict) -> Any:
             if detected["time"]: hints.append(f"Time={detected['time']}")
             auto_label = t('auto')
             print(f"  {s('G', '[' + auto_label + ']')} {DIM}{', '.join(hints)}{RST}")
+        print(f"  {DIM}{t('config_search_tip')}{RST}")
         for label, value in chosen:
             print(f"  {s('G', '\u2713')} {label} {s('W', value)}")
         print()
+
+    auto_pid = str(detected.get("pid", "") or "").strip()
+    auto_target = str(detected.get("target", "") or "").strip()
+    auto_time = str(detected.get("time", "") or "").strip()
+    can_auto_map = bool(auto_pid and auto_target)
+
+    if can_auto_map:
+        _config_header()
+        mode_idx = select(
+            [t("config_mode_auto"), t("config_mode_manual")],
+            [t("config_mode_auto_d"), t("config_mode_manual_d")],
+            title=t("config_mode_title"),
+        )
+        if mode_idx < 0:
+            return BACK
+        if mode_idx == 0:
+            auto_features = [
+                col for col in columns
+                if col not in {auto_pid, auto_target}
+                and not (auto_time and col == auto_time)
+            ]
+            if not auto_features:
+                auto_features = [col for col in columns if col not in {auto_pid, auto_target}]
+            if auto_features:
+                state["pid"] = auto_pid
+                state["target"] = auto_target
+                state["selected_features"] = auto_features
+                state["ignore_cols"] = default_ignore_columns(state)
+                return True
+            _notice(t("config_auto_fallback_manual"))
 
     sub = 0
     pid = tgt = ""

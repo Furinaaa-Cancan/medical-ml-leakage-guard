@@ -263,6 +263,8 @@ def test_step_config_custom_csv_supports_target_and_feature_selection() -> None:
         )
         try:
             def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+                if title == play.t("config_mode_title"):
+                    return 1  # force manual mapping path
                 if title == play.t("pick_pid"):
                     return opts.index("patient_id")
                 if title == play.t("pick_target"):
@@ -291,6 +293,44 @@ def test_step_config_custom_csv_supports_target_and_feature_selection() -> None:
             assert_true(
                 ignore_set == {"patient_id", "event_time", "y", "feat_c"},
                 "ignore_cols auto-derived from non-selected columns",
+            )
+        finally:
+            play.select = original_select  # type: ignore[assignment]
+            play.multi_select = original_multi_select  # type: ignore[assignment]
+
+
+def test_step_config_custom_csv_auto_mapping_shortcut() -> None:
+    print("\n=== play: custom csv config supports auto-detected one-step mapping ===")
+    original_select = play.select
+    original_multi_select = play.multi_select
+    with tempfile.TemporaryDirectory(prefix="mlgg_cfg_auto_") as td:
+        csv_path = Path(td) / "custom.csv"
+        csv_path.write_text(
+            "patient_id,event_time,y,feat_a,feat_b\n"
+            "p1,2025-01-01,1,0.1,3.2\n"
+            "p2,2025-01-02,0,0.2,1.3\n"
+            "p3,2025-01-03,1,0.3,2.4\n",
+            encoding="utf-8",
+        )
+        try:
+            def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+                if title == play.t("config_mode_title"):
+                    return 0  # choose auto mapping
+                return 0
+
+            def fail_multi(*args, **kwargs):  # type: ignore[override]
+                raise AssertionError("auto mapping path should not invoke feature multi_select")
+
+            play.select = fake_select  # type: ignore[assignment]
+            play.multi_select = fail_multi  # type: ignore[assignment]
+            state = {"source": "csv", "csv_path": str(csv_path)}
+            result = play.step_config(state)
+            assert_true(result is True, "step_config auto-mapping path succeeds")
+            assert_true(state.get("pid") == "patient_id", "auto pid mapping applied")
+            assert_true(state.get("target") == "y", "auto target mapping applied")
+            assert_true(
+                state.get("selected_features") == ["feat_a", "feat_b"],
+                "auto mapping derives predictor features from non-id/target/time columns",
             )
         finally:
             play.select = original_select  # type: ignore[assignment]
@@ -1577,6 +1617,7 @@ def main() -> int:
     test_download_dataset_step_no_project_name_prompt()
     test_download_dataset_menu_uses_stable_triplet()
     test_step_config_custom_csv_supports_target_and_feature_selection()
+    test_step_config_custom_csv_auto_mapping_shortcut()
     test_export_cli_uses_selected_features_via_ignore_cols()
     test_select_supports_inline_search_filtering()
     test_multi_select_supports_inline_search_filtering()
