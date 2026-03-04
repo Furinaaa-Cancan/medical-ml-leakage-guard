@@ -123,6 +123,7 @@ SUPPORTED_MODEL_FAMILIES = {
 
 ENSEMBLE_FAMILIES = {"soft_voting", "weighted_voting", "stacking"}
 DEFAULT_ENSEMBLE_TOP_K = 3
+_FOLD_IMBALANCE_SEED_STRIDE = 2027
 SUPPORTED_IMBALANCE_STRATEGIES = {
     "auto",
     "none",
@@ -648,6 +649,8 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
         "optional_backends": {
             "xgboost_available": bool(XGBClassifier is not None),
             "catboost_available": bool(CatBoostClassifier is not None),
+            "lightgbm_available": bool(LGBMClassifier is not None),
+            "tabpfn_available": bool(TabPFNClassifier is not None),
         },
     }
 
@@ -2736,7 +2739,7 @@ def cv_score_pr_auc(
             X_train=X.iloc[tr_idx],
             y_train=y[tr_idx],
             strategy=str(imbalance_strategy),
-            seed=int(seed) + int(fold_idx) * 1009,
+            seed=int(seed) + int(fold_idx) * _FOLD_IMBALANCE_SEED_STRIDE,
         )
         proba = predict_proba_1(model, X.iloc[va_idx])
         if metric_token == "roc_auc":
@@ -3211,7 +3214,7 @@ def cv_oof_proba(
             X_train=X.iloc[tr_idx],
             y_train=y[tr_idx],
             strategy=str(imbalance_strategy),
-            seed=int(seed) + int(fold_idx) * 2027,
+            seed=int(seed) + int(fold_idx) * _FOLD_IMBALANCE_SEED_STRIDE,
         )
         out[va_idx] = predict_proba_1(model, X.iloc[va_idx])
     if np.any(~np.isfinite(out)):
@@ -3475,16 +3478,15 @@ def bootstrap_ci_pr_auc(y_true: np.ndarray, proba: np.ndarray, n_resamples: int,
         ValueError: If fewer than 200 valid resamples are obtained.
     """
     rng = np.random.default_rng(seed)
-    n = int(y_true.shape[0])
     hits: List[float] = []
     max_attempts = max(5 * n_resamples, 2000)
     attempts = 0
     while len(hits) < n_resamples and attempts < max_attempts:
         attempts += 1
-        idx = rng.integers(0, n, n)
+        idx = stratified_bootstrap_indices(y_true, rng)
+        if idx is None:
+            break
         yb = y_true[idx]
-        if len(np.unique(yb)) < 2:
-            continue
         pb = proba[idx]
         hits.append(float(average_precision_score(yb, pb)))
     if len(hits) < 200:
@@ -4203,21 +4205,21 @@ def _delong_test(
     k = len(neg)
     if m < 2 or k < 2:
         return {"auc_a": None, "auc_b": None, "z_statistic": None, "p_value": None}
-    # Structural components (Mann-Whitney U-statistic based)
+    # Structural components (Mann-Whitney U-statistic based, vectorized)
     def _placements(proba: "np.ndarray") -> "np.ndarray":
         scores_pos = proba[pos]
         scores_neg = proba[neg]
-        v = np.zeros(m, dtype=float)
-        for i in range(m):
-            v[i] = np.mean(scores_pos[i] > scores_neg) + 0.5 * np.mean(scores_pos[i] == scores_neg)
-        return v
+        # shape: (m, k) — broadcast comparison
+        gt = (scores_pos[:, None] > scores_neg[None, :]).astype(float)
+        eq = (scores_pos[:, None] == scores_neg[None, :]).astype(float)
+        return np.mean(gt + 0.5 * eq, axis=1)
     def _placements_neg(proba: "np.ndarray") -> "np.ndarray":
         scores_pos = proba[pos]
         scores_neg = proba[neg]
-        v = np.zeros(k, dtype=float)
-        for j in range(k):
-            v[j] = np.mean(scores_neg[j] < scores_pos) + 0.5 * np.mean(scores_neg[j] == scores_pos)
-        return v
+        # shape: (k, m) — broadcast comparison
+        lt = (scores_neg[:, None] < scores_pos[None, :]).astype(float)
+        eq = (scores_neg[:, None] == scores_pos[None, :]).astype(float)
+        return np.mean(lt + 0.5 * eq, axis=1)
     v10_a = _placements(proba_a)
     v10_b = _placements(proba_b)
     v01_a = _placements_neg(proba_a)
@@ -4351,8 +4353,6 @@ def _subgroup_performance(
             mask = (feature_df[col] == g).values
             if np.sum(mask) < 10 or np.sum(y_true[mask]) < 2:
                 continue
-            from sklearn.metrics import roc_auc_score as _roc_auc
-            from sklearn.metrics import average_precision_score as _ap
             y_sub = y_true[mask]
             p_sub = proba[mask]
             pred_sub = (p_sub >= threshold).astype(int)
@@ -4362,13 +4362,13 @@ def _subgroup_performance(
             sens = tp / max(tp + fn, 1)
             ppv = tp / max(tp + fp, 1)
             try:
-                auc = float(_roc_auc(y_sub, p_sub))
+                auc = float(roc_auc_score(y_sub, p_sub))
             except Exception:
                 auc = None
             if auc is not None and not np.isfinite(auc):
                 auc = None
             try:
-                pr_auc = float(_ap(y_sub, p_sub))
+                pr_auc = float(average_precision_score(y_sub, p_sub))
             except Exception:
                 pr_auc = None
             if pr_auc is not None and not np.isfinite(pr_auc):
@@ -4503,6 +4503,7 @@ def _feature_ablation_study(
     threshold: float,
     beta: float,
     top_k: int = 10,
+    seed: int = 42,
 ) -> Dict[str, Any]:
     """Leave-one-feature-out ablation study.
 
@@ -4517,13 +4518,14 @@ def _feature_ablation_study(
         threshold: Decision threshold.
         beta: Beta for F-beta.
         top_k: Number of top impactful features to report.
+        seed: Random seed for reproducible permutations.
 
     Returns:
         Dict with feature-level ablation results sorted by impact.
     """
     from sklearn.metrics import average_precision_score as _ap
     full_pr_auc = float(_ap(y_test, proba_full))
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(int(seed))
     results = []
     cols = list(X_test.columns)
     for col in cols:
@@ -5623,6 +5625,7 @@ def main() -> int:
             X_test=X_test, y_test=y_test,
             proba_full=test_proba,
             threshold=selected_threshold, beta=beta,
+            seed=args.random_seed,
         )
     else:
         ablation_report = {"method": "leave_one_feature_out", "skipped": True, "top_features": []}
