@@ -71,8 +71,8 @@
 
 ## 测试验证
 
-- **1926 个测试全部通过，零失败**（完整测试套件，300s）
-- 原 18 个预置失败全部修复（见下方）
+- **1945 个测试全部通过，零失败**（完整测试套件含 test_full_matrix，540s）
+- 原 32 个预置失败全部修复（见下方）
 
 ## 预置测试修复
 
@@ -82,6 +82,7 @@
 | `test_gate_utils.py` | 1 | `load_json_optional` 捕获异常返回 `None` | 更新测试期望为 `None` |
 | `test_leakage_gate.py` | 1 | 代码使用 `>=`（fail-closed），测试期望 `>` | 更新测试匹配 fail-closed 设计 |
 | `test_train_e2e.py` | 13 | 缺少 `--feature-group-spec` + `--bootstrap-resamples` 低于 200 最小值 | 添加空 spec fixture + 提升重采样数至 200 |
+| `test_full_matrix.py` | 13 | 非时序策略时间边界硬失败 + smoke 测试模型池不足 | `split_data.py` 降级为 warning + 扩展模型池至 3 |
 
 ## 测试覆盖增强
 
@@ -90,18 +91,41 @@
 - `TestIsFiniteNumber` — 11 个用例（int/float/bool/inf/nan/None）
 - `TestToInt` — 11 个用例（int/float/bool/str/None）
 
-## 工作流脚本评审
+## 工作流与门控脚本评审
 
 | 脚本 | 评审结论 |
 |------|---------|
 | `run_strict_pipeline.py` | 28 步门控流水线结构良好，并行批次支持正确，`publication_eligible` 标志逻辑严谨 |
 | `run_productized_workflow.py` | Bootstrap 恢复逻辑设计合理，阻塞步骤分类正确 |
+| `split_data.py` | 多策略分割设计完善；修复非时序策略时间边界检查降级为 warning |
+| `covariate_shift_gate.py` | JSD 计算带伪计数，阈值校验完备，fail-closed 设计正确 |
+| `env_doctor.py` | 核心/可选包检测、Python 版本检查、严格模式 warning→fail 提升正确 |
+| `render_user_summary.py` | 从证据目录渲染 Markdown/JSON 报告，结构清晰 |
+| `feature_engineering_audit_gate.py` | 特征组校验、禁用特征检测、稳定性/可复现性字段验证完善 |
+| `reporting_bias_gate.py` | TRIPOD+AI/PROBAST+AI/STARD-AI 清单校验完整 |
+| `self_critique_gate.py` | 多组件评分加权体系设计合理，推荐建议生成逻辑完善 |
+| `definition_variable_guard.py` | 精确匹配+正则匹配禁用变量，fail-closed 严格模式正确 |
+| `explain_gate.py` | 前缀匹配双语解释，覆盖 611+ 故障码 |
+| `compare_runs.py` | 双目录比对门控状态/指标差异/故障码变化，结构清晰 |
+| `manifest_lock.py` | SHA-256 指纹锁定 + 基线对比，原子写入设计正确 |
+| `calibration_dca_gate.py` | ECE/slope/intercept + DCA 净收益校验完整 |
+| `ci_matrix_gate.py` | 完整分割/外部 CI 矩阵含 transport-drop CI |
+| `clinical_metrics_gate.py` | 11 项临床指标一致性校验 |
+| `model_selection_audit_gate.py` | 候选池、one-SE 规则、测试隔离证据验证 |
+| `robustness_gate.py` | 时间片/患者组稳定性阈值校验 |
+| `seed_stability_gate.py` | 多种子 std/range 稳定性验证 |
+| `permutation_significance_gate.py` | 排列零分布单侧显著性检验 |
+| `prediction_replay_gate.py` | 行级预测重播验证指标对齐 |
+| `mlgg_pixel.py` | 交互式向导入口，参数校验正确 |
+| `mlgg.py` | 统一 CLI 入口，子命令分发 + 预设参数阻塞标志 |
 
 ## 提交记录
 
-五次提交已推送至远程仓库：
+七次提交已推送至远程仓库：
 1. `schema_preflight.py` 时间严重性修复 + `request_contract_gate.py` / `publication_gate.py` 去重
 2. `canonical_metric_token` 集中化 + `normalize_binary` / `safe_ratio` / `is_finite_number` 去重 + `intercept_abs_max` 范围修复
 3. 评审总结报告
 4. 修复 5 个预置测试失败（JSON 异常类型 + 时间边界 fail-closed）
 5. 新增 30 个单元测试（canonical_metric_token / is_finite_number / to_int）
+6. 修复 test_train_e2e：添加 `--feature-group-spec` + 提升 `--bootstrap-resamples` 至 200
+7. 修复 `split_data.py` 非时序策略时间边界降级为 warning + `test_full_matrix` 模型池扩展至 3
