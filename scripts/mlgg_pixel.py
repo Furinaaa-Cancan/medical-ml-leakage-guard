@@ -1140,6 +1140,7 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
     bar_w = 24
     current = 0
     cur_model = ""
+    last_draw: Tuple[int, int, str] = (-1, -1, "__init__")
     stderr_lines: List[str] = []
     stdout_buf: List[str] = []
 
@@ -1147,8 +1148,14 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
     sys.stdout.flush()
 
     def _draw_bar(done: int, total_n: int, model_name: str) -> None:
+        nonlocal last_draw
         if total_n <= 0:
             total_n = 1
+        done = max(0, min(done, total_n))
+        draw_key = (done, total_n, model_name)
+        if draw_key == last_draw:
+            return
+        last_draw = draw_key
         pct = min(int(done * 100 / total_n), 100)
         filled = int(bar_w * done / total_n)
         bar = s('C', '\u2588' * filled) + DIM + '\u2591' * (bar_w - filled) + RST
@@ -2660,22 +2667,56 @@ def step_models(state: Dict) -> Any:
     if state.get("source") in ("demo", "full") or state.get("_from_history"):
         return SKIP
 
+    if strict_small_sample_active(state):
+        _clear()
+        step_header(7, TOTAL_STEPS, t("s_models"))
+        if LANG == "zh":
+            print(f"  {s('C', '小样本严格模式：仅显示线性正则模型（防止训练前后语义不一致）')}\n")
+        else:
+            print(f"  {s('C', 'Strict small-sample mode: only linear regularized models are shown')}\n")
+
+        strict_entries = [(name, key) for name, key in MODEL_POOL if name in STRICT_SMALL_SAMPLE_MODEL_POOL]
+        strict_labels = [t(key) for _, key in strict_entries]
+        strict_token_to_idx = {name: idx for idx, (name, _) in enumerate(strict_entries)}
+        strict_defaults = [
+            strict_token_to_idx[token]
+            for token in model_pool_tokens_from_state(state)
+            if token in strict_token_to_idx
+        ]
+        if not strict_defaults:
+            strict_defaults = list(range(len(strict_entries)))
+
+        selected = multi_select(strict_labels, title=t("pick_models"), defaults=strict_defaults)
+        if selected is None:
+            return BACK
+        if not selected:
+            selected = list(range(len(strict_entries)))
+
+        selected_tokens = [strict_entries[i][0] for i in selected if 0 <= i < len(strict_entries)]
+        valid, reason = validate_model_pool_selection(selected_tokens)
+        if not valid:
+            if reason == "ensemble_needs_base_models":
+                _notice(t("model_ensemble_need_base"))
+            else:
+                _notice(t("please_choose"))
+            return BACK
+
+        state["model_pool"] = ",".join(selected_tokens)
+        state["_model_labels"] = [strict_labels[i] for i in selected if 0 <= i < len(strict_labels)]
+        state["include_optional_models"] = False
+        state["_model_profile"] = "conservative"
+        return True
+
     while True:
         _clear()
         step_header(7, TOTAL_STEPS, t("s_models"))
-        if strict_small_sample_active(state):
-            if LANG == "zh":
-                print(f"  {s('C', '小样本严格模式：训练前将仅保留线性正则模型')}\n")
-            else:
-                print(f"  {s('C', 'Strict small-sample mode: non-linear models will be filtered before training')}\n")
+        tier = dataset_size_tier(state)
+        if tier == "small":
+            print(f"  {DIM}{t('profile_scale_hint_small')}{RST}\n")
+        elif tier == "large":
+            print(f"  {DIM}{t('profile_scale_hint_large')}{RST}\n")
         else:
-            tier = dataset_size_tier(state)
-            if tier == "small":
-                print(f"  {DIM}{t('profile_scale_hint_small')}{RST}\n")
-            elif tier == "large":
-                print(f"  {DIM}{t('profile_scale_hint_large')}{RST}\n")
-            else:
-                print(f"  {DIM}{t('profile_scale_hint_medium')}{RST}\n")
+            print(f"  {DIM}{t('profile_scale_hint_medium')}{RST}\n")
 
         profile_order = model_profile_order_for_state(state)
         profile_title = {
@@ -2703,6 +2744,9 @@ def step_models(state: Dict) -> Any:
             defaults = model_pool_indices_from_tokens(model_pool_tokens_from_state(state))
         else:
             defaults = model_profile_default_indices(profile_key)
+
+        _clear()
+        step_header(7, TOTAL_STEPS, t("s_models"))
 
         labels: List[str] = []
         canonical_labels: List[str] = []

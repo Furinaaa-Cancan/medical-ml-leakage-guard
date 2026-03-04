@@ -842,6 +842,57 @@ def test_strict_small_sample_profile_inactive_on_large_data() -> None:
     )
 
 
+def test_step_models_strict_mode_shows_linear_only_choices() -> None:
+    print("\n=== play: strict small-sample model picker shows linear-only choices ===")
+    original_select = play.select
+    original_multi_select = play.multi_select
+    captured = {"opts": [], "defaults": []}
+    try:
+        def fail_select(*args, **kwargs):  # type: ignore[override]
+            raise AssertionError("strict small-sample mode should skip profile preset select menu")
+
+        def fake_multi(opts, descs=None, title="", defaults=None):  # type: ignore[override]
+            captured["opts"] = list(opts)
+            captured["defaults"] = list(defaults or [])
+            # Keep l1 + elasticnet only.
+            return [0, 2]
+
+        play.select = fail_select  # type: ignore[assignment]
+        play.multi_select = fake_multi  # type: ignore[assignment]
+        state = {
+            "source": "csv",
+            "_strict_small_sample": True,
+            "_strict_small_sample_max_rows": 1200,
+            "_n_rows": 569,
+            "model_pool": "logistic_l1,random_forest_balanced,logistic_elasticnet",
+        }
+        result = play.step_models(state)
+        assert_true(result is True, "step_models succeeds in strict small-sample mode")
+        assert_true(
+            captured["opts"] == [play.t("m_logistic_l1"), play.t("m_logistic_l2"), play.t("m_elasticnet")],
+            "strict mode model picker only shows linear regularized families",
+        )
+        assert_true(
+            captured["defaults"] == [0, 2],
+            "strict mode defaults keep only linear families from prior selection",
+        )
+        assert_true(
+            state.get("model_pool") == "logistic_l1,logistic_elasticnet",
+            "strict mode writes selected linear-only model pool",
+        )
+        assert_true(
+            bool(state.get("include_optional_models")) is False,
+            "strict mode disables optional backend include flag",
+        )
+        assert_true(
+            state.get("_model_profile") == "conservative",
+            "strict mode records conservative profile marker",
+        )
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play.multi_select = original_multi_select  # type: ignore[assignment]
+
+
 def test_step_run_failure_returns_fail_sentinel() -> None:
     print("\n=== play: step_run fail-closed sentinel on execution failure ===")
     original_spinner = play.run_spinner
@@ -1677,6 +1728,7 @@ def main() -> int:
     test_split_syncs_ignore_cols_after_time_column_is_finalized()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
     test_strict_small_sample_profile_inactive_on_large_data()
+    test_step_models_strict_mode_shows_linear_only_choices()
     test_step_run_failure_returns_fail_sentinel()
     test_step_run_prunes_unavailable_optional_model_backend()
     test_step_run_dependency_install_path_covers_optional_and_optuna()
