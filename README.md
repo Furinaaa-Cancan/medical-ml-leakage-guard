@@ -49,12 +49,15 @@ Important:
 - Built-in model families in `play` now include: `logistic_l1/l2/elasticnet`, `random_forest`, `extra_trees`, `hist_gradient_boosting`, `adaboost`, `svm_linear`, `svm_rbf`, plus ensemble families `soft_voting/weighted_voting/stacking` (and optional `xgboost/catboost/lightgbm/tabpfn`).
 - For publication-grade pass/fail, run:
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
-- For small datasets (for example UCI heart/breast/ckd), prefer:
+- For small datasets (for example UCI heart/ckd), prefer:
   `python3 scripts/mlgg.py play -- --strict-small-sample`
 - In `--strict-small-sample` mode:
   model picker is limited to `logistic_l1/l2/elasticnet`,
   tuning menu hides `optuna`,
   and tries/model are capped at input time (instead of silently adjusted later).
+- Default `--strict-small-sample-max-rows` is `500`.
+  For a medium-size dataset where you still want strict mode (for example UCI breast, n=569),
+  use: `python3 scripts/mlgg.py play -- --strict-small-sample --strict-small-sample-max-rows 800`
 - `play` now applies dataset-size-aware defaults automatically:
   `small (<=1200 rows)` -> conservative model/tuning order,
   `medium (1201-10000)` -> balanced order,
@@ -635,12 +638,15 @@ python3 scripts/mlgg.py play
 - `play` 内置模型族已扩展为：`logistic_l1/l2/elasticnet`、`random_forest`、`extra_trees`、`hist_gradient_boosting`、`adaboost`、`svm_linear`、`svm_rbf`，并支持集成模型 `soft_voting/weighted_voting/stacking`（可选后端仍为 `xgboost/catboost/lightgbm/tabpfn`）。
 - 需要 publication-grade 通过/失败结论，请运行：
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
-- 小样本数据（如 UCI heart/breast/ckd）建议使用：
+- 小样本数据（如 UCI heart/ckd）建议使用：
   `python3 scripts/mlgg.py play -- --strict-small-sample`
 - `--strict-small-sample` 模式下：
   模型选择仅保留 `logistic_l1/l2/elasticnet`，
   调优菜单不再展示 `optuna`，
   且每模型尝试次数会在输入阶段直接限幅（不再运行时“静默收紧”）。
+- `--strict-small-sample-max-rows` 默认是 `500`。
+  如果是中等规模数据仍希望启用严格小样本策略（例如 UCI breast, n=569），可用：
+  `python3 scripts/mlgg.py play -- --strict-small-sample --strict-small-sample-max-rows 800`
 - `play` 现已自动按数据规模分层给默认策略：
   `small (<=1200 行)` -> 保守模型/调优优先，
   `medium (1201-10000)` -> 平衡优先，

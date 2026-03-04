@@ -498,6 +498,63 @@ _T: Dict[str, Dict[str, str]] = {
     "r_verdict_not_ready": {"en": "Not strict release-ready", "zh": "\u672a\u8fbe\u4e25\u683c\u53d1\u5e03\u6761\u4ef6"},
     "r_verdict_warn": {"en": "Usable with caution (play mode)", "zh": "\u53ef\u8c28\u614e\u4f7f\u7528\uff08play \u6a21\u5f0f\uff09"},
     "r_verdict_pass": {"en": "Pass in play mode (strict gate not run)", "zh": "play \u6a21\u5f0f\u901a\u8fc7\uff08\u672a\u8fd0\u884c\u4e25\u683c\u95e8\u63a7\uff09"},
+    "r_blocker_fix_title": {"en": "How to address", "zh": "\u5904\u7406\u5efa\u8bae"},
+    "r_blocker_threshold_constraints": {
+        "en": "Threshold constraints are not satisfied on the selected test split.",
+        "zh": "\u5728\u5f53\u524d\u6d4b\u8bd5\u5206\u5272\u4e0a\uff0c\u9610\u503c\u4e0b\u7684\u4e34\u5e8a\u7ea6\u675f\u672a\u6ee1\u8db3\u3002",
+    },
+    "r_blocker_calibration_slope": {
+        "en": "Calibration slope is outside acceptable range.",
+        "zh": "\u6821\u51c6 slope \u8d85\u51fa\u53ef\u63a5\u53d7\u8303\u56f4\u3002",
+    },
+    "r_blocker_calibration_intercept": {
+        "en": "Calibration intercept is outside acceptable range.",
+        "zh": "\u6821\u51c6 intercept \u8d85\u51fa\u53ef\u63a5\u53d7\u8303\u56f4\u3002",
+    },
+    "r_blocker_ece": {
+        "en": "ECE is above the play readiness threshold.",
+        "zh": "ECE \u9ad8\u4e8e play \u5c31\u7eea\u9608\u503c\u3002",
+    },
+    "r_blocker_epv": {
+        "en": "EPV is insufficient for robust clinical modeling.",
+        "zh": "EPV \u4e0d\u8db3\uff0c\u4e0d\u6ee1\u8db3\u7a33\u5065\u4e34\u5e8a\u5efa\u6a21\u8981\u6c42\u3002",
+    },
+    "r_blocker_vif": {
+        "en": "Multicollinearity (VIF) is too high.",
+        "zh": "\u591a\u91cd\u5171\u7ebf\u6027\uff08VIF\uff09\u8fc7\u9ad8\u3002",
+    },
+    "r_blocker_overfitting_high_risk": {
+        "en": "Overfitting risk is high.",
+        "zh": "\u8fc7\u62df\u5408\u98ce\u9669\u9ad8\u3002",
+    },
+    "r_blocker_fix_threshold_constraints": {
+        "en": "Try conservative models (logistic_l2/elasticnet), reduce complexity, and rerun threshold selection.",
+        "zh": "\u5efa\u8bae\u4f7f\u7528\u4fdd\u5b88\u6a21\u578b\uff08logistic_l2/elasticnet\uff09\uff0c\u964d\u4f4e\u590d\u6742\u5ea6\u5e76\u91cd\u65b0\u8dd1\u9610\u503c\u9009\u62e9\u3002",
+    },
+    "r_blocker_fix_calibration": {
+        "en": "Use calibration none/power and rerun with fewer model families.",
+        "zh": "\u4f7f\u7528 none/power \u6821\u51c6\u5e76\u51cf\u5c11\u6a21\u578b\u65cf\u540e\u91cd\u8dd1\u3002",
+    },
+    "r_blocker_fix_ece": {
+        "en": "Lower model complexity and compare none vs power calibration.",
+        "zh": "\u964d\u4f4e\u6a21\u578b\u590d\u6742\u5ea6\uff0c\u5bf9\u6bd4 none \u4e0e power \u6821\u51c6\u3002",
+    },
+    "r_blocker_fix_epv": {
+        "en": "Increase events/sample size or reduce predictor dimensionality (fewer selected features).",
+        "zh": "\u589e\u52a0\u4e8b\u4ef6\u6570/\u6837\u672c\u91cf\uff0c\u6216\u964d\u4f4e\u7279\u5f81\u7ef4\u5ea6\uff08\u51cf\u5c11\u9009\u5165\u7279\u5f81\uff09\u3002",
+    },
+    "r_blocker_fix_vif": {
+        "en": "Remove highly collinear predictors and rerun.",
+        "zh": "\u79fb\u9664\u9ad8\u5171\u7ebf\u7279\u5f81\u540e\u91cd\u8dd1\u3002",
+    },
+    "r_blocker_fix_overfitting": {
+        "en": "Use simpler models/fewer trials and enforce stricter split strategy.",
+        "zh": "\u91c7\u7528\u66f4\u7b80\u5355\u6a21\u578b/\u66f4\u5c11\u8bd5\u9a8c\u6b21\u6570\uff0c\u5e76\u4f7f\u7528\u66f4\u4e25\u683c\u7684\u5206\u5272\u7b56\u7565\u3002",
+    },
+    "r_blocker_fix_generic": {
+        "en": "Rerun with conservative profile and inspect full evidence reports.",
+        "zh": "\u4f7f\u7528\u4fdd\u5b88\u914d\u7f6e\u91cd\u8dd1\uff0c\u5e76\u68c0\u67e5\u5b8c\u6574\u8bc1\u636e\u62a5\u544a\u3002",
+    },
     "r_saved":       {"en": "Saved to:", "zh": "\u4fdd\u5b58\u81f3\uff1a"},
     "r_next":        {"en": "All done! Results saved to output directory.",
                       "zh": "\u5168\u90e8\u5b8c\u6210\uff01\u7ed3\u679c\u5df2\u4fdd\u5b58\u81f3\u8f93\u51fa\u76ee\u5f55\u3002"},
@@ -583,6 +640,50 @@ def _readiness_reason_text(code: str) -> str:
         "evaluation_report_schema_invalid": "r_play_readiness_err_schema",
     }
     return t(mapping.get(code, "r_play_readiness_err_unknown"))
+
+
+def _play_blocker_title(code: str) -> str:
+    mapping = {
+        "threshold_constraints": "r_blocker_threshold_constraints",
+        "calibration_slope": "r_blocker_calibration_slope",
+        "calibration_intercept": "r_blocker_calibration_intercept",
+        "ece": "r_blocker_ece",
+        "epv": "r_blocker_epv",
+        "vif": "r_blocker_vif",
+        "overfitting_high_risk": "r_blocker_overfitting_high_risk",
+    }
+    key = mapping.get(str(code).strip())
+    if key:
+        return t(key)
+    return str(code).strip()
+
+
+def _play_blocker_fix(code: str) -> str:
+    mapping = {
+        "threshold_constraints": "r_blocker_fix_threshold_constraints",
+        "calibration_slope": "r_blocker_fix_calibration",
+        "calibration_intercept": "r_blocker_fix_calibration",
+        "ece": "r_blocker_fix_ece",
+        "epv": "r_blocker_fix_epv",
+        "vif": "r_blocker_fix_vif",
+        "overfitting_high_risk": "r_blocker_fix_overfitting",
+    }
+    key = mapping.get(str(code).strip())
+    if key:
+        return t(key)
+    return t("r_blocker_fix_generic")
+
+
+def _dedupe_keep_order(items: List[str]) -> List[str]:
+    out: List[str] = []
+    seen: set = set()
+    for item in items:
+        token = str(item).strip()
+        if not token or token in seen:
+            continue
+        out.append(token)
+        seen.add(token)
+    return out
 
 
 def detect_lang() -> str:
@@ -1512,7 +1613,10 @@ MODEL_PROFILE_PRESETS = {
         "stacking",
     ],
 }
-STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = DATASET_SIZE_SMALL_MAX_ROWS
+# Strict small-sample mode uses a narrower default than the generic
+# size-tier boundary so mid-size datasets can keep standard behavior
+# unless the user explicitly increases this threshold.
+STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = 500
 STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP = 8
 STRICT_SMALL_SAMPLE_MODEL_POOL = ["logistic_l1", "logistic_l2", "logistic_elasticnet"]
 PLAY_DOWNLOAD_DATASETS = [
@@ -3307,6 +3411,19 @@ def step_confirm(state: Dict) -> Any:
                     friendly.append(code_map_zh.get(code, code) if LANG == "zh" else code_map_en.get(code, code))
                 strict_label = "\u81ea\u52a8\u6536\u7d27" if LANG == "zh" else "Auto-tightening"
                 lines.append(f"{_p(strict_label)}{', '.join(friendly)}")
+        elif bool(state.get("_strict_small_sample", False)):
+            mode_label = "小样本严格模式" if LANG == "zh" else "Strict small-sample mode"
+            max_rows = int(state.get("_strict_small_sample_max_rows", STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS) or STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS)
+            n_rows = int(state_n_rows(preview_state) or 0)
+            if n_rows > 0:
+                off_note = (
+                    f"OFF (n={n_rows} > 阈值<={max_rows})"
+                    if LANG == "zh"
+                    else f"OFF (n={n_rows} > threshold<={max_rows})"
+                )
+            else:
+                off_note = "OFF (行数未知)" if LANG == "zh" else "OFF (row-count unavailable)"
+            lines.append(f"{_p(mode_label)}{off_note}")
         lines.extend([
             "",
             f"{_p(t('c_imbalance'))}{imb_str}",
@@ -3753,6 +3870,23 @@ def step_run(state: Dict) -> Any:
                     f"n={strict_profile.get('n_rows', '?')}, "
                     f"threshold<={strict_profile.get('max_rows', '?')}"
                 )
+    elif bool(state.get("_strict_small_sample", False)):
+        try:
+            req_max = int(state.get("_strict_small_sample_max_rows", STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS) or STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS)
+        except Exception:
+            req_max = STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS
+        req_n = int(state_n_rows(state) or 0)
+        if req_n > 0 and req_max > 0 and req_n > req_max:
+            if LANG == "zh":
+                print(
+                    f"\n  {s('Y', '小样本严格模式未生效')}: "
+                    f"n={req_n}, 阈值<={req_max}"
+                )
+            else:
+                print(
+                    f"\n  {s('Y', 'Strict small-sample profile not applied')}: "
+                    f"n={req_n}, threshold<={req_max}"
+                )
     print()
     box(t("r_train_ok"), [
         f"{t('c_output')} {state['out_dir']}/",
@@ -4158,14 +4292,23 @@ def step_run(state: Dict) -> Any:
                     )
                 if blockers:
                     readiness_lines.append("")
-                    readiness_lines.append(f"  {s('R', 'Blocking items:')}")
+                    blocking_label = "阻断项：" if LANG == "zh" else "Blocking items:"
+                    readiness_lines.append(f"  {s('R', blocking_label)}")
                     for b in blockers:
-                        readiness_lines.append(f"  - {b}")
+                        readiness_lines.append(f"  - {b}  ({_play_blocker_title(b)})")
                 elif advisories:
                     readiness_lines.append("")
-                    readiness_lines.append(f"  {s('Y', 'Watch items:')}")
+                    watch_label = "关注项：" if LANG == "zh" else "Watch items:"
+                    readiness_lines.append(f"  {s('Y', watch_label)}")
                     for w in advisories:
                         readiness_lines.append(f"  - {w}")
+                if blockers:
+                    fix_lines = _dedupe_keep_order([_play_blocker_fix(b) for b in blockers])
+                    if fix_lines:
+                        readiness_lines.append("")
+                        readiness_lines.append(f"  {s('C', t('r_blocker_fix_title') + ':')}")
+                        for fix in fix_lines:
+                            readiness_lines.append(f"  - {fix}")
                 if set(blockers) & calibration_blockers:
                     suggested_profile_title = "建议复跑配置：" if LANG == "zh" else "Suggested rerun profile:"
                     suggested_models = "  - 模型：logistic_l2, logistic_elasticnet" if LANG == "zh" else "  - models: logistic_l2, logistic_elasticnet"
@@ -4310,7 +4453,12 @@ def step_run(state: Dict) -> Any:
     if bool(state.get("_fail_on_play_blockers", False)) and play_blockers:
         print(f"\n  {s('R', t('r_play_blocking_fail'))}")
         for item in play_blockers:
-            print(f"  - {item}")
+            print(f"  - {item} ({_play_blocker_title(item)})")
+        fix_lines = _dedupe_keep_order([_play_blocker_fix(item) for item in play_blockers])
+        if fix_lines:
+            print(f"  {s('C', t('r_blocker_fix_title') + ':')}")
+            for fix in fix_lines:
+                print(f"  - {fix}")
         report_items = [
             (Path(evidence_dir) / "evaluation_report.json", t("r_report_eval")),
             (Path(evidence_dir) / "model_selection_report.json", t("r_report_selection")),
