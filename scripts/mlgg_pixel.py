@@ -337,10 +337,14 @@ _T: Dict[str, Dict[str, str]] = {
     "c_strat":       {"en": "Strategy:", "zh": "\u7b56\u7565\uff1a"},
     "c_ratio":       {"en": "Ratio:", "zh": "\u6bd4\u4f8b\uff1a"},
     "c_models":      {"en": "Models:", "zh": "\u6a21\u578b\uff1a"},
+    "c_models_effective": {"en": "Effective models:", "zh": "\u5b9e\u9645\u8bad\u7ec3\u6a21\u578b\uff1a"},
     "c_tuning":      {"en": "Tuning:", "zh": "\u8c03\u4f18\uff1a"},
+    "c_tuning_effective": {"en": "Effective tuning:", "zh": "\u5b9e\u9645\u8c03\u4f18\uff1a"},
     "c_calib":       {"en": "Calibration:", "zh": "\u6821\u51c6\uff1a"},
+    "c_calib_effective": {"en": "Effective calibration:", "zh": "\u5b9e\u9645\u6821\u51c6\uff1a"},
     "c_device":      {"en": "Device:", "zh": "\u8bbe\u5907\uff1a"},
     "c_output":      {"en": "Output:", "zh": "\u8f93\u51fa\uff1a"},
+    "c_trials_effective": {"en": "Effective tries/model:", "zh": "\u5b9e\u9645\u5c1d\u8bd5\u6b21\u6570/\u6a21\u578b\uff1a"},
     "c_none":        {"en": "(none)", "zh": "\uff08\u65e0\uff09"},
     "c_start":       {"en": "Start Pipeline", "zh": "\u5f00\u59cb\u8fd0\u884c"},
     "c_back":        {"en": "Go Back", "zh": "\u8fd4\u56de\u4fee\u6539"},
@@ -429,6 +433,11 @@ _T: Dict[str, Dict[str, str]] = {
     "r_open_evidence": {"en": "Evidence dir", "zh": "\u8bc1\u636e\u76ee\u5f55"},
     "r_open_models": {"en": "Models dir", "zh": "\u6a21\u578b\u76ee\u5f55"},
     "r_open_data": {"en": "Data dir", "zh": "\u6570\u636e\u76ee\u5f55"},
+    "r_full_reports": {"en": "Full report files", "zh": "\u5b8c\u6574\u62a5\u544a\u6587\u4ef6"},
+    "r_report_eval": {"en": "Evaluation report", "zh": "\u8bc4\u4f30\u62a5\u544a"},
+    "r_report_selection": {"en": "Model selection report", "zh": "\u6a21\u578b\u9009\u62e9\u62a5\u544a"},
+    "r_report_ci": {"en": "CI matrix report", "zh": "CI \u77e9\u9635\u62a5\u544a"},
+    "r_report_rerun": {"en": "Suggested rerun script", "zh": "\u5efa\u8bae\u590d\u8dd1\u811a\u672c"},
     "r_sel_showing_top": {"en": "Showing top {shown} / {total} candidates by PR-AUC.",
                            "zh": "\u6309 PR-AUC \u5c55\u793a Top {shown} / {total} \u5019\u9009\u6a21\u578b\u3002"},
     "r_metrics":     {"en": "Key Metrics (test set)", "zh": "\u5173\u952e\u6307\u6807\uff08\u6d4b\u8bd5\u96c6\uff09"},
@@ -1151,11 +1160,7 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
         while open_streams > 0:
             events = sel.select(timeout=0.2)
             if not events:
-                # animate spinner in the model name field while waiting
-                spin_frames = Spinner.FRAMES
-                idx = int(time.time() * 10) % len(spin_frames)
-                _draw_bar(current, max(total, 1),
-                          cur_model + " " + spin_frames[idx] if cur_model else spin_frames[idx])
+                # Keep last rendered state; avoid noisy redraw spam when no new progress arrives.
                 continue
             for key, _ in events:
                 line = key.fileobj.readline()
@@ -1979,6 +1984,24 @@ def apply_strict_small_sample_profile(state: Dict[str, Any]) -> Dict[str, Any]:
         "max_rows": int(state.get("_strict_small_sample_max_rows", STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS)),
         "applied": applied,
     }
+
+
+def execution_preview_state(state: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Return a non-mutating preview of effective execution state.
+
+    This is used by confirm/export screens so users see the same model/tuning/
+    calibration settings that will actually be used at run time.
+    """
+    preview = dict(state)
+    strict_profile: Dict[str, Any] = {"active": False, "n_rows": state_n_rows(state), "applied": []}
+    if strict_small_sample_active(preview):
+        strict_profile = apply_strict_small_sample_profile(preview)
+        pool_now = [token.strip() for token in str(preview.get("model_pool", "")).split(",") if token.strip()]
+        label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
+        preview["_model_labels"] = [label_map.get(name, name) for name in pool_now]
+        normalize_optional_backend_state(preview)
+    return preview, strict_profile
 
 
 def split_strategy_order_for_source(source: str) -> List[str]:
@@ -2931,36 +2954,37 @@ def step_advanced(state: Dict) -> Any:
 def _export_cli(state: Dict) -> str:
     """Build a copy-ready CLI command string from wizard state."""
     import shlex as _shlex
+    preview_state, _ = execution_preview_state(state)
     parts: List[str] = [sys.executable, str(SCRIPTS_DIR / "mlgg.py")]
-    source = state.get("source", "")
+    source = preview_state.get("source", "")
     if source == "demo":
-        parts.extend(["onboarding", "--project-root", state["out_dir"],
+        parts.extend(["onboarding", "--project-root", preview_state["out_dir"],
                        "--mode", "guided", "--yes"])
         return _shlex.join(parts)
-    out_data = str(Path(state["out_dir"]) / "data")
-    evidence_dir = str(Path(state["out_dir"]) / "evidence")
-    models_dir = str(Path(state["out_dir"]) / "models")
+    out_data = str(Path(preview_state["out_dir"]) / "data")
+    evidence_dir = str(Path(preview_state["out_dir"]) / "evidence")
+    models_dir = str(Path(preview_state["out_dir"]) / "models")
     split_parts = [
         sys.executable, str(SCRIPTS_DIR / "mlgg.py"), "split", "--",
-        "--input", state.get("csv_path", ""),
+        "--input", preview_state.get("csv_path", ""),
         "--output-dir", out_data,
-        "--patient-id-col", state.get("pid", "patient_id"),
-        "--target-col", state.get("target", "y"),
-        "--strategy", state.get("strategy", "grouped_temporal"),
-        "--train-ratio", str(state.get("train_ratio", 0.6)),
-        "--valid-ratio", str(state.get("valid_ratio", 0.2)),
-        "--test-ratio", str(state.get("test_ratio", 0.2)),
+        "--patient-id-col", preview_state.get("pid", "patient_id"),
+        "--target-col", preview_state.get("target", "y"),
+        "--strategy", preview_state.get("strategy", "grouped_temporal"),
+        "--train-ratio", str(preview_state.get("train_ratio", 0.6)),
+        "--valid-ratio", str(preview_state.get("valid_ratio", 0.2)),
+        "--test-ratio", str(preview_state.get("test_ratio", 0.2)),
     ]
-    if state.get("time"):
-        split_parts.extend(["--time-col", state["time"]])
-    ignore_cols = state.get("ignore_cols", default_ignore_columns(state))
-    cv_folds = state.get("cv_folds", 5)
-    selection_data = "cv_inner" if state.get("validation_method") == "cv" else "valid"
-    max_trials = state.get("max_trials", 20)
-    imbalance_strategies = state.get("imbalance_strategies")
+    if preview_state.get("time"):
+        split_parts.extend(["--time-col", preview_state["time"]])
+    ignore_cols = preview_state.get("ignore_cols", default_ignore_columns(preview_state))
+    cv_folds = preview_state.get("cv_folds", 5)
+    selection_data = "cv_inner" if preview_state.get("validation_method") == "cv" else "valid"
+    max_trials = preview_state.get("max_trials", 20)
+    imbalance_strategies = preview_state.get("imbalance_strategies")
     if not isinstance(imbalance_strategies, list) or not imbalance_strategies:
-        imbalance_strategies = [str(state.get("imbalance_strategy", "auto"))]
-    imbalance_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+        imbalance_strategies = [str(preview_state.get("imbalance_strategy", "auto"))]
+    imbalance_metric = str(preview_state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
     if imbalance_metric not in {"pr_auc", "roc_auc"}:
         imbalance_metric = "pr_auc"
     train_parts = [
@@ -2968,34 +2992,35 @@ def _export_cli(state: Dict) -> str:
         "--train", str(Path(out_data) / "train.csv"),
         "--valid", str(Path(out_data) / "valid.csv"),
         "--test", str(Path(out_data) / "test.csv"),
-        "--target-col", state.get("target", "y"),
-        "--patient-id-col", state.get("pid", "patient_id"),
+        "--target-col", preview_state.get("target", "y"),
+        "--patient-id-col", preview_state.get("pid", "patient_id"),
         "--ignore-cols", ignore_cols,
-        "--model-pool", state.get("model_pool", ""),
-        "--hyperparam-search", state.get("hyperparam_search", "fixed_grid"),
+        "--model-pool", preview_state.get("model_pool", ""),
+        "--hyperparam-search", preview_state.get("hyperparam_search", "fixed_grid"),
         "--max-trials-per-family", str(max_trials),
         "--cv-splits", str(cv_folds),
         "--selection-data", selection_data,
         "--imbalance-strategy-candidates", ",".join(str(x).strip() for x in imbalance_strategies if str(x).strip()),
         "--imbalance-selection-metric", imbalance_metric,
-        "--calibration-method", state.get("calibration", "none"),
-        "--device", state.get("device", "auto"),
+        "--calibration-method", preview_state.get("calibration", "none"),
+        "--device", preview_state.get("device", "auto"),
         "--model-selection-report-out", str(Path(evidence_dir) / "model_selection_report.json"),
         "--evaluation-report-out", str(Path(evidence_dir) / "evaluation_report.json"),
         "--ci-matrix-report-out", str(Path(evidence_dir) / "ci_matrix_report.json"),
         "--model-out", str(Path(models_dir) / "model.pkl"),
-        "--n-jobs", str(state.get("n_jobs", 1)),
+        "--n-jobs", str(preview_state.get("n_jobs", 1)),
         "--random-seed", "20260225",
     ]
-    if bool(state.get("include_optional_models", False)):
+    if bool(preview_state.get("include_optional_models", False)):
         train_parts.append("--include-optional-models")
-    if state.get("hyperparam_search") == "optuna":
-        train_parts.extend(["--optuna-trials", str(state.get("optuna_trials", 50))])
+    if preview_state.get("hyperparam_search") == "optuna":
+        train_parts.extend(["--optuna-trials", str(preview_state.get("optuna_trials", 50))])
     return _shlex.join(split_parts) + "\n" + _shlex.join(train_parts)
 
 
 def step_confirm(state: Dict) -> Any:
     normalize_optional_backend_state(state)
+    preview_state, strict_preview = execution_preview_state(state)
     _clear()
     title = t("s_confirm")
     if state.get("_dry_run"):
@@ -3009,25 +3034,25 @@ def step_confirm(state: Dict) -> Any:
             "Synthetic data | 28 safety gates | ~5 min",
         ], color="C")
     else:
-        fname = Path(state["csv_path"]).name if state.get("csv_path") else "?"
-        ratio_str = f"{int(state.get('train_ratio',0.6)*100)}/{int(state.get('valid_ratio',0.2)*100)}/{int(state.get('test_ratio',0.2)*100)}"
-        models_str = ", ".join(state.get("_model_labels", ["?"]))
+        fname = Path(preview_state["csv_path"]).name if preview_state.get("csv_path") else "?"
+        ratio_str = f"{int(preview_state.get('train_ratio',0.6)*100)}/{int(preview_state.get('valid_ratio',0.2)*100)}/{int(preview_state.get('test_ratio',0.2)*100)}"
+        models_str = ", ".join(preview_state.get("_model_labels", ["?"]))
 
-        valid_method = state.get('validation_method', 'holdout')
+        valid_method = preview_state.get('validation_method', 'holdout')
         if valid_method == 'cv':
-            valid_str = f"CV {state.get('cv_folds', 5)}-fold"
+            valid_str = f"CV {preview_state.get('cv_folds', 5)}-fold"
         else:
             valid_str = t('valid_holdout')
-        imb_tokens = state.get("imbalance_strategies")
+        imb_tokens = preview_state.get("imbalance_strategies")
         if not isinstance(imb_tokens, list) or not imb_tokens:
-            imb_tokens = [str(state.get("imbalance_strategy", "auto"))]
-        imb_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+            imb_tokens = [str(preview_state.get("imbalance_strategy", "auto"))]
+        imb_metric = str(preview_state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
         imb_str = ",".join(str(x) for x in imb_tokens)
         if len(imb_tokens) > 1:
             imb_str = f"{imb_str} (select_by={imb_metric})"
-        trials_str = str(state.get('max_trials', 20))
-        if state.get('hyperparam_search') == 'optuna':
-            trials_str += f" (optuna={state.get('optuna_trials', 50)})"
+        trials_str = str(preview_state.get('max_trials', 20))
+        if preview_state.get('hyperparam_search') == 'optuna':
+            trials_str += f" (optuna={preview_state.get('optuna_trials', 50)})"
 
         all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_time'),
                       t('c_strat'), t('c_ratio'), t('c_validation'),
@@ -3039,27 +3064,46 @@ def step_confirm(state: Dict) -> Any:
 
         lines = [
             f"{_p(t('c_file'))}{fname}",
-            f"{_p(t('c_pid'))}{state.get('pid', '?')}",
-            f"{_p(t('c_target'))}{state.get('target', '?')}",
-            f"{_p(t('c_features'))}{selected_feature_summary(state)}",
-            f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
-            f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
+            f"{_p(t('c_pid'))}{preview_state.get('pid', '?')}",
+            f"{_p(t('c_target'))}{preview_state.get('target', '?')}",
+            f"{_p(t('c_features'))}{selected_feature_summary(preview_state)}",
+            f"{_p(t('c_time'))}{preview_state.get('time') or t('c_none')}",
+            f"{_p(t('c_strat'))}{preview_state.get('strategy', '?')}",
             f"{_p(t('c_ratio'))}{ratio_str}",
             f"{_p(t('c_validation'))}{valid_str}",
         ]
-        if strict_small_sample_active(state):
+        if strict_preview.get("active"):
             mode_label = "小样本严格模式" if LANG == "zh" else "Strict small-sample mode"
             lines.append(f"{_p(mode_label)}ON")
+            applied_codes = [str(x) for x in strict_preview.get("applied", []) if str(x).strip()]
+            if applied_codes:
+                code_map_zh = {
+                    "model_pool_linear_only": "\u6a21\u578b\u6c60\u6536\u7d27\u4e3a\u7ebf\u6027",
+                    "disable_optuna": "Optuna \u5df2\u964d\u7ea7",
+                    "cap_max_trials": "\u5c1d\u8bd5\u6b21\u6570\u5df2\u9650\u5236",
+                    "calibration_to_power": "\u6821\u51c6\u5df2\u8c03\u6574\u4e3a power",
+                }
+                code_map_en = {
+                    "model_pool_linear_only": "model pool -> linear-only",
+                    "disable_optuna": "optuna disabled",
+                    "cap_max_trials": "tries/model capped",
+                    "calibration_to_power": "calibration -> power",
+                }
+                friendly = []
+                for code in applied_codes:
+                    friendly.append(code_map_zh.get(code, code) if LANG == "zh" else code_map_en.get(code, code))
+                strict_label = "\u81ea\u52a8\u6536\u7d27" if LANG == "zh" else "Auto-tightening"
+                lines.append(f"{_p(strict_label)}{', '.join(friendly)}")
         lines.extend([
             "",
             f"{_p(t('c_imbalance'))}{imb_str}",
             f"{_p(t('c_models'))}{models_str}",
-            f"{_p(t('c_tuning'))}{state.get('hyperparam_search', '?')}",
+            f"{_p(t('c_tuning'))}{preview_state.get('hyperparam_search', '?')}",
             f"{_p(t('c_trials'))}{trials_str}",
-            f"{_p(t('c_calib'))}{state.get('calibration', '?')}",
-            f"{_p(t('c_device'))}{state.get('device', '?')}",
+            f"{_p(t('c_calib'))}{preview_state.get('calibration', '?')}",
+            f"{_p(t('c_device'))}{preview_state.get('device', '?')}",
             "",
-            f"{_p(t('c_output'))}{state['out_dir']}/",
+            f"{_p(t('c_output'))}{preview_state['out_dir']}/",
         ])
         box(t("s_confirm"), lines, color="C")
 
@@ -3514,6 +3558,18 @@ def step_run(state: Dict) -> Any:
     print(f"  - {_terminal_path_link(Path(evidence_dir), t('r_open_evidence'))}")
     print(f"  - {_terminal_path_link(Path(models_dir), t('r_open_models'))}")
     print(f"  - {_terminal_path_link(Path(out_data), t('r_open_data'))}")
+    report_items = [
+        (Path(evidence_dir) / "evaluation_report.json", t("r_report_eval")),
+        (Path(evidence_dir) / "model_selection_report.json", t("r_report_selection")),
+        (Path(evidence_dir) / "ci_matrix_report.json", t("r_report_ci")),
+        (Path(evidence_dir) / "suggested_rerun_commands.sh", t("r_report_rerun")),
+    ]
+    existing_report_items = [(path, label) for path, label in report_items if path.exists()]
+    if existing_report_items:
+        print()
+        print(f"  {s('C', t('r_full_reports'), bold=True)}")
+        for path, label in existing_report_items:
+            print(f"  - {_terminal_path_link(path, label)}")
 
     play_blockers: List[str] = []
     play_advisories: List[str] = []
@@ -3888,12 +3944,12 @@ def step_run(state: Dict) -> Any:
                 if blockers:
                     readiness_lines.append("")
                     readiness_lines.append(f"  {s('R', 'Blocking items:')}")
-                    for b in blockers[:4]:
+                    for b in blockers:
                         readiness_lines.append(f"  - {b}")
                 elif advisories:
                     readiness_lines.append("")
                     readiness_lines.append(f"  {s('Y', 'Watch items:')}")
-                    for w in advisories[:4]:
+                    for w in advisories:
                         readiness_lines.append(f"  - {w}")
                 if set(blockers) & calibration_blockers:
                     suggested_profile_title = "建议复跑配置：" if LANG == "zh" else "Suggested rerun profile:"
@@ -4038,8 +4094,20 @@ def step_run(state: Dict) -> Any:
         return FAIL
     if bool(state.get("_fail_on_play_blockers", False)) and play_blockers:
         print(f"\n  {s('R', t('r_play_blocking_fail'))}")
-        for item in play_blockers[:6]:
+        for item in play_blockers:
             print(f"  - {item}")
+        report_items = [
+            (Path(evidence_dir) / "evaluation_report.json", t("r_report_eval")),
+            (Path(evidence_dir) / "model_selection_report.json", t("r_report_selection")),
+            (Path(evidence_dir) / "ci_matrix_report.json", t("r_report_ci")),
+            (Path(evidence_dir) / "suggested_rerun_commands.sh", t("r_report_rerun")),
+        ]
+        existing_report_items = [(path, label) for path, label in report_items if path.exists()]
+        if existing_report_items:
+            print()
+            print(f"  {s('C', t('r_full_reports'), bold=True)}")
+            for path, label in existing_report_items:
+                print(f"  - {_terminal_path_link(path, label)}")
         state.pop("_from_history", None)
         _save_history(state)
         return FAIL
