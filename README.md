@@ -51,6 +51,10 @@ Important:
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - For small datasets (for example UCI heart/breast/ckd), prefer:
   `python3 scripts/mlgg.py play -- --strict-small-sample`
+- `play` now applies dataset-size-aware defaults automatically:
+  `small (<=1200 rows)` -> conservative model/tuning order,
+  `medium (1201-10000)` -> balanced order,
+  `large (>10000)` -> higher-capacity order (optuna/comprehensive first).
 - If you want `play` to exit non-zero on quick-readiness blockers, use:
   `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
 - With `--fail-on-play-blockers`, `play` also fails closed when quick-readiness cannot be evaluated
@@ -628,6 +632,10 @@ python3 scripts/mlgg.py play
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - 小样本数据（如 UCI heart/breast/ckd）建议使用：
   `python3 scripts/mlgg.py play -- --strict-small-sample`
+- `play` 现已自动按数据规模分层给默认策略：
+  `small (<=1200 行)` -> 保守模型/调优优先，
+  `medium (1201-10000)` -> 平衡优先，
+  `large (>10000)` -> 高容量策略优先（optuna/综合预设靠前）。
 - 如果你希望 `play` 在出现快速就绪阻断项时直接返回非 0 退出码，请使用：
   `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
 - 开启 `--fail-on-play-blockers` 后，如果 quick-readiness 无法评估

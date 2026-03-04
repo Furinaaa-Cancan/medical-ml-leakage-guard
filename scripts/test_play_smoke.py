@@ -436,10 +436,12 @@ def test_tuning_calibration_menu_includes_human_readable_descriptions() -> None:
     try:
         def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
             if title == play.t("pick_tuning"):
-                return 1  # random_subsample
+                target = play.t("tune_random")
+                return opts.index(target) if target in opts else 0
             if title == play.t("pick_calib"):
                 captured["has_desc"] = isinstance(descs, list) and len(descs) == 5 and all(bool(str(x).strip()) for x in descs)
-                return 0  # none
+                target = play.t("calib_none")
+                return opts.index(target) if target in opts else 0
             if title == play.t("pick_device"):
                 return 1  # cpu
             return 0
@@ -550,9 +552,9 @@ def test_tuning_trials_preset_exposes_quick_options() -> None:
         state = {"source": "csv", "_n_rows": 569}
         result = play.step_tuning(state)
         assert_true(result is True, "step_tuning succeeds with preset path")
-        assert_true(len(captured["options"]) >= 6, "trials preset includes multiple quick options plus custom")
+        assert_true(len(captured["options"]) >= 4, "trials preset includes quick options plus custom")
         assert_true(any(str(x).startswith("1") for x in captured["options"]), "trials preset includes low-try option")
-        assert_true(any(str(x).startswith("50") for x in captured["options"]), "trials preset includes high-try option")
+        assert_true(any(str(x).startswith("8") for x in captured["options"]), "small-tier trials preset includes conservative recommended option")
         assert_true(any("Custom" in str(x) or "\u81ea\u5b9a\u4e49" in str(x) for x in captured["options"]), "trials preset includes custom option")
     finally:
         play.select = original_select  # type: ignore[assignment]
@@ -738,8 +740,8 @@ def test_recommended_trials_respect_search_mode_and_rows() -> None:
         "random search n<=500 recommends 8",
     )
     assert_true(
-        play.recommended_max_trials({"hyperparam_search": "random_subsample", "_n_rows": 1200}) == 12,
-        "random search 500<n<=1500 recommends 12",
+        play.recommended_max_trials({"hyperparam_search": "random_subsample", "_n_rows": 1200}) == 8,
+        "random search small-tier boundary (n<=1200) recommends 8",
     )
     assert_true(
         play.recommended_max_trials({"hyperparam_search": "random_subsample", "_n_rows": 5000}) == 20,
@@ -750,13 +752,44 @@ def test_recommended_trials_respect_search_mode_and_rows() -> None:
         "optuna n<=500 recommends 20",
     )
     assert_true(
-        play.recommended_max_trials({"hyperparam_search": "optuna", "_n_rows": 1200}) == 30,
-        "optuna 500<n<=1500 recommends 30",
+        play.recommended_max_trials({"hyperparam_search": "optuna", "_n_rows": 1200}) == 20,
+        "optuna small-tier boundary (n<=1200) recommends 20",
     )
     assert_true(
         play.recommended_max_trials({"hyperparam_search": "optuna", "_n_rows": 5000}) == 50,
         "optuna large n recommends 50",
     )
+
+
+def test_split_syncs_ignore_cols_after_time_column_is_finalized() -> None:
+    print("\n=== play: split step syncs ignore_cols with finalized time column ===")
+    original_select = play.select
+    try:
+        # strategy=grouped_temporal, time=event_time, validation=holdout, ratio=70/30
+        choices = [1, 0, 1, 0]
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            return choices.pop(0)
+
+        play.select = fake_select  # type: ignore[assignment]
+        state = {
+            "source": "csv",
+            "pid": "patient_id",
+            "target": "y",
+            "_columns": ["patient_id", "y", "event_time", "age"],
+            "_detected": {"pid": "patient_id", "target": "y", "time": "event_time"},
+            "_n_rows": 569,
+            "ignore_cols": "patient_id",
+        }
+        result = play.step_split(state)
+        assert_true(result is True, "step_split succeeds in temporal holdout path")
+        assert_true(state.get("time") == "event_time", "step_split finalizes selected time column")
+        assert_true(
+            state.get("ignore_cols") == "patient_id,event_time",
+            "ignore_cols is synchronized to include finalized time column",
+        )
+    finally:
+        play.select = original_select  # type: ignore[assignment]
 
 
 def test_strict_small_sample_profile_enforces_conservative_training_setup() -> None:
@@ -1641,6 +1674,7 @@ def main() -> int:
     test_advanced_optional_disable_removes_optional_models()
     test_split_strategy_order_is_source_aware()
     test_recommended_trials_respect_search_mode_and_rows()
+    test_split_syncs_ignore_cols_after_time_column_is_finalized()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
     test_strict_small_sample_profile_inactive_on_large_data()
     test_step_run_failure_returns_fail_sentinel()

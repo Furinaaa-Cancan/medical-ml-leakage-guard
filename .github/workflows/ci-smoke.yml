@@ -49,6 +49,9 @@ jobs:
       - name: Split smoke
         run: python3 -m coverage run --append scripts/test_split_smoke.py
 
+      - name: Play smoke
+        run: python3 -m coverage run --append scripts/test_play_smoke.py
+
       - name: Gate smoke
         run: python3 -m coverage run --append scripts/test_gate_smoke.py
 

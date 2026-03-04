@@ -84,6 +84,8 @@ _TEST_MODE = bool(os.environ.get("MLGG_TEST"))
 MAX_TRIALS_INPUT = 1000
 MAX_OPTUNA_TRIALS_INPUT = 2000
 MAX_NJOBS_INPUT = 256
+DATASET_SIZE_SMALL_MAX_ROWS = 1200
+DATASET_SIZE_MEDIUM_MAX_ROWS = 10000
 
 def _clear() -> None:
     if _TEST_MODE:
@@ -259,6 +261,11 @@ _T: Dict[str, Dict[str, str]] = {
                               "zh": "CSV \u6570\u636e\u9ed8\u8ba4\u9996\u9009\u4e3a\u5206\u5c42\u5206\u7ec4\u3002"},
     "split_help_default_download":{"en": "Built-in test datasets default to Stratified Grouped.",
                                    "zh": "\u5185\u7f6e\u6d4b\u8bd5\u6570\u636e\u96c6\u9ed8\u8ba4\u4e3a\u5206\u5c42\u5206\u7ec4\u3002"},
+    "split_scale_hint": {"en": "Dataset scale: {tier} (n={rows})", "zh": "\u6570\u636e\u89c4\u6a21\uff1a{tier}\uff08n={rows}\uff09"},
+    "tier_small": {"en": "small", "zh": "\u5c0f\u6837\u672c"},
+    "tier_medium": {"en": "medium", "zh": "\u4e2d\u7b49\u89c4\u6a21"},
+    "tier_large": {"en": "large", "zh": "\u5927\u6837\u672c"},
+    "tier_unknown": {"en": "unknown", "zh": "\u672a\u77e5"},
 
     "pick_ratio":    {"en": "Train / Valid / Test ratio", "zh": "\u8bad\u7ec3 / \u9a8c\u8bc1 / \u6d4b\u8bd5 \u6bd4\u4f8b"},
     "ratio_60":      {"en": "60 / 20 / 20  (standard)", "zh": "60 / 20 / 20  \uff08\u6807\u51c6\uff09"},
@@ -292,6 +299,12 @@ _T: Dict[str, Dict[str, str]] = {
     "profile_comprehensive_d": {"en": "Adds voting/stacking ensembles and installed optional backends", "zh": "\u989d\u5916\u52a0\u5165 voting/stacking \u96c6\u6210\u4e0e\u5df2\u5b89\u88c5\u53ef\u9009\u540e\u7aef"},
     "profile_custom": {"en": "Custom (manual selection)", "zh": "\u81ea\u5b9a\u4e49\uff08\u624b\u52a8\u9009\u62e9\uff09"},
     "profile_custom_d": {"en": "Select each model family manually", "zh": "\u624b\u52a8\u9009\u62e9\u6bcf\u4e2a\u6a21\u578b\u65cf"},
+    "profile_scale_hint_small": {"en": "Scale policy: small dataset -> conservative profile is recommended",
+                                  "zh": "\u89c4\u6a21\u7b56\u7565\uff1a\u5c0f\u6837\u672c\u5efa\u8bae\u4f18\u5148\u4fdd\u5b88\u914d\u7f6e"},
+    "profile_scale_hint_medium": {"en": "Scale policy: medium dataset -> balanced profile is recommended",
+                                   "zh": "\u89c4\u6a21\u7b56\u7565\uff1a\u4e2d\u7b49\u89c4\u6a21\u5efa\u8bae\u5e73\u8861\u914d\u7f6e"},
+    "profile_scale_hint_large": {"en": "Scale policy: large dataset -> comprehensive profile can be explored",
+                                  "zh": "\u89c4\u6a21\u7b56\u7565\uff1a\u5927\u6837\u672c\u53ef\u4f18\u5148\u5c1d\u8bd5\u7efc\u5408\u914d\u7f6e"},
     "model_ensemble_need_base": {"en": "Ensembles require at least 2 base model families. Please add more non-ensemble models.", "zh": "\u96c6\u6210\u6a21\u578b\u81f3\u5c11\u9700\u8981 2 \u4e2a\u57fa\u7840\u6a21\u578b\u65cf\uff0c\u8bf7\u518d\u589e\u52a0\u975e\u96c6\u6210\u6a21\u578b\u3002"},
 
     "pick_tuning":   {"en": "Hyperparameter search", "zh": "\u8d85\u53c2\u6570\u641c\u7d22\u7b56\u7565"},
@@ -333,6 +346,7 @@ _T: Dict[str, Dict[str, str]] = {
     "c_pid":         {"en": "Patient ID:", "zh": "\u60a3\u8005 ID\uff1a"},
     "c_target":      {"en": "Target:", "zh": "\u76ee\u6807\uff1a"},
     "c_features":    {"en": "Features:", "zh": "\u7279\u5f81\uff1a"},
+    "c_scale":       {"en": "Dataset scale:", "zh": "\u6570\u636e\u89c4\u6a21\uff1a"},
     "c_time":        {"en": "Time:", "zh": "\u65f6\u95f4\uff1a"},
     "c_strat":       {"en": "Strategy:", "zh": "\u7b56\u7565\uff1a"},
     "c_ratio":       {"en": "Ratio:", "zh": "\u6bd4\u4f8b\uff1a"},
@@ -1480,7 +1494,7 @@ MODEL_PROFILE_PRESETS = {
         "stacking",
     ],
 }
-STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = 1200
+STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = DATASET_SIZE_SMALL_MAX_ROWS
 STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP = 8
 STRICT_SMALL_SAMPLE_MODEL_POOL = ["logistic_l1", "logistic_l2", "logistic_elasticnet"]
 PLAY_DOWNLOAD_DATASETS = [
@@ -1510,24 +1524,25 @@ _HISTORY_KEYS = [
 def recommended_max_trials(state: Dict[str, Any]) -> int:
     """Heuristic default for hyperparameter trials to reduce small-sample variance."""
     search = str(state.get("hyperparam_search", "fixed_grid")).strip().lower()
-    try:
-        n_rows = int(state.get("_n_rows", 0) or 0)
-    except Exception:
-        n_rows = 0
+    tier = dataset_size_tier(state)
     if search == "fixed_grid":
         return 1
     if search == "optuna":
-        if 0 < n_rows <= 500:
+        if tier == "small":
             return 20
-        if 500 < n_rows <= 1500:
-            return 30
+        if tier == "medium":
+            return 50
+        if tier == "large":
+            return 100
         return 50
     # random_subsample
-    if 0 < n_rows <= 500:
+    if tier == "small":
         return 8
-    if 500 < n_rows <= 1500:
-        return 12
-    return 20
+    if tier == "medium":
+        return 20
+    if tier == "large":
+        return 30
+    return 12
 
 
 def state_n_rows(state: Dict[str, Any]) -> int:
@@ -1546,6 +1561,69 @@ def state_n_rows(state: Dict[str, Any]) -> int:
         except Exception:
             return 0
     return 0
+
+
+def dataset_size_tier(state: Dict[str, Any]) -> str:
+    """Return dataset size tier from resolved row count."""
+    n_rows = int(state_n_rows(state) or 0)
+    if n_rows <= 0:
+        return "unknown"
+    if n_rows <= DATASET_SIZE_SMALL_MAX_ROWS:
+        return "small"
+    if n_rows <= DATASET_SIZE_MEDIUM_MAX_ROWS:
+        return "medium"
+    return "large"
+
+
+def dataset_size_tier_label(state: Dict[str, Any]) -> str:
+    token = dataset_size_tier(state)
+    return t(
+        {
+            "small": "tier_small",
+            "medium": "tier_medium",
+            "large": "tier_large",
+        }.get(token, "tier_unknown")
+    )
+
+
+def model_profile_order_for_state(state: Dict[str, Any]) -> List[str]:
+    """Choose profile ordering so tier-appropriate option is highlighted first."""
+    if strict_small_sample_active(state):
+        return ["conservative", "balanced", "comprehensive", "custom"]
+    tier = dataset_size_tier(state)
+    if tier == "small":
+        return ["conservative", "balanced", "comprehensive", "custom"]
+    if tier == "large":
+        return ["comprehensive", "balanced", "conservative", "custom"]
+    return ["balanced", "conservative", "comprehensive", "custom"]
+
+
+def tuning_order_for_state(state: Dict[str, Any]) -> List[str]:
+    """Order tuning strategies by tier to reflect default recommendations."""
+    if strict_small_sample_active(state):
+        return ["fixed_grid", "random_subsample", "optuna"]
+    tier = dataset_size_tier(state)
+    if tier == "small":
+        return ["fixed_grid", "random_subsample", "optuna"]
+    if tier == "large":
+        return ["optuna", "random_subsample", "fixed_grid"]
+    return ["random_subsample", "fixed_grid", "optuna"]
+
+
+def validation_method_order_for_state(state: Dict[str, Any]) -> List[str]:
+    """Order validation method choices by tier."""
+    tier = dataset_size_tier(state)
+    if tier == "large":
+        return ["holdout", "cv"]
+    return ["cv", "holdout"]
+
+
+def cv_folds_order_for_state(state: Dict[str, Any]) -> List[int]:
+    """Order CV fold options by tier."""
+    tier = dataset_size_tier(state)
+    if tier == "large":
+        return [3, 5, 10]
+    return [5, 3, 10]
 
 
 def available_columns_for_ignore(state: Dict[str, Any]) -> List[str]:
@@ -2372,6 +2450,8 @@ def step_split(state: Dict) -> Any:
             print(f"  {s('C', t('split_help_title'), bold=True)}")
             print(f"  {DIM}- {t('split_help_temporal')}{RST}")
             print(f"  {DIM}- {t('split_help_stratified')}{RST}")
+            n_rows = int(state_n_rows(state) or 0)
+            print(f"  {DIM}{t('split_scale_hint', tier=dataset_size_tier_label(state), rows=n_rows if n_rows > 0 else '?')}{RST}")
             if source == "csv":
                 print(f"  {DIM}{t('split_help_default_csv')}{RST}\n")
             elif source == "download":
@@ -2438,16 +2518,20 @@ def step_split(state: Dict) -> Any:
             if tcol:
                 print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
             print()
+            valid_order = validation_method_order_for_state(state)
+            method_title = {"holdout": t("valid_holdout"), "cv": t("valid_cv")}
+            method_desc = {"holdout": t("valid_holdout_d"), "cv": t("valid_cv_d")}
             vi = select(
-                [t("valid_holdout"), t("valid_cv")],
-                [t("valid_holdout_d"), t("valid_cv_d")],
+                [method_title[m] for m in valid_order],
+                [method_desc[m] for m in valid_order],
                 title=t("pick_valid_method"),
             )
             if vi < 0:
                 sub = 1 if (strat == "grouped_temporal" and source == "csv") else 0
                 continue
-            state["validation_method"] = "holdout" if vi == 0 else "cv"
-            if vi == 1:
+            picked_method = valid_order[vi]
+            state["validation_method"] = picked_method
+            if picked_method == "cv":
                 sub = 3
             else:
                 sub = 4
@@ -2460,13 +2544,19 @@ def step_split(state: Dict) -> Any:
                 print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
             print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', t('valid_cv'))}")
             print()
+            fold_values = cv_folds_order_for_state(state)
+            fold_title = {
+                3: t("cv_3"),
+                5: t("cv_5"),
+                10: t("cv_10"),
+            }
             fi = select(
-                [t("cv_3"), t("cv_5"), t("cv_10")],
+                [fold_title[v] for v in fold_values],
                 title=t("pick_cv_folds"),
             )
             if fi < 0:
                 sub = 2; continue
-            state["cv_folds"] = [3, 5, 10][fi]
+            state["cv_folds"] = int(fold_values[fi])
             sub = 5
 
         elif sub == 4:
@@ -2511,6 +2601,14 @@ def step_split(state: Dict) -> Any:
             break
 
     state["time"] = tcol
+    # Keep ignore-cols in sync with finalized time-column choice so temporal
+    # column cannot leak through when advanced step is skipped.
+    current_ignore = [
+        tok.strip()
+        for tok in str(state.get("ignore_cols", "")).split(",")
+        if tok.strip()
+    ]
+    state["ignore_cols"] = normalize_ignore_columns(state, current_ignore)
     return True
 
 
@@ -2570,27 +2668,37 @@ def step_models(state: Dict) -> Any:
                 print(f"  {s('C', '小样本严格模式：训练前将仅保留线性正则模型')}\n")
             else:
                 print(f"  {s('C', 'Strict small-sample mode: non-linear models will be filtered before training')}\n")
+        else:
+            tier = dataset_size_tier(state)
+            if tier == "small":
+                print(f"  {DIM}{t('profile_scale_hint_small')}{RST}\n")
+            elif tier == "large":
+                print(f"  {DIM}{t('profile_scale_hint_large')}{RST}\n")
+            else:
+                print(f"  {DIM}{t('profile_scale_hint_medium')}{RST}\n")
 
+        profile_order = model_profile_order_for_state(state)
+        profile_title = {
+            "conservative": t("profile_conservative"),
+            "balanced": t("profile_balanced"),
+            "comprehensive": t("profile_comprehensive"),
+            "custom": t("profile_custom"),
+        }
+        profile_desc = {
+            "conservative": t("profile_conservative_d"),
+            "balanced": t("profile_balanced_d"),
+            "comprehensive": t("profile_comprehensive_d"),
+            "custom": t("profile_custom_d"),
+        }
         profile_idx = select(
-            [
-                t("profile_conservative"),
-                t("profile_balanced"),
-                t("profile_comprehensive"),
-                t("profile_custom"),
-            ],
-            [
-                t("profile_conservative_d"),
-                t("profile_balanced_d"),
-                t("profile_comprehensive_d"),
-                t("profile_custom_d"),
-            ],
+            [profile_title[p] for p in profile_order],
+            [profile_desc[p] for p in profile_order],
             title=t("pick_model_profile"),
         )
         if profile_idx < 0:
             return BACK
 
-        profile_keys = ["conservative", "balanced", "comprehensive", "custom"]
-        profile_key = profile_keys[profile_idx]
+        profile_key = profile_order[profile_idx]
         if profile_key == "custom":
             defaults = model_pool_indices_from_tokens(model_pool_tokens_from_state(state))
         else:
@@ -2646,13 +2754,24 @@ def step_tuning(state: Dict) -> Any:
         if sub == 0:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
+            tune_order = tuning_order_for_state(state)
+            tune_title = {
+                "fixed_grid": t("tune_fixed"),
+                "random_subsample": t("tune_random"),
+                "optuna": t("tune_optuna"),
+            }
+            tune_desc = {
+                "fixed_grid": t("tune_fixed_d"),
+                "random_subsample": t("tune_random_d"),
+                "optuna": t("tune_optuna_d"),
+            }
             ti = select(
-                [t("tune_fixed"), t("tune_random"), t("tune_optuna")],
-                [t("tune_fixed_d"), t("tune_random_d"), t("tune_optuna_d")],
+                [tune_title[x] for x in tune_order],
+                [tune_desc[x] for x in tune_order],
                 title=t("pick_tuning"),
             )
             if ti < 0: return BACK
-            state["hyperparam_search"] = ["fixed_grid", "random_subsample", "optuna"][ti]
+            state["hyperparam_search"] = tune_order[ti]
             if state["hyperparam_search"] == "optuna":
                 sub = 1
             else:
@@ -2663,7 +2782,7 @@ def step_tuning(state: Dict) -> Any:
             step_header(8, TOTAL_STEPS, t("s_tuning"))
             print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
             print(f"  {DIM}{t('optuna_trials_hint')}{RST}")
-            optuna_default = int(state.get("optuna_trials", 50))
+            optuna_default = int(state.get("optuna_trials", max(20, int(recommended_max_trials(state)))))
             preset_values = [20, 50, 100, 200]
             if optuna_default not in preset_values and 1 <= optuna_default <= MAX_OPTUNA_TRIALS_INPUT:
                 preset_values = [optuna_default] + preset_values
@@ -2725,7 +2844,16 @@ def step_tuning(state: Dict) -> Any:
                 print(
                     f"  {DIM}{rec_text}{RST}"
                 )
-            base_presets = [1, 5, 10, 20, 50]
+            tier = dataset_size_tier(state)
+            if tier == "small":
+                base_presets = [1, 5, 8]
+            elif tier == "large":
+                base_presets = [10, 20, 50, 100, 200]
+            else:
+                base_presets = [5, 10, 20, 50]
+            base_presets = [v for v in base_presets if 1 <= v <= MAX_TRIALS_INPUT]
+            if not base_presets:
+                base_presets = [1]
             if strict_small_sample_active(state):
                 base_presets = [v for v in base_presets if v <= STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP]
                 if not base_presets:
@@ -2774,16 +2902,38 @@ def step_tuning(state: Dict) -> Any:
                 print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
             print(f"  {s('G', '\u2713')} {t('c_trials')} {s('W', str(state['max_trials']))}")
             print()
+            if strict_small_sample_active(state):
+                calib_order = ["power", "none", "sigmoid", "isotonic", "beta"]
+            else:
+                tier = dataset_size_tier(state)
+                if tier == "small":
+                    calib_order = ["power", "none", "sigmoid", "isotonic", "beta"]
+                elif tier == "large":
+                    calib_order = ["sigmoid", "isotonic", "power", "beta", "none"]
+                else:
+                    calib_order = ["sigmoid", "none", "power", "isotonic", "beta"]
+            calib_title = {
+                "none": t("calib_none"),
+                "sigmoid": t("calib_sig"),
+                "isotonic": t("calib_iso"),
+                "power": t("calib_power"),
+                "beta": t("calib_beta"),
+            }
+            calib_desc = {
+                "none": t("calib_none_d"),
+                "sigmoid": t("calib_sig_d"),
+                "isotonic": t("calib_iso_d"),
+                "power": t("calib_power_d"),
+                "beta": t("calib_beta_d"),
+            }
             ci = select(
-                [t("calib_none"), t("calib_sig"), t("calib_iso"),
-                 t("calib_power"), t("calib_beta")],
-                [t("calib_none_d"), t("calib_sig_d"), t("calib_iso_d"),
-                 t("calib_power_d"), t("calib_beta_d")],
+                [calib_title[x] for x in calib_order],
+                [calib_desc[x] for x in calib_order],
                 title=t("pick_calib"),
             )
             if ci < 0:
                 sub = 2; continue
-            state["calibration"] = ["none", "sigmoid", "isotonic", "power", "beta"][ci]
+            state["calibration"] = calib_order[ci]
             sub = 4
 
         elif sub == 4:
@@ -3054,7 +3204,7 @@ def step_confirm(state: Dict) -> Any:
         if preview_state.get('hyperparam_search') == 'optuna':
             trials_str += f" (optuna={preview_state.get('optuna_trials', 50)})"
 
-        all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_time'),
+        all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_scale'), t('c_time'),
                       t('c_strat'), t('c_ratio'), t('c_validation'),
                       t('c_imbalance'), t('c_models'), t('c_tuning'),
                       t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
@@ -3067,6 +3217,7 @@ def step_confirm(state: Dict) -> Any:
             f"{_p(t('c_pid'))}{preview_state.get('pid', '?')}",
             f"{_p(t('c_target'))}{preview_state.get('target', '?')}",
             f"{_p(t('c_features'))}{selected_feature_summary(preview_state)}",
+            f"{_p(t('c_scale'))}{dataset_size_tier_label(preview_state)} (n={int(state_n_rows(preview_state) or 0)})",
             f"{_p(t('c_time'))}{preview_state.get('time') or t('c_none')}",
             f"{_p(t('c_strat'))}{preview_state.get('strategy', '?')}",
             f"{_p(t('c_ratio'))}{ratio_str}",
