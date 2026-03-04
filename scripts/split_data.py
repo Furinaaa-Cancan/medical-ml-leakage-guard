@@ -934,6 +934,11 @@ def main() -> int:
             "test": str(test_path),
             "split_protocol": str(protocol_path),
         },
+        "output_sha256": {
+            "train": file_sha256(train_path),
+            "valid": file_sha256(valid_path),
+            "test": file_sha256(test_path),
+        },
         "splits": {
             "train": train_summary,
             "valid": valid_summary,

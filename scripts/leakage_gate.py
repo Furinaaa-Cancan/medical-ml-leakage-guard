@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from _gate_utils import add_issue
+from _gate_utils import add_issue, try_parse_time as _shared_try_parse_time, epoch_to_iso as _shared_epoch_to_iso
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,34 +92,7 @@ def row_signature(row: Dict[str, str], ignore_cols: Set[str]) -> str:
 
 
 def try_parse_time(value: str) -> Optional[float]:
-    s = value.strip()
-    if not s:
-        return None
-
-    try:
-        return float(s)
-    except ValueError:
-        pass
-
-    iso = s.replace("Z", "+00:00")
-    try:
-        return dt.datetime.fromisoformat(iso).timestamp()
-    except ValueError:
-        pass
-
-    formats = (
-        "%Y-%m-%d",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y/%m/%d",
-        "%m/%d/%Y",
-        "%m/%d/%Y %H:%M:%S",
-    )
-    for fmt in formats:
-        try:
-            return dt.datetime.strptime(s, fmt).timestamp()
-        except ValueError:
-            continue
-    return None
+    return _shared_try_parse_time(value)
 
 
 def bounds_for_time(rows: Iterable[Dict[str, str]], time_col: str) -> Dict[str, Any]:
@@ -155,9 +128,7 @@ def bounds_for_time(rows: Iterable[Dict[str, str]], time_col: str) -> Dict[str, 
 
 
 def epoch_to_iso(ts: Optional[float]) -> Optional[str]:
-    if ts is None:
-        return None
-    return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    return _shared_epoch_to_iso(ts)
 
 
 
@@ -326,7 +297,7 @@ def main() -> int:
             right_min = time_bounds[right]["min"]
             if left_max is None or right_min is None:
                 return
-            if left_max > right_min:
+            if left_max >= right_min:
                 add_issue(
                     failures,
                     "temporal_overlap",

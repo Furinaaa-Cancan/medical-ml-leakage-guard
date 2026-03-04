@@ -194,6 +194,60 @@ def install_gate_timeout(
     signal.alarm(timeout_seconds)
 
 
+def try_parse_time(value: str) -> Optional[float]:
+    """Parse a time string to epoch float, trying multiple formats.
+
+    Args:
+        value: Raw time string (ISO-8601, date, or numeric epoch).
+
+    Returns:
+        Epoch timestamp as float, or None if unparseable.
+    """
+    import datetime as _dt
+
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    iso = s.replace("Z", "+00:00")
+    try:
+        return _dt.datetime.fromisoformat(iso).timestamp()
+    except ValueError:
+        pass
+    formats = (
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d",
+        "%m/%d/%Y",
+        "%m/%d/%Y %H:%M:%S",
+    )
+    for fmt in formats:
+        try:
+            return _dt.datetime.strptime(s, fmt).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def epoch_to_iso(ts: Optional[float]) -> Optional[str]:
+    """Convert epoch timestamp to UTC ISO-8601 string.
+
+    Args:
+        ts: Epoch timestamp, or None.
+
+    Returns:
+        ISO-8601 string with Z suffix, or None.
+    """
+    import datetime as _dt
+
+    if ts is None:
+        return None
+    return _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def to_float(value: Any) -> Optional[float]:
     """Safely convert a value to float, rejecting inf/nan and non-numeric."""
     if isinstance(value, bool):
