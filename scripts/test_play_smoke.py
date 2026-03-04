@@ -61,6 +61,37 @@ def test_model_pool_exposes_expanded_sklearn_baselines() -> None:
     assert_true(not missing, "expanded baseline families are available in play model pool", detail=",".join(missing))
 
 
+def test_model_pool_includes_ensemble_families() -> None:
+    print("\n=== play: model pool includes ensemble families ===")
+    families = {name for name, _ in play.MODEL_POOL}
+    required = {"soft_voting", "weighted_voting", "stacking"}
+    missing = sorted(required - families)
+    assert_true(not missing, "ensemble families are available in play model pool", detail=",".join(missing))
+
+
+def test_model_profile_defaults_and_ensemble_guard() -> None:
+    print("\n=== play: model profile defaults and ensemble guard ===")
+    original_backend_available = play.optional_backend_available
+    try:
+        play.optional_backend_available = lambda family: False  # type: ignore[assignment]
+        conservative = [play.MODEL_POOL[idx][0] for idx in play.model_profile_default_indices("conservative")]
+        assert_true(
+            conservative == ["logistic_l1", "logistic_l2", "logistic_elasticnet"],
+            "conservative profile defaults to linear trio",
+            detail=",".join(conservative),
+        )
+        comprehensive = [play.MODEL_POOL[idx][0] for idx in play.model_profile_default_indices("comprehensive")]
+        assert_true("stacking" in comprehensive, "comprehensive profile includes stacking")
+        assert_true("soft_voting" in comprehensive, "comprehensive profile includes soft voting")
+        assert_true("weighted_voting" in comprehensive, "comprehensive profile includes weighted voting")
+        valid, reason = play.validate_model_pool_selection(["stacking"])
+        assert_true((not valid) and reason == "ensemble_needs_base_models", "ensemble-only selection is rejected")
+        valid2, reason2 = play.validate_model_pool_selection(["logistic_l2", "random_forest_balanced", "stacking"])
+        assert_true(valid2 and reason2 is None, "ensemble selection passes with >=2 base families")
+    finally:
+        play.optional_backend_available = original_backend_available  # type: ignore[assignment]
+
+
 def test_readiness_reason_text_mapping_is_user_friendly() -> None:
     print("\n=== play: readiness reason code maps to user-friendly text ===")
     original_lang = play.LANG
@@ -1476,6 +1507,8 @@ def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
     test_model_pool_exposes_expanded_sklearn_baselines()
+    test_model_pool_includes_ensemble_families()
+    test_model_profile_defaults_and_ensemble_guard()
     test_readiness_reason_text_mapping_is_user_friendly()
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()

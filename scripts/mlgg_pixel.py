@@ -133,6 +133,7 @@ _T: Dict[str, Dict[str, str]] = {
     "search_prompt": {"en": "Search keyword", "zh": "\u641c\u7d22\u5173\u952e\u8bcd"},
     "search_no_match": {"en": "No match for current keyword.", "zh": "\u5f53\u524d\u5173\u952e\u8bcd\u65e0\u5339\u914d\u9879\u3002"},
     "search_filter": {"en": "Filter: {q} ({m}/{n})", "zh": "\u8fc7\u6ee4\uff1a{q} ({m}/{n})"},
+    "please_choose": {"en": "Please choose a valid option.", "zh": "\u8bf7\u9009\u62e9\u6709\u6548\u9009\u9879\u3002"},
     "bye":           {"en": "Bye!", "zh": "\u518d\u89c1\uff01"},
     "interrupted":   {"en": "Interrupted.", "zh": "\u5df2\u4e2d\u65ad\u3002"},
     "enter_continue":{"en": "Press Enter to continue...",
@@ -260,10 +261,23 @@ _T: Dict[str, Dict[str, str]] = {
     "m_ada":         {"en": "AdaBoost", "zh": "AdaBoost"},
     "m_svm_linear":  {"en": "SVM Linear", "zh": "SVM \u7ebf\u6027\u6838"},
     "m_svm_rbf":     {"en": "SVM RBF", "zh": "SVM RBF \u6838"},
+    "m_soft_voting": {"en": "Soft Voting Ensemble", "zh": "\u8f6f\u6295\u7968\u96c6\u6210"},
+    "m_weighted_voting": {"en": "Weighted Voting Ensemble", "zh": "\u52a0\u6743\u6295\u7968\u96c6\u6210"},
+    "m_stacking": {"en": "Stacking Ensemble", "zh": "Stacking \u5806\u53e0\u96c6\u6210"},
     "m_xgb":         {"en": "XGBoost (optional)", "zh": "XGBoost\uff08\u53ef\u9009\uff09"},
     "m_cat":         {"en": "CatBoost (optional)", "zh": "CatBoost\uff08\u53ef\u9009\uff09"},
     "m_lgbm":        {"en": "LightGBM (optional)", "zh": "LightGBM\uff08\u53ef\u9009\uff09"},
     "m_tabpfn":      {"en": "TabPFN (optional, ≤1k rows)", "zh": "TabPFN\uff08\u53ef\u9009\uff0c\u22641k\u884c\uff09"},
+    "pick_model_profile": {"en": "Model strategy preset", "zh": "\u6a21\u578b\u7b56\u7565\u9884\u8bbe"},
+    "profile_conservative": {"en": "Conservative (linear-only default)", "zh": "\u4fdd\u5b88\uff08\u7ebf\u6027\u6a21\u578b\u9ed8\u8ba4\uff09"},
+    "profile_conservative_d": {"en": "Highest stability and interpretability for small clinical datasets", "zh": "\u9002\u5408\u4e34\u5e8a\u5c0f\u6837\u672c\uff0c\u7a33\u5b9a\u6027\u548c\u53ef\u89e3\u91ca\u6027\u6700\u9ad8"},
+    "profile_balanced": {"en": "Balanced (recommended)", "zh": "\u5e73\u8861\uff08\u63a8\u8350\uff09"},
+    "profile_balanced_d": {"en": "Strong sklearn baseline mix for robust discrimination and calibration", "zh": "\u5f3a sklearn \u57fa\u7ebf\u7ec4\u5408\uff0c\u517c\u987e\u533a\u5206\u6027\u548c\u6821\u51c6\u6027"},
+    "profile_comprehensive": {"en": "Comprehensive (research)", "zh": "\u7efc\u5408\uff08\u7814\u7a76\uff09"},
+    "profile_comprehensive_d": {"en": "Adds voting/stacking ensembles and installed optional backends", "zh": "\u989d\u5916\u52a0\u5165 voting/stacking \u96c6\u6210\u4e0e\u5df2\u5b89\u88c5\u53ef\u9009\u540e\u7aef"},
+    "profile_custom": {"en": "Custom (manual selection)", "zh": "\u81ea\u5b9a\u4e49\uff08\u624b\u52a8\u9009\u62e9\uff09"},
+    "profile_custom_d": {"en": "Select each model family manually", "zh": "\u624b\u52a8\u9009\u62e9\u6bcf\u4e2a\u6a21\u578b\u65cf"},
+    "model_ensemble_need_base": {"en": "Ensembles require at least 2 base model families. Please add more non-ensemble models.", "zh": "\u96c6\u6210\u6a21\u578b\u81f3\u5c11\u9700\u8981 2 \u4e2a\u57fa\u7840\u6a21\u578b\u65cf\uff0c\u8bf7\u518d\u589e\u52a0\u975e\u96c6\u6210\u6a21\u578b\u3002"},
 
     "pick_tuning":   {"en": "Hyperparameter search", "zh": "\u8d85\u53c2\u6570\u641c\u7d22\u7b56\u7565"},
     "tune_fixed":    {"en": "Fixed Grid", "zh": "\u56fa\u5b9a\u7f51\u683c"},
@@ -1348,6 +1362,9 @@ MODEL_POOL = [
     ("adaboost",                  "m_ada"),
     ("svm_linear",                "m_svm_linear"),
     ("svm_rbf",                   "m_svm_rbf"),
+    ("soft_voting",               "m_soft_voting"),
+    ("weighted_voting",           "m_weighted_voting"),
+    ("stacking",                  "m_stacking"),
     ("xgboost",                   "m_xgb"),
     ("catboost",                  "m_cat"),
     ("lightgbm",                  "m_lgbm"),
@@ -1368,6 +1385,34 @@ OPTIONAL_MODEL_INSTALL_PACKAGES = {
 # Conservative default for clinical small/medium datasets:
 # linear models are usually more stable and easier to calibrate.
 DEFAULT_MODELS = [0, 1, 2]  # L1, L2, ElasticNet
+ENSEMBLE_MODEL_FAMILIES = {"soft_voting", "weighted_voting", "stacking"}
+MODEL_PROFILE_PRESETS = {
+    "conservative": ["logistic_l1", "logistic_l2", "logistic_elasticnet"],
+    "balanced": [
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "extra_trees_balanced",
+        "hist_gradient_boosting_l2",
+        "svm_linear",
+        "svm_rbf",
+    ],
+    "comprehensive": [
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "extra_trees_balanced",
+        "hist_gradient_boosting_l2",
+        "adaboost",
+        "svm_linear",
+        "svm_rbf",
+        "soft_voting",
+        "weighted_voting",
+        "stacking",
+    ],
+}
 STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = 1200
 STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP = 8
 STRICT_SMALL_SAMPLE_MODEL_POOL = ["logistic_l1", "logistic_l2", "logistic_elasticnet"]
@@ -1542,6 +1587,35 @@ def optuna_backend_available() -> bool:
 
 def model_pool_tokens_from_state(state: Dict[str, Any]) -> List[str]:
     return [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
+
+
+def model_pool_indices_from_tokens(tokens: List[str]) -> List[int]:
+    idx_map = {name: idx for idx, (name, _) in enumerate(MODEL_POOL)}
+    picked = {idx_map[tok] for tok in tokens if tok in idx_map}
+    if not picked:
+        return list(DEFAULT_MODELS)
+    return [idx for idx in range(len(MODEL_POOL)) if idx in picked]
+
+
+def model_profile_default_indices(profile: str) -> List[int]:
+    profile_key = str(profile or "").strip().lower()
+    base_tokens = list(MODEL_PROFILE_PRESETS.get(profile_key, MODEL_PROFILE_PRESETS["conservative"]))
+    if profile_key == "comprehensive":
+        for family in OPTIONAL_MODEL_MODULES:
+            if optional_backend_available(family):
+                base_tokens.append(family)
+    return model_pool_indices_from_tokens(base_tokens)
+
+
+def validate_model_pool_selection(tokens: List[str]) -> Tuple[bool, Optional[str]]:
+    chosen = [str(token).strip() for token in tokens if str(token).strip()]
+    if not chosen:
+        return False, "model_pool_empty"
+    has_ensemble = any(token in ENSEMBLE_MODEL_FAMILIES for token in chosen)
+    base_count = sum(1 for token in chosen if token not in ENSEMBLE_MODEL_FAMILIES)
+    if has_ensemble and base_count < 2:
+        return False, "ensemble_needs_base_models"
+    return True, None
 
 
 def apply_model_pool_tokens(state: Dict[str, Any], tokens: List[str]) -> List[str]:
@@ -2375,38 +2449,76 @@ def step_models(state: Dict) -> Any:
     if state.get("source") in ("demo", "full") or state.get("_from_history"):
         return SKIP
 
-    _clear()
-    step_header(7, TOTAL_STEPS, t("s_models"))
-    if strict_small_sample_active(state):
-        if LANG == "zh":
-            print(f"  {s('C', '小样本严格模式：训练前将仅保留线性正则模型')}\n")
-        else:
-            print(f"  {s('C', 'Strict small-sample mode: non-linear models will be filtered before training')}\n")
-
-    labels: List[str] = []
-    canonical_labels: List[str] = []
-    for family, key in MODEL_POOL:
-        base = t(key)
-        canonical_labels.append(base)
-        if family in OPTIONAL_MODEL_MODULES:
-            if optional_backend_available(family):
-                suffix = " (installed)" if LANG == "en" else "（已安装）"
+    while True:
+        _clear()
+        step_header(7, TOTAL_STEPS, t("s_models"))
+        if strict_small_sample_active(state):
+            if LANG == "zh":
+                print(f"  {s('C', '小样本严格模式：训练前将仅保留线性正则模型')}\n")
             else:
-                suffix = " (not installed)" if LANG == "en" else "（未安装）"
-            labels.append(base + suffix)
+                print(f"  {s('C', 'Strict small-sample mode: non-linear models will be filtered before training')}\n")
+
+        profile_idx = select(
+            [
+                t("profile_conservative"),
+                t("profile_balanced"),
+                t("profile_comprehensive"),
+                t("profile_custom"),
+            ],
+            [
+                t("profile_conservative_d"),
+                t("profile_balanced_d"),
+                t("profile_comprehensive_d"),
+                t("profile_custom_d"),
+            ],
+            title=t("pick_model_profile"),
+        )
+        if profile_idx < 0:
+            return BACK
+
+        profile_keys = ["conservative", "balanced", "comprehensive", "custom"]
+        profile_key = profile_keys[profile_idx]
+        if profile_key == "custom":
+            defaults = model_pool_indices_from_tokens(model_pool_tokens_from_state(state))
         else:
-            labels.append(base)
-    selected = multi_select(labels, title=t("pick_models"), defaults=DEFAULT_MODELS)
-    if selected is None:
-        return BACK
-    if not selected:
-        selected = list(DEFAULT_MODELS)
-    state["model_pool"] = ",".join(MODEL_POOL[i][0] for i in selected)
-    state["_model_labels"] = [canonical_labels[i] for i in selected]
-    state["include_optional_models"] = any(
-        MODEL_POOL[i][0] in OPTIONAL_MODEL_MODULES for i in selected if 0 <= i < len(MODEL_POOL)
-    )
-    return True
+            defaults = model_profile_default_indices(profile_key)
+
+        labels: List[str] = []
+        canonical_labels: List[str] = []
+        for family, key in MODEL_POOL:
+            base = t(key)
+            canonical_labels.append(base)
+            if family in OPTIONAL_MODEL_MODULES:
+                if optional_backend_available(family):
+                    suffix = " (installed)" if LANG == "en" else "（已安装）"
+                else:
+                    suffix = " (not installed)" if LANG == "en" else "（未安装）"
+                labels.append(base + suffix)
+            else:
+                labels.append(base)
+
+        selected = multi_select(labels, title=t("pick_models"), defaults=defaults)
+        if selected is None:
+            return BACK
+        if not selected:
+            selected = list(DEFAULT_MODELS)
+
+        selected_tokens = [MODEL_POOL[i][0] for i in selected if 0 <= i < len(MODEL_POOL)]
+        valid, reason = validate_model_pool_selection(selected_tokens)
+        if not valid:
+            if reason == "ensemble_needs_base_models":
+                _notice(t("model_ensemble_need_base"))
+            else:
+                _notice(t("please_choose"))
+            continue
+
+        state["model_pool"] = ",".join(selected_tokens)
+        state["_model_labels"] = [canonical_labels[i] for i in selected if 0 <= i < len(canonical_labels)]
+        state["include_optional_models"] = any(
+            token in OPTIONAL_MODEL_MODULES for token in selected_tokens
+        )
+        state["_model_profile"] = profile_key
+        return True
 
 
 def step_tuning(state: Dict) -> Any:

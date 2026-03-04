@@ -51,7 +51,7 @@ AUTHORITY_STRESS_CASE_CHOICES = (
 TRAIN_MODEL_POOL_DEFAULT = (
     "logistic_l1,logistic_l2,logistic_elasticnet,"
     "random_forest_balanced,extra_trees_balanced,hist_gradient_boosting_l2,"
-    "svm_linear,svm_rbf"
+    "svm_linear,svm_rbf,soft_voting,weighted_voting,stacking"
 )
 TRAIN_OPTIONAL_BACKEND_HINTS = {
     "xgboost": "pip install xgboost",
