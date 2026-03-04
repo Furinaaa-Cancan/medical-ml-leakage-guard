@@ -171,7 +171,7 @@ def test_single_smoke(dataset, dataset_cache, tmp_path):
         "--target-col", "y",
         "--patient-id-col", "patient_id",
         "--ignore-cols", "patient_id,event_time",
-        "--model-pool", "logistic_l1",
+        "--model-pool", "logistic_l1,logistic_l2,logistic_elasticnet",
         "--hyperparam-search", "fixed_grid",
         "--cv-splits", "3",
         "--model-selection-report-out", str(evidence_dir / "model_selection_report.json"),

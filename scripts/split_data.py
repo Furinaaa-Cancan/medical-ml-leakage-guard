@@ -502,6 +502,7 @@ def validate_splits(
     target_col: str,
     time_col: str,
     min_rows: int,
+    strategy: str = "grouped_temporal",
 ) -> List[Dict[str, Any]]:
     """Run post-split safety checks and return any issues found.
 
@@ -515,6 +516,8 @@ def validate_splits(
         target_col: Binary target column name.
         time_col: Time column name (empty to skip temporal checks).
         min_rows: Minimum required rows per split.
+        strategy: Split strategy name; temporal boundary violations are
+            hard failures only for 'grouped_temporal', warnings otherwise.
 
     Returns:
         List of issue dicts with 'code', 'message', and context fields.
@@ -592,6 +595,7 @@ def validate_splits(
             if left_times.empty or right_times.empty:
                 continue
             if left_times.max() >= right_times.min():
+                is_temporal_strategy = strategy == "grouped_temporal"
                 issues.append({
                     "code": "temporal_overlap",
                     "message": (
@@ -600,6 +604,7 @@ def validate_splits(
                         "Multi-visit patients may span time boundaries; "
                         "temporal ordering is enforced at the patient level (earliest event time)."
                     ),
+                    "level": "warn" if not is_temporal_strategy else "fail",
                     "left": left_name,
                     "right": right_name,
                 })
@@ -849,7 +854,7 @@ def main() -> int:
         return 2
 
     # Validate splits
-    issues = validate_splits(splits, args.patient_id_col, args.target_col, time_col, args.min_rows_per_split)
+    issues = validate_splits(splits, args.patient_id_col, args.target_col, time_col, args.min_rows_per_split, strategy=args.strategy)
     hard_failures = [i for i in issues if i.get("level") != "warn"]
     warnings = [i for i in issues if i.get("level") == "warn"]
 

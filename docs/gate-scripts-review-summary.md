@@ -71,11 +71,8 @@
 
 ## 测试验证
 
-- **494 个直接相关测试全部通过**（10 个门控脚本测试文件）
-- 18 个预置失败与本次修改无关：
-  - `test_gate_utils.py` (4): `load_json` 异常类型不匹配（预置）
-  - `test_train_e2e.py` (13): E2E 依赖完整流水线（预置）
-  - `test_leakage_gate.py` (1): 时间边界精度（预置）
+- **1926 个测试全部通过，零失败**（完整测试套件，300s）
+- 原 18 个预置失败全部修复（见下方）
 
 ## 预置测试修复
 
@@ -84,6 +81,7 @@
 | `test_gate_utils.py` | 4 | `load_json_*` 抛出 `ValueError` 而非 `json.JSONDecodeError` | 更新测试期望为 `ValueError` |
 | `test_gate_utils.py` | 1 | `load_json_optional` 捕获异常返回 `None` | 更新测试期望为 `None` |
 | `test_leakage_gate.py` | 1 | 代码使用 `>=`（fail-closed），测试期望 `>` | 更新测试匹配 fail-closed 设计 |
+| `test_train_e2e.py` | 13 | 缺少 `--feature-group-spec` + `--bootstrap-resamples` 低于 200 最小值 | 添加空 spec fixture + 提升重采样数至 200 |
 
 ## 测试覆盖增强
 
