@@ -12,12 +12,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from _gate_utils import (
     add_issue,
+    canonical_metric_token,
+    is_finite_number,
     load_json,
     load_json_from_path,
     load_json_from_str,
     load_json_optional,
     resolve_path,
     to_float,
+    to_int,
     write_json,
 )
 
@@ -461,3 +464,120 @@ class TestToFloat:
         result = to_float("-0.0")
         assert result is not None
         assert result == 0.0
+
+
+# ────────────────────────────────────────────────────────
+# canonical_metric_token
+# ────────────────────────────────────────────────────────
+
+class TestCanonicalMetricToken:
+    def test_simple_lowercase(self):
+        assert canonical_metric_token("roc_auc") == "rocauc"
+
+    def test_mixed_case(self):
+        assert canonical_metric_token("ROC_AUC") == "rocauc"
+
+    def test_hyphens_and_spaces(self):
+        assert canonical_metric_token("pr-auc score") == "praucscore"
+
+    def test_dots_and_slashes(self):
+        assert canonical_metric_token("metrics.roc/auc") == "metricsrocauc"
+
+    def test_empty_string(self):
+        assert canonical_metric_token("") == ""
+
+    def test_only_special_chars(self):
+        assert canonical_metric_token("---___...") == ""
+
+    def test_numeric_suffix(self):
+        assert canonical_metric_token("f1_score") == "f1score"
+
+    def test_equivalence(self):
+        assert canonical_metric_token("pr_auc") == canonical_metric_token("PR-AUC")
+        assert canonical_metric_token("roc_auc") == canonical_metric_token("ROC AUC")
+        assert canonical_metric_token("f2_beta") == canonical_metric_token("F2-Beta")
+
+
+# ────────────────────────────────────────────────────────
+# is_finite_number
+# ────────────────────────────────────────────────────────
+
+class TestIsFiniteNumber:
+    def test_int(self):
+        assert is_finite_number(42) is True
+
+    def test_float(self):
+        assert is_finite_number(3.14) is True
+
+    def test_zero(self):
+        assert is_finite_number(0) is True
+        assert is_finite_number(0.0) is True
+
+    def test_negative(self):
+        assert is_finite_number(-1) is True
+        assert is_finite_number(-1.5) is True
+
+    def test_inf(self):
+        assert is_finite_number(float("inf")) is False
+
+    def test_neg_inf(self):
+        assert is_finite_number(float("-inf")) is False
+
+    def test_nan(self):
+        assert is_finite_number(float("nan")) is False
+
+    def test_bool_excluded(self):
+        assert is_finite_number(True) is False
+        assert is_finite_number(False) is False
+
+    def test_string(self):
+        assert is_finite_number("42") is False
+
+    def test_none(self):
+        assert is_finite_number(None) is False
+
+    def test_list(self):
+        assert is_finite_number([1]) is False
+
+
+# ────────────────────────────────────────────────────────
+# to_int
+# ────────────────────────────────────────────────────────
+
+class TestToInt:
+    def test_int_normal(self):
+        assert to_int(42) == 42
+
+    def test_int_zero(self):
+        assert to_int(0) == 0
+
+    def test_int_negative(self):
+        assert to_int(-5) == -5
+
+    def test_float_whole(self):
+        assert to_int(3.0) == 3
+
+    def test_float_fractional(self):
+        assert to_int(3.5) is None
+
+    def test_float_inf(self):
+        assert to_int(float("inf")) is None
+
+    def test_float_nan(self):
+        assert to_int(float("nan")) is None
+
+    def test_bool_excluded(self):
+        assert to_int(True) is None
+        assert to_int(False) is None
+
+    def test_str_returns_none(self):
+        assert to_int("42") is None
+        assert to_int("3.0") is None
+        assert to_int("") is None
+        assert to_int("abc") is None
+
+    def test_none(self):
+        assert to_int(None) is None
+
+    def test_list(self):
+        assert to_int([1]) is None
