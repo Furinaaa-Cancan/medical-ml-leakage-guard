@@ -1604,6 +1604,14 @@ def test_vlines_wrap_count_is_conservative_for_terminal_redraw() -> None:
     assert_true(wrapped >= 2, "_vlines counts edge-width lines conservatively for clean redraw")
 
 
+def test_compact_model_id_preserves_unique_suffix() -> None:
+    print("\n=== play: compact model id keeps tail suffix to avoid ambiguous truncation ===")
+    raw = "logistic_elasticnet__trial_very_long_hash_b13f55aa"
+    compact = play._compact_model_id(raw, max_len=24)
+    assert_true(compact.endswith("b13f55aa"), "compact model id preserves trailing unique suffix")
+    assert_true("..." in compact, "compact model id uses ellipsis for long ids")
+
+
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
@@ -1653,6 +1661,7 @@ def main() -> int:
     test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()
     test_vlines_wrap_count_is_conservative_for_terminal_redraw()
+    test_compact_model_id_preserves_unique_suffix()
 
     print(f"\n{'='*50}")
     if _failures:

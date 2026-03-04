@@ -422,6 +422,15 @@ _T: Dict[str, Dict[str, str]] = {
     "r_done":        {"en": "Complete!", "zh": "\u5b8c\u6210\uff01"},
     "r_split_ok":    {"en": "Split Complete!", "zh": "\u5206\u5272\u5b8c\u6210\uff01"},
     "r_train_ok":    {"en": "Training Complete!", "zh": "\u8bad\u7ec3\u5b8c\u6210\uff01"},
+    "r_quick_open":  {"en": "Quick open", "zh": "\u5feb\u901f\u6253\u5f00"},
+    "r_quick_open_hint": {"en": "(clickable links if your terminal supports OSC 8)",
+                           "zh": "\uff08\u82e5\u7ec8\u7aef\u652f\u6301 OSC 8\uff0c\u94fe\u63a5\u53ef\u70b9\u51fb\uff09"},
+    "r_open_output": {"en": "Output dir", "zh": "\u8f93\u51fa\u76ee\u5f55"},
+    "r_open_evidence": {"en": "Evidence dir", "zh": "\u8bc1\u636e\u76ee\u5f55"},
+    "r_open_models": {"en": "Models dir", "zh": "\u6a21\u578b\u76ee\u5f55"},
+    "r_open_data": {"en": "Data dir", "zh": "\u6570\u636e\u76ee\u5f55"},
+    "r_sel_showing_top": {"en": "Showing top {shown} / {total} candidates by PR-AUC.",
+                           "zh": "\u6309 PR-AUC \u5c55\u793a Top {shown} / {total} \u5019\u9009\u6a21\u578b\u3002"},
     "r_metrics":     {"en": "Key Metrics (test set)", "zh": "\u5173\u952e\u6307\u6807\uff08\u6d4b\u8bd5\u96c6\uff09"},
     "r_quick_readiness": {"en": "Quick Readiness (play mode)", "zh": "\u5feb\u901f\u5c31\u7eea\u68c0\u67e5\uff08play \u6a21\u5f0f\uff09"},
     "r_play_status_not_ready": {"en": "NOT READY (play)", "zh": "\u672a\u5c31\u7eea\uff08play\uff09"},
@@ -685,6 +694,44 @@ def _notice(message: str) -> None:
         input(f"  {DIM}{t('enter_continue')}{RST}")
     except (EOFError, KeyboardInterrupt):
         pass
+
+
+def _supports_osc8_links() -> bool:
+    if os.environ.get("MLGG_DISABLE_OSC8_LINKS"):
+        return False
+    if not (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()):
+        return False
+    term_program = str(os.environ.get("TERM_PROGRAM", "")).strip()
+    if term_program in {"iTerm.app", "Apple_Terminal", "WezTerm", "vscode"}:
+        return True
+    if os.environ.get("WT_SESSION"):
+        return True
+    if os.environ.get("KONSOLE_VERSION"):
+        return True
+    if os.environ.get("VTE_VERSION"):
+        return True
+    return False
+
+
+def _osc8_link(label: str, uri: str) -> str:
+    return f"\033]8;;{uri}\033\\{label}\033]8;;\033\\"
+
+
+def _terminal_path_link(path: Path, label: str) -> str:
+    target = path.expanduser().resolve()
+    plain = str(target)
+    if _supports_osc8_links():
+        return f"{_osc8_link(label, target.as_uri())} {DIM}{plain}{RST}"
+    return f"{label}: {plain}"
+
+
+def _compact_model_id(model_id: Any, max_len: int = 30) -> str:
+    text = str(model_id or "?")
+    if len(text) <= max_len:
+        return text
+    keep_tail = 8
+    head_len = max(1, max_len - keep_tail - 3)
+    return f"{text[:head_len]}...{text[-keep_tail:]}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3456,6 +3503,17 @@ def step_run(state: Dict) -> Any:
         "  models/    -- trained model artifact",
         "  data/      -- train / valid / test splits",
     ], color="G")
+    print()
+    open_title = t("r_quick_open")
+    if _supports_osc8_links():
+        print(f"  {s('C', open_title, bold=True)} {DIM}{t('r_quick_open_hint')}{RST}")
+    else:
+        print(f"  {s('C', open_title, bold=True)}")
+    out_root = Path(state["out_dir"])
+    print(f"  - {_terminal_path_link(out_root, t('r_open_output'))}")
+    print(f"  - {_terminal_path_link(Path(evidence_dir), t('r_open_evidence'))}")
+    print(f"  - {_terminal_path_link(Path(models_dir), t('r_open_models'))}")
+    print(f"  - {_terminal_path_link(Path(out_data), t('r_open_data'))}")
 
     play_blockers: List[str] = []
     play_advisories: List[str] = []
@@ -3906,14 +3964,23 @@ def step_run(state: Dict) -> Any:
                     if trace.get("one_se_threshold") is not None:
                         sel_lines.append(f"  {'1-SE cutoff':<14} {float(trace['one_se_threshold']):.4f}")
                     sel_lines.append("")
-                    sel_lines.append(f"  {'':20} {'mean':>8}  {'std':>8}  {'folds':>5}")
+                    sel_lines.append(f"  {'#':>2} {'model_id':<30} {'mean':>8}  {'std':>8}  {'folds':>5}")
                     top = sorted(candidates,
                                  key=lambda c: -float(c.get("selection_metrics", {}).get("pr_auc", {}).get("mean", 0)))
-                    shown = list(top[:5])
+                    display_limit = min(10, len(top))
+                    shown = list(top[:display_limit])
                     if sel_id and all(str(c.get("model_id")) != str(sel_id) for c in shown):
                         selected_row = next((c for c in top if str(c.get("model_id")) == str(sel_id)), None)
                         if selected_row is not None:
-                            shown.append(selected_row)
+                            if len(shown) >= display_limit and shown:
+                                shown[-1] = selected_row
+                            else:
+                                shown.append(selected_row)
+                    rank_map: Dict[str, int] = {}
+                    for rank, row in enumerate(top, start=1):
+                        row_id = str(row.get("model_id", ""))
+                        if row_id and row_id not in rank_map:
+                            rank_map[row_id] = rank
                     for c in shown:
                         sm = c.get("selection_metrics", {}).get("pr_auc", {})
                         m = sm.get("mean")
@@ -3921,9 +3988,14 @@ def step_run(state: Dict) -> Any:
                         nf = sm.get("n_folds", 1)
                         if m is not None:
                             tag = " *" if c.get("model_id") == sel_id else ""
-                            name = str(c.get("model_id", "?"))[:20]
-                            sd_str = f"{float(sd):.4f}" if sd else "   --"
-                            sel_lines.append(f"  {name:<20} {float(m):>8.4f}  {sd_str:>8}  {nf:>5}{tag}")
+                            model_id = str(c.get("model_id", "?"))
+                            rank = rank_map.get(model_id, 0)
+                            name = _compact_model_id(model_id, 30)
+                            sd_str = f"{float(sd):.4f}" if sd is not None else "   --"
+                            sel_lines.append(f"  {rank:>2} {name:<30} {float(m):>8.4f}  {sd_str:>8}  {nf:>5}{tag}")
+                    if len(top) > len(shown):
+                        sel_lines.append("")
+                        sel_lines.append(f"  {DIM}{t('r_sel_showing_top', shown=len(shown), total=len(top))}{RST}")
                     sel_lines.append("")
                     sel_lines.append(f"  {DIM}* = selected (1-SE rule){RST}")
                     print()
