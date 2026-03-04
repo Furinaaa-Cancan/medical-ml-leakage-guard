@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, load_json_from_str as load_json, to_float, to_int as _shared_to_int
 
 
 DEFAULT_REQUIRED_METRICS = [
@@ -45,19 +45,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def canonical_metric_token(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return _shared_canonical_metric_token(value)
 
 
 
 
 def to_int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
-        return int(value)
-    return None
+    return _shared_to_int(value)
 
 
 def safe_ratio(num: float, den: float) -> Optional[float]:

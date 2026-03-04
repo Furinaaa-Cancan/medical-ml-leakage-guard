@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from _gate_utils import add_issue, to_float
+from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, to_float
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def canonical_metric_token(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return _shared_canonical_metric_token(value)
 
 
 def path_tokens(path: str) -> List[str]:
@@ -64,7 +64,7 @@ def is_auxiliary_metric_path(path: str) -> bool:
 
 
 def is_finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+    return _shared_is_finite_number(value)
 
 
 

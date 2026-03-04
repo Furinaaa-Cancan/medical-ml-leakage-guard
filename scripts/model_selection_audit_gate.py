@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from _gate_utils import add_issue, load_json_from_str as load_json
+from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, load_json_from_str as load_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def canonical_metric_token(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return _shared_canonical_metric_token(value)
 
 
 def contains_test_token(value: str) -> bool:

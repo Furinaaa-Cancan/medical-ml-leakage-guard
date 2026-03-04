@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+from _gate_utils import add_issue, load_json_from_str as load_json, normalize_binary as _shared_normalize_binary, safe_ratio as _shared_safe_ratio, to_float, to_int as _shared_to_int
 
 
 REQUIRED_METRICS = [
@@ -51,28 +51,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def to_int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
-        return int(value)
-    return None
+    return _shared_to_int(value)
 
 
 def normalize_binary(values: pd.Series) -> Optional[np.ndarray]:
-    arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
-    if np.any(~np.isfinite(arr)):
-        return None
-    if not np.all(np.isin(arr, [0.0, 1.0])):
-        return None
-    return arr.astype(int)
+    return _shared_normalize_binary(values)
 
 
 def safe_ratio(num: float, den: float) -> float:
-    if den <= 0:
-        return 0.0
-    return float(num) / float(den)
+    return _shared_safe_ratio(num, den)
 
 
 def confusion_counts(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, int]:

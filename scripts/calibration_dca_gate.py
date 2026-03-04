@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from _gate_utils import add_issue, load_json_from_str as load_json_obj, to_float
+from _gate_utils import add_issue, load_json_from_str as load_json_obj, normalize_binary as _shared_normalize_binary, to_float
 
 
 REQUIRED_TRACE_COLUMNS = {
@@ -45,12 +45,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def normalize_binary(series: pd.Series) -> Optional[np.ndarray]:
-    arr = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
-    if np.any(~np.isfinite(arr)):
-        return None
-    if not np.all(np.isin(arr, [0.0, 1.0])):
-        return None
-    return arr.astype(int)
+    return _shared_normalize_binary(series)
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -176,8 +171,11 @@ def parse_policy_thresholds(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if key in {"min_rows", "min_positives", "ece_bins", "ece_min_bin_size"}:
             if value >= 1:
                 out[key] = int(value)
-        elif key in {"ece_max", "intercept_abs_max"}:
+        elif key == "ece_max":
             if 0.0 <= value <= 1.0:
+                out[key] = float(value)
+        elif key == "intercept_abs_max":
+            if 0.0 <= value <= 10.0:
                 out[key] = float(value)
         elif key in {"slope_min", "slope_max"}:
             if value > 0.0:

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue, is_finite_number as _shared_is_finite_number, resolve_path, to_float, to_int as _shared_to_int
+from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, resolve_path, to_float, to_int as _shared_to_int
 
 
 REQUIRED_STRING_FIELDS = [
@@ -292,7 +292,7 @@ def is_valid_dot_path(path: str) -> bool:
 
 
 def canonical_metric_token(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return _shared_canonical_metric_token(value)
 
 
 

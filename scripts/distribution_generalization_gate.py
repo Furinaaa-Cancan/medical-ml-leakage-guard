@@ -18,7 +18,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+from _gate_utils import add_issue, load_json_from_str as load_json, normalize_binary as _shared_normalize_binary, to_float
 
 
 SUPPORTED_EXTERNAL_TYPES = {"cross_period", "cross_institution"}
@@ -90,12 +90,7 @@ def load_split(path: str) -> pd.DataFrame:
 
 
 def normalize_binary(series: pd.Series) -> Optional[np.ndarray]:
-    arr = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
-    if np.any(~np.isfinite(arr)):
-        return None
-    if not np.all(np.isin(arr, [0.0, 1.0])):
-        return None
-    return arr.astype(int)
+    return _shared_normalize_binary(series)
 
 
 def parse_thresholds(policy: Optional[Dict[str, Any]]) -> Dict[str, float]:

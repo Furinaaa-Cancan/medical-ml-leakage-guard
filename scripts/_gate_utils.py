@@ -271,6 +271,12 @@ def to_float(value: Any) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 
+def canonical_metric_token(value: str) -> str:
+    """Normalize a metric name to a canonical lowercase token for comparison."""
+    import re
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
 def is_finite_number(value: Any) -> bool:
     """Check whether *value* is a finite int or float (excluding bool)."""
     return (
