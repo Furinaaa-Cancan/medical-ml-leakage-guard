@@ -248,6 +248,19 @@ _T: Dict[str, Dict[str, str]] = {
     "target_miss": {"en": "missing={pct}%", "zh": "\u7f3a\u5931={pct}%"},
     "feat_stats_header": {"en": "  Feature statistics (sample≤2000 rows):",
                           "zh": "  \u7279\u5f81\u7edf\u8ba1\u4fe1\u606f\uff08\u6837\u672c\u22642000\u884c\uff09\uff1a"},
+    "fe_mode_title": {"en": "Feature screening mode", "zh": "\u7279\u5f81\u7b5b\u9009\u6a21\u5f0f"},
+    "fe_mode_strict": {"en": "Strict (publication-grade)", "zh": "\u4e25\u683c\uff08\u53d1\u8868\u7ea7\uff09"},
+    "fe_mode_strict_d": {"en": "miss≤60%, var≥1e-8, keep 50% per group, 45 stability repeats",
+                          "zh": "\u7f3a\u5931\u226460%, \u65b9\u5dee\u22651e-8, \u6bcf\u7ec4\u4fdd\u759950%, 45\u6b21\u7a33\u5b9a\u6027\u91cd\u590d"},
+    "fe_mode_moderate": {"en": "Moderate (recommended)", "zh": "\u9002\u4e2d\uff08\u63a8\u8350\uff09"},
+    "fe_mode_moderate_d": {"en": "miss≤70%, var≥1e-9, keep 70% per group, 35 stability repeats",
+                            "zh": "\u7f3a\u5931\u226470%, \u65b9\u5dee\u22651e-9, \u6bcf\u7ec4\u4fdd\u759970%, 35\u6b21\u7a33\u5b9a\u6027\u91cd\u590d"},
+    "fe_mode_quick": {"en": "Quick (exploratory)", "zh": "\u5feb\u901f\uff08\u63a2\u7d22\u6027\uff09"},
+    "fe_mode_quick_d": {"en": "miss≤80%, var≥1e-10, keep 85% per group, 25 stability repeats",
+                         "zh": "\u7f3a\u5931\u226480%, \u65b9\u5dee\u22651e-10, \u6bcf\u7ec4\u4fdd\u759985%, 25\u6b21\u7a33\u5b9a\u6027\u91cd\u590d"},
+    "fe_mode_preview": {"en": "Preview: {dropped} of {total} features would be dropped by missingness/variance filter",
+                         "zh": "\u9884\u89c8\uff1a{dropped}/{total} \u4e2a\u7279\u5f81\u5c06\u88ab\u7f3a\u5931\u7387/\u65b9\u5dee\u8fc7\u6ee4\u5668\u6392\u9664"},
+    "fe_mode_selected": {"en": "Screening mode: {mode}", "zh": "\u7b5b\u9009\u6a21\u5f0f\uff1a{mode}"},
     "pick_time":     {"en": "Time / Date column", "zh": "\u65f6\u95f4\u5217"},
     "pick_strat":    {"en": "Split strategy", "zh": "\u5206\u5272\u7b56\u7565"},
     "auto":          {"en": "auto-detected", "zh": "\u81ea\u52a8\u68c0\u6d4b"},
@@ -2713,9 +2726,45 @@ def step_config(state: Dict) -> Any:
                 continue
             break
 
+    # ── Feature screening mode selection ──
+    _FE_MODES = {
+        "strict":   {"max_missing_ratio": 0.60, "min_variance": 1e-8},
+        "moderate":  {"max_missing_ratio": 0.70, "min_variance": 1e-9},
+        "quick":     {"max_missing_ratio": 0.80, "min_variance": 1e-10},
+    }
+
+    def _preview_drops(mode_key: str) -> str:
+        cfg = _FE_MODES[mode_key]
+        if not feat_stats:
+            return ""
+        dropped = 0
+        for col in selected_features:
+            info = feat_stats.get(col, {})
+            miss = info.get("missing_pct", 0.0) / 100.0
+            var = info.get("variance")
+            if miss > cfg["max_missing_ratio"]:
+                dropped += 1
+            elif info.get("is_numeric") and var is not None and var <= cfg["min_variance"]:
+                dropped += 1
+        return t("fe_mode_preview", dropped=dropped, total=len(selected_features))
+
+    _clear()
+    _config_header((t("c_pid"), pid), (t("c_target"), tgt))
+    print(f"  {s('G', chr(0x2713))} {t('feature_selected_n', n=len(selected_features))}\n")
+    fe_labels = [t("fe_mode_strict"), t("fe_mode_moderate"), t("fe_mode_quick")]
+    fe_descs = [t("fe_mode_strict_d"), t("fe_mode_moderate_d"), t("fe_mode_quick_d")]
+    if feat_stats:
+        for idx, mode_key in enumerate(["strict", "moderate", "quick"]):
+            preview = _preview_drops(mode_key)
+            if preview:
+                fe_descs[idx] += f"  [{preview}]"
+    fe_idx = select(fe_labels, fe_descs, title=t("fe_mode_title"))
+    fe_mode = ["strict", "moderate", "quick"][max(fe_idx, 0)]
+
     state["pid"] = pid
     state["target"] = tgt
     state["selected_features"] = selected_features
+    state["fe_mode"] = fe_mode
     state["ignore_cols"] = default_ignore_columns(state)
     return True
 
@@ -3490,6 +3539,7 @@ def _export_cli(state: Dict) -> str:
         "--model-out", str(Path(models_dir) / "model.pkl"),
         "--n-jobs", str(preview_state.get("n_jobs", 1)),
         "--random-seed", "20260225",
+        "--feature-engineering-mode", preview_state.get("fe_mode", "strict"),
     ]
     if bool(preview_state.get("include_optional_models", False)):
         train_parts.append("--include-optional-models")
@@ -3996,6 +4046,7 @@ def step_run(state: Dict) -> Any:
         "--model-out", str(Path(models_dir) / "model.pkl"),
         "--n-jobs", str(state.get("n_jobs", 1)),
         "--random-seed", "20260225",
+        "--feature-engineering-mode", state.get("fe_mode", "strict"),
     ]
     if bool(state.get("include_optional_models", False)):
         train_cmd.append("--include-optional-models")
