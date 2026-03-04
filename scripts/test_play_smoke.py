@@ -43,6 +43,24 @@ def test_default_models_are_conservative_linear_pool() -> None:
     )
 
 
+def test_model_pool_exposes_expanded_sklearn_baselines() -> None:
+    print("\n=== play: model pool includes expanded sklearn baselines ===")
+    families = [name for name, _ in play.MODEL_POOL]
+    expected = {
+        "logistic_l1",
+        "logistic_l2",
+        "logistic_elasticnet",
+        "random_forest_balanced",
+        "extra_trees_balanced",
+        "hist_gradient_boosting_l2",
+        "adaboost",
+        "svm_linear",
+        "svm_rbf",
+    }
+    missing = sorted(expected - set(families))
+    assert_true(not missing, "expanded baseline families are available in play model pool", detail=",".join(missing))
+
+
 def test_readiness_reason_text_mapping_is_user_friendly() -> None:
     print("\n=== play: readiness reason code maps to user-friendly text ===")
     original_lang = play.LANG
@@ -1457,6 +1475,7 @@ def test_wizard_exits_nonzero_when_run_step_fails() -> None:
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
+    test_model_pool_exposes_expanded_sklearn_baselines()
     test_readiness_reason_text_mapping_is_user_friendly()
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
