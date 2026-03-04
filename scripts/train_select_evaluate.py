@@ -1177,7 +1177,7 @@ def feature_stability_frequency(
                 C=0.3,
                 class_weight=None,
                 max_iter=3000,
-                random_state=seed,
+                random_state=seed + repeat_idx,
             )
             model.fit(X_sub, y_sub)
             coef = np.asarray(model.coef_).reshape(-1)
@@ -4398,7 +4398,6 @@ def _subgroup_performance(
         groups = first_feature["groups"]
         positive_rates = []
         for g in groups:
-            pred_pos_rate = (g["sensitivity"] * g["prevalence"]) + ((1 - g.get("ppv", 0)) * (1 - g["prevalence"])) if g["prevalence"] > 0 else 0
             positive_rates.append(g.get("sensitivity", 0))
         if positive_rates and max(positive_rates) > 0:
             results["disparate_impact_ratio"] = round(min(positive_rates) / max(positive_rates), 4)
@@ -6389,7 +6388,7 @@ def main() -> int:
         ensure_parent(null_path)
         permutation_resamples = int(args.permutation_resamples)
         if fast_diagnostic_mode:
-            permutation_resamples = min(permutation_resamples, 0)
+            permutation_resamples = 0
         with null_path.open("w", encoding="utf-8") as fh:
             for _ in range(max(0, int(permutation_resamples))):
                 y_perm = rng.permutation(y_test)
