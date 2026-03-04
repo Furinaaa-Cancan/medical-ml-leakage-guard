@@ -338,7 +338,7 @@ class TestCLI:
         assert result.returncode == 0
 
     def test_temporal_boundary_exact(self, tmp_path: Path):
-        """Train max == test min: should NOT trigger overlap (uses >)."""
+        """Train max == test min: SHOULD trigger overlap (uses >=, fail-closed)."""
         train_p = tmp_path / "train.csv"
         test_p = tmp_path / "test.csv"
         _write_csv(train_p, ["pid", "y", "t"],
@@ -347,10 +347,10 @@ class TestCLI:
                    [["C", "0", "2024-06-01"], ["D", "1", "2024-12-01"]])
         splits = {"train": train_p, "test": test_p}
         result = self._run(tmp_path, splits, extra_args=["--time-col", "t"])
-        # left_max > right_min is the check, so equal times should NOT fail
+        # left_max >= right_min is the check (fail-closed), so equal times SHOULD fail
         report = json.loads((tmp_path / "report.json").read_text())
         temporal_failures = [f for f in report["failures"] if f["code"] == "temporal_overlap"]
-        assert len(temporal_failures) == 0
+        assert len(temporal_failures) == 1
 
     def test_suspicious_feature_names(self, tmp_path: Path):
         train_p = tmp_path / "train.csv"

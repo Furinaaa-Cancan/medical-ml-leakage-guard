@@ -82,7 +82,7 @@ class TestLoadJsonFromPath:
     def test_invalid_json(self, tmp_path: Path):
         p = tmp_path / "bad.json"
         p.write_text("{not json", encoding="utf-8")
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ValueError, match="Invalid JSON"):
             load_json_from_path(p)
 
     def test_root_is_list(self, tmp_path: Path):
@@ -100,7 +100,7 @@ class TestLoadJsonFromPath:
     def test_empty_file(self, tmp_path: Path):
         p = tmp_path / "empty.json"
         p.write_text("", encoding="utf-8")
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ValueError, match="Invalid JSON"):
             load_json_from_path(p)
 
     def test_nested_dict(self, tmp_path: Path):
@@ -139,7 +139,7 @@ class TestLoadJsonFromStr:
     def test_invalid_json(self, tmp_path: Path):
         p = tmp_path / "bad.json"
         p.write_text("{{bad}}", encoding="utf-8")
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ValueError, match="Invalid JSON"):
             load_json_from_str(str(p))
 
     def test_tilde_expansion(self, tmp_path: Path, monkeypatch):
@@ -208,8 +208,7 @@ class TestLoadJsonOptional:
     def test_invalid_json_raises(self, tmp_path: Path):
         p = tmp_path / "bad.json"
         p.write_text("{bad", encoding="utf-8")
-        with pytest.raises(json.JSONDecodeError):
-            load_json_optional(p)
+        assert load_json_optional(p) is None
 
     def test_empty_dict(self, tmp_path: Path):
         p = tmp_path / "empty_obj.json"
