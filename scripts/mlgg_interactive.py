@@ -231,11 +231,133 @@ def prompt_column_choice(
         return str(value)
 
 
+def compute_feature_summary(
+    csv_path: str,
+    feature_cols: List[str],
+    target_col: str,
+    max_rows: int = 2000,
+) -> Dict[str, Dict[str, Any]]:
+    """Compute per-feature statistics for CLI feature display.
+
+    Returns dict mapping column name to:
+        is_numeric (bool), missing_pct (float), variance (float|None),
+        corr_target (float|None), distinct (int).
+    """
+    import math as _math
+
+    p = Path(csv_path).expanduser().resolve()
+    n_rows = 0
+    col_vals: Dict[str, List[Optional[float]]] = {c: [] for c in feature_cols}
+    col_missing: Dict[str, int] = {c: 0 for c in feature_cols}
+    col_numeric_ok: Dict[str, int] = {c: 0 for c in feature_cols}
+    col_distinct: Dict[str, set] = {c: set() for c in feature_cols}
+    target_vals: List[Optional[float]] = []
+
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            reader = _csv_mod.DictReader(fh)
+            for idx, row in enumerate(reader):
+                if idx >= max_rows:
+                    break
+                if not isinstance(row, dict):
+                    continue
+                n_rows += 1
+                raw_t = str(row.get(target_col, "") or "").strip()
+                t_val: Optional[float] = None
+                if raw_t in ("0", "0.0"):
+                    t_val = 0.0
+                elif raw_t in ("1", "1.0"):
+                    t_val = 1.0
+                target_vals.append(t_val)
+                for col in feature_cols:
+                    raw = str(row.get(col, "") or "").strip()
+                    if not raw:
+                        col_missing[col] += 1
+                        col_vals[col].append(None)
+                        continue
+                    if len(col_distinct[col]) < max_rows:
+                        col_distinct[col].add(raw)
+                    try:
+                        fval = float(raw)
+                        if _math.isfinite(fval):
+                            col_vals[col].append(fval)
+                            col_numeric_ok[col] += 1
+                        else:
+                            col_vals[col].append(None)
+                    except (ValueError, TypeError):
+                        col_vals[col].append(None)
+    except Exception:
+        return {}
+
+    if n_rows == 0:
+        return {}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for col in feature_cols:
+        non_empty = n_rows - col_missing[col]
+        missing_pct = round(100.0 * float(col_missing[col]) / float(max(n_rows, 1)), 1)
+        is_numeric = non_empty > 0 and col_numeric_ok[col] >= non_empty * 0.9
+        distinct = len(col_distinct[col])
+        variance: Optional[float] = None
+        corr_target: Optional[float] = None
+
+        numeric_values = [v for v in col_vals[col] if v is not None]
+        if is_numeric and len(numeric_values) >= 2:
+            mean = sum(numeric_values) / len(numeric_values)
+            variance = sum((v - mean) ** 2 for v in numeric_values) / (len(numeric_values) - 1)
+            paired = [
+                (col_vals[col][i], target_vals[i])
+                for i in range(min(len(col_vals[col]), len(target_vals)))
+                if col_vals[col][i] is not None and target_vals[i] is not None
+            ]
+            if len(paired) >= 5:
+                xs = [pp[0] for pp in paired]
+                ys = [pp[1] for pp in paired]
+                n_p = len(paired)
+                mx = sum(xs) / n_p
+                my = sum(ys) / n_p
+                cov_xy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+                var_x = sum((x - mx) ** 2 for x in xs)
+                var_y = sum((y - my) ** 2 for y in ys)
+                denom = (var_x * var_y) ** 0.5
+                if denom > 1e-15:
+                    corr_target = round(cov_xy / denom, 3)
+
+        result[col] = {
+            "is_numeric": is_numeric,
+            "missing_pct": missing_pct,
+            "variance": variance,
+            "corr_target": corr_target,
+            "distinct": distinct,
+        }
+    return result
+
+
+def _format_feature_line(col: str, info: Dict[str, Any]) -> str:
+    """Format a single feature column's statistics as a compact string."""
+    parts = [f"{'num' if info.get('is_numeric') else 'cat':>3s}"]
+    miss = info.get("missing_pct", 0.0)
+    if miss > 0.05:
+        parts.append(f"miss={miss}%")
+    if info.get("is_numeric") and info.get("variance") is not None:
+        v = info["variance"]
+        if v < 1e-12:
+            parts.append("CONST")
+        elif v < 1e-6:
+            parts.append("LOW-VAR")
+        else:
+            parts.append(f"var={v:.4g}")
+    if info.get("corr_target") is not None:
+        parts.append(f"corr={info['corr_target']:+.3f}")
+    return f"    {col:<30s}  {' | '.join(parts)}"
+
+
 def prompt_ignore_cols(
     columns: List[str],
     target_col: str,
     patient_id_col: str,
     default: str,
+    csv_path: Optional[str] = None,
 ) -> str:
     """Prompt user to select columns to ignore (non-feature columns)."""
     if PROMPT_AUTO_ACCEPT_DEFAULTS:
@@ -256,9 +378,24 @@ def prompt_ignore_cols(
 
     print(f"\n  Columns to IGNORE (non-feature, comma-separated)")
     print(f"  Current ignore list: {default}")
-    print(f"  Resulting feature columns ({len(feature_cols)}): {', '.join(feature_cols[:20])}")
-    if len(feature_cols) > 20:
-        print(f"  ... and {len(feature_cols) - 20} more")
+    print(f"  Resulting feature columns ({len(feature_cols)}):")
+
+    feat_summary: Dict[str, Dict[str, Any]] = {}
+    if csv_path and feature_cols:
+        feat_summary = compute_feature_summary(csv_path, feature_cols, target_col)
+    if feat_summary:
+        print(f"  {'Column':<30s}  {'Type':>4s} | {'Miss%':>6s} | {'Variance':>10s} | {'Corr(y)':>8s}")
+        print(f"  {'-' * 70}")
+        for col in feature_cols:
+            info = feat_summary.get(col)
+            if info:
+                print(_format_feature_line(col, info))
+            else:
+                print(f"    {col}")
+    else:
+        print(f"  {', '.join(feature_cols[:20])}")
+        if len(feature_cols) > 20:
+            print(f"  ... and {len(feature_cols) - 20} more")
 
     while True:
         try:
@@ -1123,6 +1260,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
                 target_col=values["target_col"],
                 patient_id_col=values["patient_id_col"],
                 default=str(seed_ignore),
+                csv_path=values.get("input_csv"),
             )
         else:
             values["ignore_cols"] = prompt_text(
@@ -1235,6 +1373,7 @@ def collect_train_values(profile: Dict[str, Any], explicit: Dict[str, Any]) -> D
                 target_col=values["target_col"],
                 patient_id_col=values["patient_id_col"],
                 default=str(seed_ignore),
+                csv_path=values.get("train"),
             )
         else:
             values["ignore_cols"] = prompt_text(

@@ -237,6 +237,17 @@ _T: Dict[str, Dict[str, str]] = {
                                     "zh": "\u8bf7\u81f3\u5c11\u9009\u62e9 1 \u4e2a\u9884\u6d4b\u7279\u5f81\u3002"},
     "feature_selected_n": {"en": "{n} feature(s) selected", "zh": "\u5df2\u9009\u62e9 {n} \u4e2a\u7279\u5f81"},
     "feature_auto_all": {"en": "auto (all eligible columns)", "zh": "\u81ea\u52a8\uff08\u6240\u6709\u53ef\u7528\u5217\uff09"},
+    "feat_num": {"en": "num", "zh": "\u6570\u503c"},
+    "feat_cat": {"en": "cat", "zh": "\u5206\u7c7b"},
+    "feat_miss": {"en": "miss={pct}%", "zh": "\u7f3a\u5931={pct}%"},
+    "feat_var": {"en": "var={v}", "zh": "\u65b9\u5dee={v}"},
+    "feat_corr": {"en": "corr={r}", "zh": "\u76f8\u5173={r}"},
+    "feat_low_var": {"en": "LOW-VAR", "zh": "\u4f4e\u65b9\u5dee"},
+    "feat_high_miss": {"en": "HIGH-MISS", "zh": "\u9ad8\u7f3a\u5931"},
+    "feat_const": {"en": "CONSTANT", "zh": "\u5e38\u91cf"},
+    "target_miss": {"en": "missing={pct}%", "zh": "\u7f3a\u5931={pct}%"},
+    "feat_stats_header": {"en": "  Feature statistics (sample≤2000 rows):",
+                          "zh": "  \u7279\u5f81\u7edf\u8ba1\u4fe1\u606f\uff08\u6837\u672c\u22642000\u884c\uff09\uff1a"},
     "pick_time":     {"en": "Time / Date column", "zh": "\u65f6\u95f4\u5217"},
     "pick_strat":    {"en": "Split strategy", "zh": "\u5206\u5272\u7b56\u7565"},
     "auto":          {"en": "auto-detected", "zh": "\u81ea\u52a8\u68c0\u6d4b"},
@@ -1489,17 +1500,23 @@ def csv_column_profile(path: Path, columns: List[str], max_rows: int = 2000) -> 
 
 def _target_hint_from_profile(profile: Dict[str, Dict[str, int]], column: str) -> str:
     stats = profile.get(column, {})
+    rows = int(stats.get("rows", 0))
     non_empty = int(stats.get("non_empty", 0))
     mapped = int(stats.get("binary_mapped", 0))
     bin_1 = int(stats.get("bin_1", 0))
     bin_0 = int(stats.get("bin_0", 0))
+    miss_suffix = ""
+    if rows > 0:
+        miss_pct = round(100.0 * float(rows - non_empty) / float(rows), 1)
+        if miss_pct > 0.05:
+            miss_suffix = f" | {t('target_miss', pct=miss_pct)}"
     if non_empty > 0 and mapped == non_empty:
         if bin_1 > 0 and bin_0 > 0:
             pct = int(round(100.0 * float(bin_1) / float(max(bin_1 + bin_0, 1))))
-            return t("target_binary_like", pct=pct)
-        return t("target_binary_single_class")
+            return t("target_binary_like", pct=pct) + miss_suffix
+        return t("target_binary_single_class") + miss_suffix
     if non_empty > 0:
-        return t("target_not_binary")
+        return t("target_not_binary") + miss_suffix
     return ""
 
 
@@ -1524,6 +1541,147 @@ def _pid_uniqueness_ratio(profile: Dict[str, Dict[str, int]], column: str) -> fl
     if non_empty <= 0:
         return 0.0
     return float(distinct) / float(non_empty)
+
+
+def compute_feature_stats(
+    csv_path: Path,
+    feature_cols: List[str],
+    target_col: str,
+    max_rows: int = 2000,
+) -> Dict[str, Dict[str, Any]]:
+    """Compute per-feature statistics for the feature selection UI.
+
+    Returns dict mapping column name to:
+        is_numeric (bool), missing_pct (float 0-100), variance (float|None),
+        corr_target (float|None), distinct (int), warnings (list[str]).
+    """
+    import math as _math
+
+    col_set = set(feature_cols)
+    n_rows = 0
+    col_vals: Dict[str, List[Optional[float]]] = {c: [] for c in feature_cols}
+    col_raw_distinct: Dict[str, set] = {c: set() for c in feature_cols}
+    col_missing: Dict[str, int] = {c: 0 for c in feature_cols}
+    col_numeric_ok: Dict[str, int] = {c: 0 for c in feature_cols}
+    target_vals: List[Optional[float]] = []
+
+    try:
+        with open(csv_path, "r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for idx, row in enumerate(reader):
+                if idx >= max_rows:
+                    break
+                if not isinstance(row, dict):
+                    continue
+                n_rows += 1
+                raw_t = str(row.get(target_col, "") or "").strip()
+                t_val = _normalize_binary_value(raw_t)
+                target_vals.append(float(t_val) if t_val is not None else None)
+                for col in feature_cols:
+                    raw = str(row.get(col, "") or "").strip()
+                    if not raw:
+                        col_missing[col] += 1
+                        col_vals[col].append(None)
+                        continue
+                    if len(col_raw_distinct[col]) < max_rows:
+                        col_raw_distinct[col].add(raw)
+                    try:
+                        fval = float(raw)
+                        if _math.isfinite(fval):
+                            col_vals[col].append(fval)
+                            col_numeric_ok[col] += 1
+                        else:
+                            col_vals[col].append(None)
+                    except (ValueError, TypeError):
+                        col_vals[col].append(None)
+    except Exception:
+        return {}
+
+    if n_rows == 0:
+        return {}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for col in feature_cols:
+        non_empty = n_rows - col_missing[col]
+        missing_pct = 100.0 * float(col_missing[col]) / float(max(n_rows, 1))
+        is_numeric = non_empty > 0 and col_numeric_ok[col] >= non_empty * 0.9
+        distinct = len(col_raw_distinct[col])
+        variance: Optional[float] = None
+        corr_target: Optional[float] = None
+        warnings_list: List[str] = []
+
+        numeric_values = [v for v in col_vals[col] if v is not None]
+        if is_numeric and len(numeric_values) >= 2:
+            mean = sum(numeric_values) / len(numeric_values)
+            variance = sum((v - mean) ** 2 for v in numeric_values) / (len(numeric_values) - 1)
+            if variance < 1e-12:
+                warnings_list.append("constant" if variance == 0.0 else "low_var")
+
+            paired = [
+                (col_vals[col][i], target_vals[i])
+                for i in range(min(len(col_vals[col]), len(target_vals)))
+                if col_vals[col][i] is not None and target_vals[i] is not None
+            ]
+            if len(paired) >= 5:
+                xs = [p[0] for p in paired]
+                ys = [p[1] for p in paired]
+                n_p = len(paired)
+                mx = sum(xs) / n_p
+                my = sum(ys) / n_p
+                cov_xy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+                var_x = sum((x - mx) ** 2 for x in xs)
+                var_y = sum((y - my) ** 2 for y in ys)
+                denom = (var_x * var_y) ** 0.5
+                if denom > 1e-15:
+                    corr_target = cov_xy / denom
+
+        if missing_pct > 60.0:
+            warnings_list.append("high_miss")
+
+        result[col] = {
+            "is_numeric": is_numeric,
+            "missing_pct": round(missing_pct, 1),
+            "variance": variance,
+            "corr_target": corr_target,
+            "distinct": distinct,
+            "warnings": warnings_list,
+        }
+    return result
+
+
+def _feature_hint_from_stats(
+    stats: Dict[str, Dict[str, Any]],
+    column: str,
+    detected_time: Optional[str] = None,
+) -> str:
+    """Build a compact description string for a feature column."""
+    if detected_time and column == detected_time:
+        return t("feature_time_hint")
+    info = stats.get(column)
+    if not info:
+        return ""
+    parts: List[str] = []
+    if info.get("is_numeric"):
+        parts.append(t("feat_num"))
+    else:
+        parts.append(t("feat_cat"))
+    miss = info.get("missing_pct", 0.0)
+    if miss > 0.05:
+        parts.append(t("feat_miss", pct=info["missing_pct"]))
+    if info.get("is_numeric") and info.get("variance") is not None:
+        v = info["variance"]
+        if v < 1e-12:
+            parts.append(t("feat_const"))
+        elif v < 1e-6:
+            parts.append(t("feat_low_var"))
+        else:
+            parts.append(t("feat_var", v=f"{v:.4g}"))
+    if info.get("corr_target") is not None:
+        parts.append(t("feat_corr", r=f"{info['corr_target']:+.3f}"))
+    warn_tags = info.get("warnings", [])
+    if "high_miss" in warn_tags:
+        parts.append(t("feat_high_miss"))
+    return " | ".join(parts)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2521,13 +2679,19 @@ def step_config(state: Dict) -> Any:
                 _notice(t("feature_choose_at_least_one"))
                 sub = 1
                 continue
+            feat_stats = compute_feature_stats(
+                Path(csv_path), feature_candidates, tgt,
+            )
+            if feat_stats:
+                print(f"{DIM}{t('feat_stats_header')}{RST}")
             feature_descs = [
-                t("feature_time_hint") if detected.get("time") and col == detected.get("time") else ""
+                _feature_hint_from_stats(feat_stats, col, detected.get("time"))
                 for col in feature_candidates
             ]
             default_selected = [
                 idx for idx, col in enumerate(feature_candidates)
                 if not (detected.get("time") and col == detected.get("time"))
+                and "constant" not in (feat_stats.get(col, {}).get("warnings", []))
             ]
             if not default_selected:
                 default_selected = list(range(len(feature_candidates)))
