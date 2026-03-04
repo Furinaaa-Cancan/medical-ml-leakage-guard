@@ -72,9 +72,13 @@ def _cols() -> int:
 
 def _vlines(text: str, cols: Optional[int] = None) -> int:
     """Return how many terminal rows this text occupies after wrapping."""
-    width = max(cols or _cols(), 1)
-    visible = max(_wlen(text), 0)
-    return max(1, (visible + width - 1) // width)
+    width = max((cols or _cols()) - 1, 1)
+    segments = str(text).split("\n")
+    lines = 0
+    for seg in segments:
+        visible = max(_wlen(seg), 0)
+        lines += max(1, (visible + width - 1) // width)
+    return max(1, lines)
 
 _TEST_MODE = bool(os.environ.get("MLGG_TEST"))
 MAX_TRIALS_INPUT = 1000
@@ -2071,34 +2075,31 @@ def step_dataset(state: Dict) -> Any:
         return True
 
     # source == "csv"
-    files = scan_csv()
-    if files:
-        names = [f.name for f in files]
-        descs = [f"{csv_rows(f)} {t('rows')}  --  {f.parent}" for f in files]
-        names.append(t("manual_path"))
-        descs.append("")
-        fi = select(names, descs, title=t("pick_csv"))
-        if fi < 0:
-            return BACK
-        if fi == len(files):
+    while True:
+        files = scan_csv()
+        if files:
+            names = [f.name for f in files]
+            descs = [f"{csv_rows(f)} {t('rows')}  --  {f.parent}" for f in files]
+            names.append(t("manual_path"))
+            descs.append("")
+            fi = select(names, descs, title=t("pick_csv"))
+            if fi < 0:
+                return BACK
+            if fi == len(files):
+                path = _input_line(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ")
+                if path is None:
+                    return BACK
+            else:
+                path = str(files[fi])
+        else:
             path = _input_line(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ")
             if path is None:
                 return BACK
-        else:
-            path = str(files[fi])
-    else:
-        path = _input_line(f"  {s('C','>')} {s('W', t('csv_prompt'))}: ")
-        if path is None:
-            return BACK
 
-    if not path or not Path(path).exists():
-        print(f"\n  {s('R', t('not_found'))}")
-        sys.stdout.write(SHOW_CUR)
-        try:
-            input(f"  {DIM}{t('enter_continue')}{RST}")
-        except (EOFError, KeyboardInterrupt):
-            pass
-        return BACK
+        if path and Path(path).exists():
+            break
+
+        _notice(t("not_found"))
 
     state["csv_path"] = path
     state["dataset_key"] = "custom"
@@ -2499,7 +2500,9 @@ def step_models(state: Dict) -> Any:
 
         selected = multi_select(labels, title=t("pick_models"), defaults=defaults)
         if selected is None:
-            return BACK
+            # In-model-menu back should return to profile selection in this step,
+            # not jump to previous wizard step.
+            continue
         if not selected:
             selected = list(DEFAULT_MODELS)
 

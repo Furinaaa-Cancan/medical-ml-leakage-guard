@@ -434,7 +434,20 @@ class TestParseModelPoolConfig:
     def test_include_optional(self):
         config = tse.parse_model_pool_config({}, self._make_args(include_optional_models=True))
         pool = config["model_pool"]
-        assert "xgboost" in pool or "catboost" in pool
+        optional_models = {"xgboost", "catboost", "lightgbm", "tabpfn"}
+        assert any(name in pool for name in optional_models)
+
+    def test_include_optional_filters_unavailable_backends(self, monkeypatch):
+        monkeypatch.setattr(tse, "XGBClassifier", object())
+        monkeypatch.setattr(tse, "CatBoostClassifier", None)
+        monkeypatch.setattr(tse, "LGBMClassifier", None)
+        monkeypatch.setattr(tse, "TabPFNClassifier", None)
+        config = tse.parse_model_pool_config({}, self._make_args(include_optional_models=True, model_pool="logistic_l2"))
+        pool = config["model_pool"]
+        assert "xgboost" in pool
+        assert "catboost" not in pool
+        assert "lightgbm" not in pool
+        assert "tabpfn" not in pool
 
     def test_policy_override(self):
         policy = {"model_pool": {"models": ["logistic_l1"], "max_trials_per_family": 3}}

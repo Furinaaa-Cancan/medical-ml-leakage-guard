@@ -92,6 +92,60 @@ def test_model_profile_defaults_and_ensemble_guard() -> None:
         play.optional_backend_available = original_backend_available  # type: ignore[assignment]
 
 
+def test_step_models_back_from_picker_stays_within_models_step() -> None:
+    print("\n=== play: model picker back returns to profile menu (not previous step) ===")
+    original_select = play.select
+    original_multi_select = play.multi_select
+    calls = {"select": 0}
+    try:
+        def fake_select(*args, **kwargs):  # type: ignore[override]
+            calls["select"] += 1
+            # First call: choose custom profile. Second call: back out at profile menu.
+            return 3 if calls["select"] == 1 else -1
+
+        play.select = fake_select  # type: ignore[assignment]
+        play.multi_select = lambda *args, **kwargs: None  # type: ignore[assignment]
+        state = {"source": "csv"}
+        result = play.step_models(state)
+        assert_true(result is play.BACK, "step_models returns BACK only after profile menu back")
+        assert_true(calls["select"] == 2, "model picker back does not jump to previous step immediately")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play.multi_select = original_multi_select  # type: ignore[assignment]
+
+
+def test_step_dataset_invalid_csv_path_reprompts_in_same_step() -> None:
+    print("\n=== play: invalid csv path re-prompts in dataset step ===")
+    original_scan_csv = play.scan_csv
+    original_input_line = play._input_line
+    original_notice = play._notice
+    try:
+        with tempfile.TemporaryDirectory(prefix="mlgg_dataset_prompt_") as td:
+            valid_csv = Path(td) / "valid.csv"
+            valid_csv.write_text("patient_id,event_time,y\n1,2024-01-01,0\n", encoding="utf-8")
+            prompts = {"count": 0}
+
+            def fake_input_line(prompt_str: str, default: str = "") -> str | None:
+                prompts["count"] += 1
+                if prompts["count"] == 1:
+                    return "/tmp/does_not_exist.csv"
+                return str(valid_csv)
+
+            play.scan_csv = lambda: []  # type: ignore[assignment]
+            play._input_line = fake_input_line  # type: ignore[assignment]
+            play._notice = lambda message: None  # type: ignore[assignment]
+
+            state = {"source": "csv"}
+            result = play.step_dataset(state)
+            assert_true(result is True, "dataset step completes after re-prompting invalid path")
+            assert_true(prompts["count"] >= 2, "invalid path triggers in-step re-prompt")
+            assert_true(state.get("csv_path") == str(valid_csv), "csv_path records the valid second input")
+    finally:
+        play.scan_csv = original_scan_csv  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+        play._notice = original_notice  # type: ignore[assignment]
+
+
 def test_readiness_reason_text_mapping_is_user_friendly() -> None:
     print("\n=== play: readiness reason code maps to user-friendly text ===")
     original_lang = play.LANG
@@ -1503,12 +1557,21 @@ def test_wizard_exits_nonzero_when_run_step_fails() -> None:
             setattr(play, name, originals[name])
 
 
+def test_vlines_wrap_count_is_conservative_for_terminal_redraw() -> None:
+    print("\n=== play: redraw line counting is conservative at terminal edge widths ===")
+    full_width_line = "x" * 10
+    wrapped = play._vlines(full_width_line, cols=10)
+    assert_true(wrapped >= 2, "_vlines counts edge-width lines conservatively for clean redraw")
+
+
 def main() -> int:
     print("Running play smoke tests...")
     test_default_models_are_conservative_linear_pool()
     test_model_pool_exposes_expanded_sklearn_baselines()
     test_model_pool_includes_ensemble_families()
     test_model_profile_defaults_and_ensemble_guard()
+    test_step_models_back_from_picker_stays_within_models_step()
+    test_step_dataset_invalid_csv_path_reprompts_in_same_step()
     test_readiness_reason_text_mapping_is_user_friendly()
     test_source_step_has_only_builtin_or_csv_paths()
     test_download_dataset_step_no_project_name_prompt()
@@ -1548,6 +1611,7 @@ def main() -> int:
     test_step_run_allows_play_blockers_by_default()
     test_collect_runtime_dependency_issues_covers_all_optional_backends()
     test_wizard_exits_nonzero_when_run_step_fails()
+    test_vlines_wrap_count_is_conservative_for_terminal_redraw()
 
     print(f"\n{'='*50}")
     if _failures:

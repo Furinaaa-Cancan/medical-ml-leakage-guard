@@ -583,7 +583,17 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
     selected_tokens = cli_models or policy_models or list(default_models)
     include_optional = bool(args.include_optional_models or policy_include_optional)
     if include_optional:
-        selected_tokens.extend(["xgboost", "catboost", "lightgbm", "tabpfn"])
+        # Fail-safe append: only add optional families that are actually available
+        # in the current runtime. This keeps CLI semantics aligned with help text
+        # ("append optional backends ... when installed") and avoids hard-fails
+        # from implicitly adding unavailable families.
+        optional_candidates = {
+            "xgboost": XGBClassifier is not None,
+            "catboost": CatBoostClassifier is not None,
+            "lightgbm": LGBMClassifier is not None,
+            "tabpfn": TabPFNClassifier is not None,
+        }
+        selected_tokens.extend([name for name, is_available in optional_candidates.items() if is_available])
 
     normalized: List[str] = []
     for token in selected_tokens:
