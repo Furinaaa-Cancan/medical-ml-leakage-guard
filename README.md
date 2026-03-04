@@ -51,6 +51,10 @@ Important:
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - For small datasets (for example UCI heart/breast/ckd), prefer:
   `python3 scripts/mlgg.py play -- --strict-small-sample`
+- In `--strict-small-sample` mode:
+  model picker is limited to `logistic_l1/l2/elasticnet`,
+  tuning menu hides `optuna`,
+  and tries/model are capped at input time (instead of silently adjusted later).
 - `play` now applies dataset-size-aware defaults automatically:
   `small (<=1200 rows)` -> conservative model/tuning order,
   `medium (1201-10000)` -> balanced order,
@@ -153,7 +157,8 @@ This repository:
 - Python `3.10+`
 - `openssl` in PATH (required for execution attestation)
 - Python packages: `numpy`, `pandas`, `scikit-learn`, `scipy`, `joblib`
-- Optional model backends: `xgboost`, `catboost`
+- Optional model backends: `xgboost`, `catboost`, `lightgbm`, `tabpfn`
+- Optional tuning backend: `optuna`
 
 Install core dependencies:
 
@@ -554,7 +559,7 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - `.github/workflows/`: CI pipelines (smoke / full / extended)
 - `SKILL.md`: full workflow contract, gate ordering, and medical non-negotiable rules
 - `requirements.txt`: core Python dependencies
-- `requirements-optional.txt`: optional model backend dependencies (`xgboost`, `catboost`)
+- `requirements-optional.txt`: optional backend dependencies (`xgboost`, `catboost`, `lightgbm`, `tabpfn`, `optuna`)
 - `references/Beginner-Quickstart.md`: bilingual beginner tutorial
 - `references/Troubleshooting-Top20.md`: top failure-code remediation
 - `references/release-benchmark-suite.md`: release benchmark matrix profile and pass contract
@@ -632,6 +637,10 @@ python3 scripts/mlgg.py play
   `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
 - 小样本数据（如 UCI heart/breast/ckd）建议使用：
   `python3 scripts/mlgg.py play -- --strict-small-sample`
+- `--strict-small-sample` 模式下：
+  模型选择仅保留 `logistic_l1/l2/elasticnet`，
+  调优菜单不再展示 `optuna`，
+  且每模型尝试次数会在输入阶段直接限幅（不再运行时“静默收紧”）。
 - `play` 现已自动按数据规模分层给默认策略：
   `small (<=1200 行)` -> 保守模型/调优优先，
   `medium (1201-10000)` -> 平衡优先，
@@ -734,7 +743,8 @@ python3 scripts/mlgg.py workflow \
 - Python `3.10+`
 - PATH 中可用 `openssl`（执行证明必需）
 - Python 包：`numpy`、`pandas`、`scikit-learn`、`joblib`
-- 可选模型后端：`xgboost`、`catboost`
+- 可选模型后端：`xgboost`、`catboost`、`lightgbm`、`tabpfn`
+- 可选调优后端：`optuna`
 
 安装核心依赖：
 
@@ -1135,7 +1145,7 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - `.github/workflows/`: CI 流水线（smoke / full / extended）
 - `SKILL.md`: 完整流程契约、gate 顺序与医学不可协商规则
 - `requirements.txt`: 核心 Python 依赖
-- `requirements-optional.txt`: 可选模型后端依赖（`xgboost`、`catboost`）
+- `requirements-optional.txt`: 可选后端依赖（`xgboost`、`catboost`、`lightgbm`、`tabpfn`、`optuna`）
 - `references/Beginner-Quickstart.md`: 双语新手教程
 - `references/Troubleshooting-Top20.md`: 高频失败码修复手册
 - `references/release-benchmark-suite.md`: 发布级基准矩阵档位与通过标准

@@ -893,6 +893,68 @@ def test_step_models_strict_mode_shows_linear_only_choices() -> None:
         play.multi_select = original_multi_select  # type: ignore[assignment]
 
 
+def test_tuning_order_strict_small_sample_hides_optuna() -> None:
+    print("\n=== play: strict small-sample tuning order hides optuna ===")
+    state = {
+        "_strict_small_sample": True,
+        "_strict_small_sample_max_rows": 1200,
+        "_n_rows": 569,
+    }
+    order = play.tuning_order_for_state(state)
+    assert_true(
+        order == ["fixed_grid", "random_subsample"],
+        "strict small-sample tuning order excludes optuna",
+        detail=",".join(order),
+    )
+
+
+def test_step_tuning_strict_small_sample_rejects_trials_above_cap() -> None:
+    print("\n=== play: strict small-sample tuning rejects over-cap trial input ===")
+    original_select = play.select
+    original_input_line = play._input_line
+    original_notice = play._notice
+    notices = []
+    used_custom = {"value": False}
+    try:
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return 0  # fixed_grid
+            if title == play.t("pick_trials_preset"):
+                if not used_custom["value"]:
+                    used_custom["value"] = True
+                    return len(opts) - 1  # custom
+                return 0  # fallback to strict cap preset
+            if title == play.t("pick_calib"):
+                return 0
+            if title == play.t("pick_device"):
+                return 0
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._input_line = lambda *args, **kwargs: "5"  # type: ignore[assignment]
+        play._notice = lambda msg: notices.append(str(msg))  # type: ignore[assignment]
+
+        state = {
+            "source": "csv",
+            "_strict_small_sample": True,
+            "_strict_small_sample_max_rows": 1200,
+            "_n_rows": 569,
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "auto",
+        }
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds after rejecting over-cap custom value")
+        assert_true(int(state.get("max_trials", 0)) == 1, "strict small-sample fixed-grid keeps max_trials at cap=1")
+        expected_notice = play.t("msg_trials_strict_cap", cap="1")
+        assert_true(any(expected_notice in n for n in notices), "strict-cap rejection notice is shown")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._input_line = original_input_line  # type: ignore[assignment]
+        play._notice = original_notice  # type: ignore[assignment]
+
+
 def test_step_run_failure_returns_fail_sentinel() -> None:
     print("\n=== play: step_run fail-closed sentinel on execution failure ===")
     original_spinner = play.run_spinner
@@ -1729,6 +1791,8 @@ def main() -> int:
     test_strict_small_sample_profile_enforces_conservative_training_setup()
     test_strict_small_sample_profile_inactive_on_large_data()
     test_step_models_strict_mode_shows_linear_only_choices()
+    test_tuning_order_strict_small_sample_hides_optuna()
+    test_step_tuning_strict_small_sample_rejects_trials_above_cap()
     test_step_run_failure_returns_fail_sentinel()
     test_step_run_prunes_unavailable_optional_model_backend()
     test_step_run_dependency_install_path_covers_optional_and_optuna()

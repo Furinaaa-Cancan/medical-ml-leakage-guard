@@ -150,6 +150,8 @@ _T: Dict[str, Dict[str, str]] = {
                       "zh": "\u8bf7\u8f93\u5165 -1 \u6216 >=1 \u7684\u6574\u6570\u3002"},
     "msg_trials_range":{"en": f"Value out of range. Allowed: 1-{MAX_TRIALS_INPUT}.",
                         "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a1-{MAX_TRIALS_INPUT}\u3002"},
+    "msg_trials_strict_cap":{"en": "Strict small-sample mode caps this value at {cap}.",
+                             "zh": "\u5c0f\u6837\u672c\u4e25\u683c\u6a21\u5f0f\u4e0b\uff0c\u6b64\u503c\u6700\u5927\u4e3a {cap}\u3002"},
     "msg_optuna_trials_range":{"en": f"Value out of range. Allowed: 1-{MAX_OPTUNA_TRIALS_INPUT}.",
                                "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a1-{MAX_OPTUNA_TRIALS_INPUT}\u3002"},
     "msg_njobs_range":{"en": f"Value out of range. Allowed: -1 or 1-{MAX_NJOBS_INPUT}.",
@@ -1617,7 +1619,9 @@ def model_profile_order_for_state(state: Dict[str, Any]) -> List[str]:
 def tuning_order_for_state(state: Dict[str, Any]) -> List[str]:
     """Order tuning strategies by tier to reflect default recommendations."""
     if strict_small_sample_active(state):
-        return ["fixed_grid", "random_subsample", "optuna"]
+        # In strict small-sample mode, optuna is intentionally hidden to keep
+        # wizard choices aligned with effective execution semantics.
+        return ["fixed_grid", "random_subsample"]
     tier = dataset_size_tier(state)
     if tier == "small":
         return ["fixed_grid", "random_subsample", "optuna"]
@@ -2871,7 +2875,9 @@ def step_tuning(state: Dict) -> Any:
         elif sub == 2:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
-            if strict_small_sample_active(state):
+            strict_small = strict_small_sample_active(state)
+            strict_trial_cap = int(min(STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP, recommended_max_trials(state))) if strict_small else MAX_TRIALS_INPUT
+            if strict_small:
                 if LANG == "zh":
                     print(f"  {s('C', '小样本严格模式已启用：将收紧模型复杂度与试验次数')}")
                 else:
@@ -2882,13 +2888,13 @@ def step_tuning(state: Dict) -> Any:
                 print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
             print()
             default_trials = int(state.get("max_trials", recommended_max_trials(state)))
-            if strict_small_sample_active(state):
-                default_trials = min(default_trials, STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP)
+            if strict_small:
+                default_trials = min(default_trials, strict_trial_cap)
             n_rows = int(state_n_rows(state) or 0)
             if n_rows > 0:
                 rec_trials = recommended_max_trials(state)
-                if strict_small_sample_active(state):
-                    rec_trials = min(rec_trials, STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP)
+                if strict_small:
+                    rec_trials = min(rec_trials, strict_trial_cap)
                 rec_text = (
                     f"\u5bf9\u4e8e n={n_rows} \u7684\u63a8\u8350\u8bd5\u9a8c\u6b21\u6570: {rec_trials}"
                     if LANG == "zh"
@@ -2907,8 +2913,8 @@ def step_tuning(state: Dict) -> Any:
             base_presets = [v for v in base_presets if 1 <= v <= MAX_TRIALS_INPUT]
             if not base_presets:
                 base_presets = [1]
-            if strict_small_sample_active(state):
-                base_presets = [v for v in base_presets if v <= STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP]
+            if strict_small:
+                base_presets = [v for v in base_presets if v <= strict_trial_cap]
                 if not base_presets:
                     base_presets = [1]
             if default_trials not in base_presets and 1 <= default_trials <= MAX_TRIALS_INPUT:
@@ -2943,6 +2949,9 @@ def step_tuning(state: Dict) -> Any:
                 continue
             if parsed < 1 or parsed > MAX_TRIALS_INPUT:
                 _notice(t("msg_trials_range"))
+                continue
+            if strict_small and parsed > strict_trial_cap:
+                _notice(t("msg_trials_strict_cap", cap=str(strict_trial_cap)))
                 continue
             state["max_trials"] = parsed
             sub = 3
@@ -3769,11 +3778,13 @@ def step_run(state: Dict) -> Any:
         (Path(evidence_dir) / "suggested_rerun_commands.sh", t("r_report_rerun")),
     ]
     existing_report_items = [(path, label) for path, label in report_items if path.exists()]
+    full_reports_printed = False
     if existing_report_items:
         print()
         print(f"  {s('C', t('r_full_reports'), bold=True)}")
         for path, label in existing_report_items:
             print(f"  - {_terminal_path_link(path, label)}")
+        full_reports_printed = True
 
     play_blockers: List[str] = []
     play_advisories: List[str] = []
@@ -4307,7 +4318,7 @@ def step_run(state: Dict) -> Any:
             (Path(evidence_dir) / "suggested_rerun_commands.sh", t("r_report_rerun")),
         ]
         existing_report_items = [(path, label) for path, label in report_items if path.exists()]
-        if existing_report_items:
+        if existing_report_items and not full_reports_printed:
             print()
             print(f"  {s('C', t('r_full_reports'), bold=True)}")
             for path, label in existing_report_items:
