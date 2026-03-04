@@ -264,3 +264,134 @@ def to_float(value: Any) -> Optional[float]:
             return None
         return parsed if math.isfinite(parsed) else None
     return None
+
+
+# ---------------------------------------------------------------------------
+# Shared numeric helpers used by multiple gate scripts
+# ---------------------------------------------------------------------------
+
+
+def is_finite_number(value: Any) -> bool:
+    """Check whether *value* is a finite int or float (excluding bool)."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def to_int(value: Any) -> Optional[int]:
+    """Safely convert *value* to int if it is integer-like, else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
+        return int(value)
+    return None
+
+
+def safe_ratio(num: float, den: float) -> float:
+    """Return *num / den*, or 0.0 when *den* is non-positive."""
+    if den <= 0:
+        return 0.0
+    return float(num) / float(den)
+
+
+def confusion_counts(
+    y_true: "numpy.ndarray", y_pred: "numpy.ndarray"
+) -> Dict[str, int]:
+    """Compute TP/FP/TN/FN from binary label arrays.
+
+    Args:
+        y_true: Ground-truth binary labels (0/1).
+        y_pred: Predicted binary labels (0/1).
+
+    Returns:
+        Dict with keys ``tp``, ``fp``, ``tn``, ``fn``.
+    """
+    import numpy as np  # local import to keep module lightweight
+
+    yt = y_true.astype(int)
+    yp = y_pred.astype(int)
+    tp = int(np.sum((yt == 1) & (yp == 1)))
+    fp = int(np.sum((yt == 0) & (yp == 1)))
+    tn = int(np.sum((yt == 0) & (yp == 0)))
+    fn = int(np.sum((yt == 1) & (yp == 0)))
+    return {"tp": tp, "fp": fp, "tn": tn, "fn": fn}
+
+
+def normalize_binary(values: "pandas.Series") -> Optional["numpy.ndarray"]:
+    """Coerce a pandas Series to a binary int ndarray, or None on failure.
+
+    Returns None when the series contains non-finite or non-{0,1} values.
+    """
+    import numpy as np
+    import pandas as pd
+
+    arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    if np.any(~np.isfinite(arr)):
+        return None
+    if not np.all(np.isin(arr, [0.0, 1.0])):
+        return None
+    return arr.astype(int)
+
+
+def metric_panel(
+    y_true: "numpy.ndarray",
+    y_score: "numpy.ndarray",
+    y_pred: "numpy.ndarray",
+    beta: float,
+) -> tuple:
+    """Compute a standard binary-classification metric panel.
+
+    Args:
+        y_true: Ground-truth binary labels (0/1).
+        y_score: Predicted probabilities in [0, 1].
+        y_pred: Hard predictions (0/1).
+        beta: Beta for F-beta score (typically 2.0).
+
+    Returns:
+        ``(metrics_dict, confusion_matrix_dict)`` tuple.
+    """
+    from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
+
+    cm = confusion_counts(y_true, y_pred)
+    tp = float(cm["tp"])
+    fp = float(cm["fp"])
+    tn = float(cm["tn"])
+    fn = float(cm["fn"])
+    precision = safe_ratio(tp, tp + fp)
+    sensitivity = safe_ratio(tp, tp + fn)
+    specificity = safe_ratio(tn, tn + fp)
+    npv = safe_ratio(tn, tn + fn)
+    accuracy = safe_ratio(tp + tn, tp + fp + tn + fn)
+    f1 = (
+        0.0
+        if (precision + sensitivity) <= 0
+        else (2.0 * precision * sensitivity) / (precision + sensitivity)
+    )
+    beta_sq = beta * beta
+    f2 = (
+        0.0
+        if ((beta_sq * precision) + sensitivity) <= 0
+        else ((1.0 + beta_sq) * precision * sensitivity)
+        / ((beta_sq * precision) + sensitivity)
+    )
+    roc_auc = float(roc_auc_score(y_true, y_score))
+    pr_auc = float(average_precision_score(y_true, y_score))
+    brier = float(brier_score_loss(y_true, y_score))
+    metrics = {
+        "accuracy": accuracy,
+        "precision": precision,
+        "ppv": precision,
+        "npv": npv,
+        "sensitivity": sensitivity,
+        "specificity": specificity,
+        "f1": f1,
+        "f2_beta": f2,
+        "roc_auc": roc_auc,
+        "pr_auc": pr_auc,
+        "brier": brier,
+    }
+    return metrics, cm

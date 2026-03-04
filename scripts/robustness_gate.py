@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from _gate_utils import add_issue, load_json_from_str as load_json_object
+from _gate_utils import add_issue, is_finite_number as _shared_is_finite_number, load_json_from_str as load_json_object
 
 
 DEFAULT_THRESHOLDS: Dict[str, Dict[str, float]] = {
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def is_finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+    return _shared_is_finite_number(value)
 
 
 def parse_bucket_thresholds(policy: Optional[Dict[str, Any]], bucket: str) -> Dict[str, float]:

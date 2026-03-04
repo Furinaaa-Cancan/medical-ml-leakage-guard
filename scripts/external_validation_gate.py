@@ -19,7 +19,16 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-from _gate_utils import add_issue, load_json_from_str as load_json_obj, to_float
+from _gate_utils import (
+    add_issue,
+    confusion_counts as _shared_confusion_counts,
+    load_json_from_str as load_json_obj,
+    metric_panel as _shared_metric_panel,
+    normalize_binary as _shared_normalize_binary,
+    safe_ratio as _shared_safe_ratio,
+    to_float,
+    to_int as _shared_to_int,
+)
 
 
 REQUIRED_METRICS = [
@@ -51,75 +60,23 @@ def parse_args() -> argparse.Namespace:
 
 
 def to_int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float) and math.isfinite(value) and float(value).is_integer():
-        return int(value)
-    return None
+    return _shared_to_int(value)
 
 
 def safe_ratio(num: float, den: float) -> float:
-    if den <= 0:
-        return 0.0
-    return float(num) / float(den)
+    return _shared_safe_ratio(num, den)
 
 
 def confusion_counts(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, int]:
-    yt = y_true.astype(int)
-    yp = y_pred.astype(int)
-    tp = int(np.sum((yt == 1) & (yp == 1)))
-    fp = int(np.sum((yt == 0) & (yp == 1)))
-    tn = int(np.sum((yt == 0) & (yp == 0)))
-    fn = int(np.sum((yt == 1) & (yp == 0)))
-    return {"tp": tp, "fp": fp, "tn": tn, "fn": fn}
+    return _shared_confusion_counts(y_true, y_pred)
 
 
 def metric_panel(y_true: np.ndarray, y_score: np.ndarray, y_pred: np.ndarray, beta: float) -> Tuple[Dict[str, float], Dict[str, int]]:
-    cm = confusion_counts(y_true, y_pred)
-    tp = float(cm["tp"])
-    fp = float(cm["fp"])
-    tn = float(cm["tn"])
-    fn = float(cm["fn"])
-    precision = safe_ratio(tp, tp + fp)
-    sensitivity = safe_ratio(tp, tp + fn)
-    specificity = safe_ratio(tn, tn + fp)
-    npv = safe_ratio(tn, tn + fn)
-    accuracy = safe_ratio(tp + tn, tp + fp + tn + fn)
-    f1 = 0.0 if (precision + sensitivity) <= 0 else (2.0 * precision * sensitivity) / (precision + sensitivity)
-    beta_sq = beta * beta
-    f2 = 0.0 if ((beta_sq * precision) + sensitivity) <= 0 else ((1.0 + beta_sq) * precision * sensitivity) / (
-        (beta_sq * precision) + sensitivity
-    )
-    roc_auc = float(roc_auc_score(y_true, y_score))
-    pr_auc = float(average_precision_score(y_true, y_score))
-    brier = float(brier_score_loss(y_true, y_score))
-    return (
-        {
-            "accuracy": accuracy,
-            "precision": precision,
-            "ppv": precision,
-            "npv": npv,
-            "sensitivity": sensitivity,
-            "specificity": specificity,
-            "f1": f1,
-            "f2_beta": f2,
-            "roc_auc": roc_auc,
-            "pr_auc": pr_auc,
-            "brier": brier,
-        },
-        cm,
-    )
+    return _shared_metric_panel(y_true, y_score, y_pred, beta)
 
 
 def normalize_binary(values: pd.Series) -> Optional[np.ndarray]:
-    arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
-    if np.any(~np.isfinite(arr)):
-        return None
-    if not np.all(np.isin(arr, [0.0, 1.0])):
-        return None
-    return arr.astype(int)
+    return _shared_normalize_binary(values)
 
 
 def parse_thresholds(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
