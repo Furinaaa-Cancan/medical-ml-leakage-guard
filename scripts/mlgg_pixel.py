@@ -910,7 +910,9 @@ def select(options: List[str], descs: Optional[List[str]] = None,
             continue
         for _ in range(lc):
             sys.stdout.write(f"{UP_LINE}{ERASE}")
-        sys.stdout.write("\r"); sys.stdout.flush()
+        # Clear wrapped tail from previous render to avoid duplicated artifacts.
+        sys.stdout.write("\r\033[J")
+        sys.stdout.flush()
         lc = _draw()
 
 
@@ -1067,7 +1069,9 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
             continue
         for _ in range(lc):
             sys.stdout.write(f"{UP_LINE}{ERASE}")
-        sys.stdout.write("\r"); sys.stdout.flush()
+        # Clear wrapped tail from previous render to avoid duplicated artifacts.
+        sys.stdout.write("\r\033[J")
+        sys.stdout.flush()
         lc = _draw()
 
 
@@ -1159,9 +1163,14 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
         pct = min(int(done * 100 / total_n), 100)
         filled = int(bar_w * done / total_n)
         bar = s('C', '\u2588' * filled) + DIM + '\u2591' * (bar_w - filled) + RST
-        name = model_name[:30] if model_name else ""
-        sys.stdout.write(f"\r{ERASE}  {bar} {s('W', f'{pct:>3}%')}  "
-                         f"{s('W', label)} {s('D', name)}")
+        cols = max(_cols(), 40)
+        name_budget = 30 if cols >= 100 else 20 if cols >= 80 else 12
+        name = _compact_model_id(model_name, max_len=name_budget) if model_name else ""
+        base = f"  {bar} {s('W', f'{pct:>3}%')}  {s('W', label)}"
+        line = f"{base} {s('D', name)}" if name else base
+        if _wlen(line) >= cols:
+            line = _trunc(line, max(cols - 1, 20))
+        sys.stdout.write(f"\r{ERASE}{line}")
         sys.stdout.flush()
 
     _draw_bar(0, max(total, 1), "")
