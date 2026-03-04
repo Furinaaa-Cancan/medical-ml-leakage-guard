@@ -137,9 +137,31 @@
 | `test_compare_runs.py` | 26 | `_load_report`(4), `_extract_status`(4), `_extract_codes`(6), `_extract_metric`(5), `compare`(6), `to_markdown`(5) |
 | `test_explain_gate.py` | 36 | `explain_code` EN/ZH(24, 含前缀匹配/未知码回退), `explain_report`(8, 含空报告/多 issue/非 dict 过滤) |
 
+## 第三轮深度逐行审查
+
+以下 4 个脚本进行了逐行代码审查，均未发现新问题：
+
+| 脚本 | 审查重点 | 结论 |
+|------|---------|------|
+| `evaluation_quality_gate.py` | 多路径回退查找主指标、CI 三级策略（eval→walk→ci_matrix）、non-finite 递归检测、基线方向推断 | 设计完善，logistic 模型智能选 prevalence_model 基线 |
+| `distribution_generalization_gate.py` | JSD 计算(伪计数+log2)、分割分类器 AUC、缺失模式分类器 AUC、双阈值(warn/fail)体系 | 统计设计创新（缺失模式偏移独立检测），外部队列类型限制合理 |
+| `metric_consistency_gate.py` | 递归叶节点匹配、辅助路径排除、冲突值双重检测（候选集+全局叶节点）、分割声明验证 | 防手动注入设计严谨 |
+| `execution_attestation_gate.py` | OpenSSL 签名验证(非shell=True)、密钥指纹/位数检查、吊销列表双重匹配、见证人法定人数 | 密码学验证流程安全正确 |
+
+## 新增测试覆盖（第三轮）
+
+| 测试文件 | 测试数 | 覆盖内容 |
+|---------|-------|---------|
+| `test_export_latex.py` | 40 | `_fmt`(7), `_fmt_ci`(4), `_load`(6), `_escape`(7), `table_performance`(5), `table_model_selection`(4), `table_external`(3), `table_ci_matrix`(4) |
+
+## 最终测试结果
+
+- **2007 个测试全部通过，零失败**（含 test_full_matrix，554s）
+- 较上轮增加 62 个测试（compare_runs 26 + explain_gate 36 + export_latex 40 - 重复统计修正）
+
 ## 提交记录
 
-八次提交已推送至远程仓库：
+十次提交已推送至远程仓库：
 1. `schema_preflight.py` 时间严重性修复 + `request_contract_gate.py` / `publication_gate.py` 去重
 2. `canonical_metric_token` 集中化 + `normalize_binary` / `safe_ratio` / `is_finite_number` 去重 + `intercept_abs_max` 范围修复
 3. 评审总结报告
