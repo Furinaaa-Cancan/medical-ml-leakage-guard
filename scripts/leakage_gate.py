@@ -24,6 +24,30 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from _gate_utils import add_issue, try_parse_time as _shared_try_parse_time, epoch_to_iso as _shared_epoch_to_iso
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
+
+
+register_remediations({
+    "io_error": "Verify the CSV file path exists and is readable. Check file encoding (expected UTF-8).",
+    "column_mismatch": "Ensure all split CSV files have identical column headers. Regenerate splits from the same source.",
+    "missing_target_column": "The target column specified by --target-col is missing from the split CSV. Check column names.",
+    "suspicious_feature_names": "Features matching leakage patterns detected. Rename or remove columns that encode future/target information.",
+    "row_overlap": "Identical rows found across splits. This indicates a split generation bug. Regenerate splits with proper deduplication.",
+    "missing_id_columns": "ID columns specified by --id-cols are missing from the split CSV. Check column names.",
+    "id_overlap": "Patient/entity IDs overlap between splits. Fix split generation to ensure strict ID separation.",
+    "incomplete_id_rows": "Some rows have missing ID values. These were excluded from overlap checks. Verify data completeness.",
+    "missing_time_column": "Time column specified by --time-col is missing. Check column names or omit --time-col.",
+    "invalid_time_values": "Some time values couldn't be parsed. Check timestamp format consistency.",
+    "no_parseable_time_values": "No valid timestamps found. Cannot perform temporal leakage checks.",
+    "temporal_overlap": "Training data timestamps overlap with validation/test. Ensure strict temporal ordering in split boundaries.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -324,7 +348,16 @@ def finish(
     warnings: List[Dict[str, Any]],
     time_bounds: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_json
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
 
     summary = {
         "rows_per_split": {k: len(v["rows"]) for k, v in splits.items()},
@@ -340,29 +373,39 @@ def finish(
             for k, v in (time_bounds or {}).items()
         },
     }
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
-    }
+
+    input_files = {"train": str(Path(args.train).expanduser().resolve())}
+    if args.valid:
+        input_files["valid"] = str(Path(args.valid).expanduser().resolve())
+    if args.test:
+        input_files["test"] = str(Path(args.test).expanduser().resolve())
+
+    report = build_report_envelope(
+        gate_name="leakage_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_json
         _write_json(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="leakage_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

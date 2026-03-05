@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+from _gate_framework import (
+    GateBase,
+    Severity,
+    register_remediations,
+)
 
 
 DEFAULT_THRESHOLDS: Dict[Tuple[str, str, str], Tuple[float, float]] = {
@@ -21,6 +26,21 @@ DEFAULT_THRESHOLDS: Dict[Tuple[str, str, str], Tuple[float, float]] = {
     ("train", "test", "f2_beta"): (0.07, 0.10),
     ("valid", "test", "brier"): (0.02, 0.03),
 }
+
+
+# ---------------------------------------------------------------------------
+# Gate-specific remediation hints
+# ---------------------------------------------------------------------------
+
+register_remediations({
+    "invalid_evaluation_report": "Check that --evaluation-report points to a valid JSON file with the expected schema.",
+    "invalid_performance_policy": "Check that --performance-policy points to a valid JSON file. This is optional; omit to use defaults.",
+    "missing_split_metrics": "Ensure evaluation_report contains split_metrics.{train,valid,test} blocks with per-split metric dicts.",
+    "missing_required_metric": "Both compared splits must contain the metric. Re-run evaluation to populate missing metrics.",
+    "invalid_gap_threshold": "Gap thresholds must satisfy 0 <= warn <= fail. Fix the values in performance_policy.gap_thresholds.",
+    "overfit_gap_exceeds_threshold": "The model shows excessive overfitting. Consider regularization, data augmentation, or simpler model architectures.",
+    "overfit_gap_warning": "Moderate overfitting detected. Monitor this gap; it may worsen with distribution shift.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -208,28 +228,55 @@ def finish(
     warnings: List[Dict[str, Any]],
     summary: Dict[str, Any],
 ) -> int:
+    from _gate_framework import (
+        GateIssue,
+        build_report_envelope,
+        get_remediation,
+        print_gate_summary,
+        start_gate_timer,
+        Severity as _Sev,
+    )
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
-    }
+    status = "fail" if should_fail else "pass"
+
+    # Convert legacy issues to GateIssue for rich display
+    fi = [GateIssue.from_legacy(f, _Sev.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, _Sev.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    report = build_report_envelope(
+        gate_name="generalization_gap_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files={
+            "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve()),
+            "performance_policy": str(Path(args.performance_policy).expanduser().resolve()) if args.performance_policy else None,
+        },
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="generalization_gap_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

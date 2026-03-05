@@ -18,7 +18,22 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, load_json_from_str as load_json, normalize_binary as _shared_normalize_binary, to_float
+
+
+register_remediations({
+    "feature_drift_exceeds_threshold": "Significant feature distribution shift detected. Investigate data pipeline changes or population drift.",
+    "domain_classifier_auc_high": "Domain classifier can easily distinguish splits — strong covariate shift present.",
+    "external_cohort_generalization_poor": "Model generalizes poorly to external cohorts. Consider domain adaptation.",
+})
 
 
 SUPPORTED_EXTERNAL_TYPES = {"cross_period", "cross_institution"}
@@ -696,27 +711,55 @@ def finish(
     warnings: List[Dict[str, Any]],
     summary: Dict[str, Any],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        "train": str(Path(args.train).expanduser().resolve()),
+        "valid": str(Path(args.valid).expanduser().resolve()),
+        "test": str(Path(args.test).expanduser().resolve()),
+        "external_validation_report": str(Path(args.external_validation_report).expanduser().resolve()),
+        "feature_group_spec": str(Path(args.feature_group_spec).expanduser().resolve()),
     }
+    if getattr(args, "evaluation_report", None):
+        input_files["evaluation_report"] = str(Path(args.evaluation_report).expanduser().resolve())
+    if getattr(args, "performance_policy", None):
+        input_files["performance_policy"] = str(Path(args.performance_policy).expanduser().resolve())
+
+    report = build_report_envelope(
+        gate_name="distribution_generalization_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files=input_files,
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+
+    print_gate_summary(
+        gate_name="distribution_generalization_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

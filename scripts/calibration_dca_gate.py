@@ -19,7 +19,24 @@ from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, load_json_from_str as load_json_obj, normalize_binary as _shared_normalize_binary, to_float
+
+
+register_remediations({
+    "calibration_ece_exceeds_threshold": "Recalibrate the model (Platt scaling, isotonic regression) to reduce ECE.",
+    "calibration_slope_out_of_range": "Calibration slope should be near 1.0. Recalibrate or retrain.",
+    "calibration_intercept_too_large": "Calibration intercept too far from 0. Recalibrate.",
+    "dca_net_benefit_insufficient": "Model net benefit is insufficient. Review clinical utility.",
+    "dca_advantage_coverage_low": "Decision curve advantage coverage is below threshold.",
+})
 
 
 REQUIRED_TRACE_COLUMNS = {
@@ -519,28 +536,48 @@ def finish(
     warnings: List[Dict[str, Any]],
     summary: Dict[str, Any],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
-    }
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    report = build_report_envelope(
+        gate_name="calibration_dca_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files={
+            "prediction_trace": str(Path(args.prediction_trace).expanduser().resolve()),
+            "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve()),
+            "external_validation_report": str(Path(args.external_validation_report).expanduser().resolve()) if args.external_validation_report else None,
+            "performance_policy": str(Path(args.performance_policy).expanduser().resolve()) if args.performance_policy else None,
+        },
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="calibration_dca_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

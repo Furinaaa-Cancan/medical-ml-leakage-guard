@@ -14,7 +14,22 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, load_json_from_str as load_json
+
+
+register_remediations({
+    "model_selection_test_data_leak": "Model selection must not use test data. Use train/valid/cv_inner splits only.",
+    "model_selection_metric_mismatch": "Selected model's primary metric doesn't match expected. Re-run selection.",
+    "model_selection_insufficient_candidates": "Evaluate more model candidates for robust selection evidence.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -680,29 +695,54 @@ def finish(
     warnings: List[Dict[str, Any]],
     summary: Dict[str, Any],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        "model_selection_report": str(Path(args.model_selection_report).expanduser().resolve()),
+        "tuning_spec": str(Path(args.tuning_spec).expanduser().resolve()),
     }
+    if getattr(args, "train", None):
+        input_files["train"] = str(Path(args.train).expanduser().resolve())
+    if getattr(args, "valid", None):
+        input_files["valid"] = str(Path(args.valid).expanduser().resolve())
+    if getattr(args, "test", None):
+        input_files["test"] = str(Path(args.test).expanduser().resolve())
+
+    report = build_report_envelope(
+        gate_name="model_selection_audit_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="model_selection_audit_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

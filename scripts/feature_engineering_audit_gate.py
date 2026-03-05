@@ -11,7 +11,22 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, load_json_from_str as load_json, to_float
+
+
+register_remediations({
+    "fe_selection_scope_invalid": "Feature selection must use train_only or cv_inner_train_only scope. Never use test/holdout data.",
+    "fe_missing_lineage": "Feature group is not covered by feature lineage spec. Add it to the lineage.",
+    "fe_reproducibility_missing": "Feature engineering report must document reproducibility steps.",
+})
 
 ALLOWED_SELECTION_SCOPES = {"train_only", "cv_inner_train_only"}
 FORBIDDEN_SCOPE_TOKENS = {"valid", "test", "external", "holdout"}
@@ -307,27 +322,50 @@ def finish(
     warnings: List[Dict[str, Any]],
     summary: Dict[str, Any],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        "feature_group_spec": str(Path(args.feature_group_spec).expanduser().resolve()),
+        "feature_engineering_report": str(Path(args.feature_engineering_report).expanduser().resolve()),
+        "lineage_spec": str(Path(args.lineage_spec).expanduser().resolve()),
+        "tuning_spec": str(Path(args.tuning_spec).expanduser().resolve()),
     }
+
+    report = build_report_envelope(
+        gate_name="feature_engineering_audit_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files=input_files,
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+
+    print_gate_summary(
+        gate_name="feature_engineering_audit_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

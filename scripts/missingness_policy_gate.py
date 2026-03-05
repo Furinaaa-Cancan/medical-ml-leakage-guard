@@ -14,7 +14,23 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue
+
+
+register_remediations({
+    "missingness_policy_missing": "Provide a valid missingness_policy_spec JSON with 'strategy' and column-level rules.",
+    "missingness_exceeds_threshold": "Feature missingness exceeds policy threshold. Apply imputation or remove the feature.",
+    "target_missing_rows": "Target column has missing values. Remove or impute missing target rows before training.",
+    "strategy_mismatch": "Declared missingness strategy doesn't match observed handling. Update policy or pipeline.",
+})
 
 
 MISSING_TOKENS = {"", "na", "nan", "null", "none", "n/a", "?"}
@@ -719,8 +735,17 @@ def finish(
     policy: Dict[str, Any],
     splits: Dict[str, Dict[str, Any]],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    status = "fail" if should_fail else "pass"
     ignored_cols = parse_ignore_cols(args.ignore_cols, args.target_col)
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
 
     split_summary: Dict[str, Any] = {}
     for split_name, stats in splits.items():
@@ -746,37 +771,52 @@ def finish(
             )[:10],
         }
 
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
+    eval_report_path = None
+    if isinstance(args.evaluation_report, str) and args.evaluation_report.strip():
+        eval_report_path = str(Path(args.evaluation_report).expanduser().resolve())
+
+    input_files = {
         "policy_spec": str(Path(args.policy_spec).expanduser().resolve()),
-        "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve())
-        if isinstance(args.evaluation_report, str) and args.evaluation_report.strip()
-        else None,
-        "strategy": policy.get("strategy"),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
+        "train": str(Path(args.train).expanduser().resolve()),
+    }
+    if args.test:
+        input_files["test"] = str(Path(args.test).expanduser().resolve())
+    if getattr(args, "valid", None):
+        input_files["valid"] = str(Path(args.valid).expanduser().resolve())
+    if eval_report_path:
+        input_files["evaluation_report"] = eval_report_path
+
+    report = build_report_envelope(
+        gate_name="missingness_policy_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "strategy": policy.get("strategy"),
             "policy_fields_present": sorted(policy.keys()) if isinstance(policy, dict) else [],
             "ignored_columns": sorted(ignored_cols),
             "splits": split_summary,
         },
-    }
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="missingness_policy_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

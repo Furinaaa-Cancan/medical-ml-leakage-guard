@@ -14,6 +14,33 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from _gate_utils import add_issue, is_finite_number as _shared_is_finite_number, load_json_from_str as load_json_object
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
+
+
+register_remediations({
+    "missing_seed_sensitivity_report": "Provide --seed-sensitivity-report pointing to a valid seed_sensitivity_report.json.",
+    "invalid_seed_sensitivity_report": "Fix JSON syntax in seed_sensitivity_report.json.",
+    "seed_stability_primary_metric_mismatch": "Set primary_metric to 'pr_auc' in seed_sensitivity_report for publication-grade.",
+    "seed_stability_selection_data_invalid": "selection_data must not reference test scope. Use train/valid/cv_inner.",
+    "seed_stability_threshold_split_invalid": "threshold_selection_split must be one of: valid, cv_inner, nested_cv.",
+    "seed_stability_missing_per_seed_results": "per_seed_results must be a non-empty list of per-seed evaluation objects.",
+    "insufficient_seed_runs": "Run at least 5 seeds (strict) or 3 seeds (non-strict) for stability evidence.",
+    "invalid_seed_result_entry": "Each per_seed_results entry must be an object with integer 'seed' and 'test_metrics' dict.",
+    "duplicate_seed_result": "Remove duplicate seed values from per_seed_results.",
+    "seed_metric_non_finite": "Replace NaN/Inf seed metric values. Check evaluation code for numerical issues.",
+    "seed_metric_out_of_range": "Seed metric values must be in valid range (e.g., [0,1] for pr_auc/f2_beta/brier).",
+    "seed_metric_missing": "All required metrics (pr_auc, f2_beta, brier) must have valid values in per_seed_results.",
+    "seed_summary_mismatch": "Declared summary stats don't match computed values. Re-generate seed_sensitivity_report.",
+    "seed_stability_exceeds_threshold": "Model shows excessive variation across seeds. Consider ensemble methods or more stable architectures.",
+    "seed_stability_near_threshold": "Seed stability is approaching the fail threshold. Monitor closely.",
+})
 
 
 DEFAULT_THRESHOLDS: Dict[str, float] = {
@@ -333,38 +360,57 @@ def finish(
     computed_summary: Optional[Dict[str, Dict[str, float]]],
     thresholds: Dict[str, float],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
-            "seed_sensitivity_report": str(Path(args.seed_sensitivity_report).expanduser().resolve()),
-            "primary_metric": source_payload.get("primary_metric"),
-            "model_id": source_payload.get("model_id"),
-            "n_seed_results": len(source_payload.get("per_seed_results", []))
-            if isinstance(source_payload.get("per_seed_results"), list)
-            else 0,
-            "computed_metrics": computed_summary or {},
-            "thresholds": thresholds,
-        },
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    summary = {
+        "seed_sensitivity_report": str(Path(args.seed_sensitivity_report).expanduser().resolve()),
+        "primary_metric": source_payload.get("primary_metric"),
+        "model_id": source_payload.get("model_id"),
+        "n_seed_results": len(source_payload.get("per_seed_results", []))
+        if isinstance(source_payload.get("per_seed_results"), list)
+        else 0,
+        "computed_metrics": computed_summary or {},
+        "thresholds": thresholds,
     }
 
+    report = build_report_envelope(
+        gate_name="seed_stability_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files={
+            "seed_sensitivity_report": str(Path(args.seed_sensitivity_report).expanduser().resolve()),
+            "performance_policy": str(Path(args.performance_policy).expanduser().resolve()) if args.performance_policy else None,
+        },
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="seed_stability_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())
