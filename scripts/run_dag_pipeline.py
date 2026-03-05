@@ -710,7 +710,12 @@ def main() -> int:
             spec = GATE_REGISTRY.get(g)
             if spec:
                 print(f"  Layer {spec.layer.value}: {g}")
-        return 0
+                steps.append({
+                    "name": g, "command": "(dry-run)", "exit_code": -1,
+                    "status": "skip", "execution_time_seconds": 0,
+                    "stdout_tail": "", "stderr_tail": "dry-run: not executed",
+                })
+        return _finalize(args, evidence_dir, steps, True, pipeline_t0)
 
     # Execute gates layer by layer
     had_failure = False
@@ -737,14 +742,13 @@ def main() -> int:
             else:
                 blocked.append(gate_name)
 
-        if blocked and not continue_on_fail:
+        if blocked:
             for bg in blocked:
                 steps.append({
                     "name": bg, "command": "", "exit_code": -1,
                     "status": "skip", "execution_time_seconds": 0,
                     "stdout_tail": "", "stderr_tail": "Skipped: dependency not met",
                 })
-            continue
 
         if not ready:
             continue
@@ -872,7 +876,7 @@ def _run_parallel(
         cmd = build_gate_command(spec, args, scripts_dir, evidence_dir, normalized, report_paths, split_paths)
         tasks.append((gate_name, cmd))
 
-    results: List[Dict[str, Any]] = [{}] * len(tasks)
+    results: List[Dict[str, Any]] = [{} for _ in range(len(tasks))]
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, len(tasks))) as pool:
         future_map = {
             pool.submit(run_gate_subprocess, name, cmd): i
@@ -880,7 +884,15 @@ def _run_parallel(
         }
         for future in concurrent.futures.as_completed(future_map):
             idx = future_map[future]
-            results[idx] = future.result()
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                name = tasks[idx][0]
+                results[idx] = {
+                    "name": name, "command": shlex.join(tasks[idx][1]),
+                    "exit_code": 2, "status": "fail", "execution_time_seconds": 0,
+                    "stdout_tail": "", "stderr_tail": f"EXCEPTION in parallel runner: {exc}",
+                }
 
     return results
 
