@@ -508,16 +508,15 @@ def _start_pipeline(sid: str, session: Dict[str, Any]) -> None:
             return
         cmd = [
             PYTHON,
-            str(SCRIPTS_DIR / "run_strict_pipeline.py"),
+            str(SCRIPTS_DIR / "run_dag_pipeline.py"),
             "--request", str(request_json),
             "--evidence-dir", str(evidence_dir),
             "--strict",
             "--allow-missing-compare",
-            "--report", str(evidence_dir / "strict_pipeline_report.json"),
         ]
         _run_cmd_with_logs(sid, cmd, project)
 
-        report_path = evidence_dir / "strict_pipeline_report.json"
+        report_path = evidence_dir / "dag_pipeline_report.json"
         if report_path.exists():
             try:
                 session["result"] = json.loads(report_path.read_text())

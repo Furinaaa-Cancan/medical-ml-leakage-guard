@@ -200,7 +200,7 @@ def _setup_evidence(tmp_path, overall_pass=True):
     clinical = {"status": "pass", "failure_count": 0, "warning_count": 0}
 
     for name, data in [
-        ("strict_pipeline_report.json", strict_report),
+        ("dag_pipeline_report.json", strict_report),
         ("publication_gate_report.json", pub_report),
         ("self_critique_report.json", sc_report),
         ("evaluation_report.json", eval_report),

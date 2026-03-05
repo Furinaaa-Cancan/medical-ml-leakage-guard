@@ -117,7 +117,7 @@ flowchart TD
 | 28 | `self_critique_gate.py` | Quality scoring and reviewer-grade self-critique | `self_critique_report.json` |
 
 All reports are written to the `evidence/` directory. A final
-`strict_pipeline_report.json` is emitted by the orchestrator after all gates.
+`dag_pipeline_report.json` is emitted by the orchestrator after all gates.
 
 ---
 
@@ -160,11 +160,11 @@ All reports are written to the `evidence/` directory. A final
                    │
                    ▼
 ┌─────────────────────────────────────────────────────────┐
-│          28-Gate Strict Pipeline                        │
-│  scripts/run_strict_pipeline.py                         │
-│  Orchestrates gates 1–28 in sequence                    │
+│          28-Gate DAG Pipeline                            │
+│  scripts/run_dag_pipeline.py                            │
+│  Orchestrates gates 1–28 via dependency DAG             │
 │  Writes: evidence/*_report.json (28 reports)            │
-│          evidence/strict_pipeline_report.json           │
+│          evidence/dag_pipeline_report.json              │
 │          evidence/publication_gate_report.json           │
 └──────────────────┬──────────────────────────────────────┘
                    │

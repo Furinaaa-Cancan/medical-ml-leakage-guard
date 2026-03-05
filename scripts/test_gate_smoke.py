@@ -1743,7 +1743,7 @@ def test_render_user_summary_propagates_fail_status() -> None:
             "warning_count": 0,
             "failures": [{"code": "example_failure"}],
         }
-        (evidence_dir / "strict_pipeline_report.json").write_text(
+        (evidence_dir / "dag_pipeline_report.json").write_text(
             json.dumps(strict_report, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )

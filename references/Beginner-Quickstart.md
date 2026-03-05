@@ -51,7 +51,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
 Expected key outputs:
 - `/tmp/mlgg_demo/evidence/onboarding_report.json`
 - `/tmp/mlgg_demo/evidence/user_summary.md`
-- `/tmp/mlgg_demo/evidence/strict_pipeline_report.json`
+- `/tmp/mlgg_demo/evidence/dag_pipeline_report.json`
 
 ---
 
@@ -103,7 +103,7 @@ python3 scripts/mlgg.py workflow --request /tmp/mlgg_demo/configs/request.json -
 ## 5. How To Read Result Status / 如何判断结果是否通过
 
 English:
-- `strict_pipeline_report.json`:
+- `dag_pipeline_report.json`:
   - `status=pass`: all strict gates passed.
   - `status=fail`: at least one hard gate blocked release.
 - `onboarding_report.json`:
@@ -118,7 +118,7 @@ English:
   - Human-readable pass/fail summary and key evidence links.
 
 中文：
-- `strict_pipeline_report.json`：
+- `dag_pipeline_report.json`：
   - `status=pass`：所有严格门通过。
   - `status=fail`：至少一个硬门阻断发布。
 - `onboarding_report.json`：
@@ -173,9 +173,9 @@ Notes:
 ## 7. Troubleshooting Entry / 故障入口
 
 English:
-- Use failure codes from `strict_pipeline_report.json` and map them in:
+- Use failure codes from `dag_pipeline_report.json` and map them in:
   - `references/Troubleshooting-Top20.md`
 
 中文：
-- 从 `strict_pipeline_report.json` 读取 failure code，再到下列文档定位修复动作：
+- 从 `dag_pipeline_report.json` 读取 failure code，再到下列文档定位修复动作：
   - `references/Troubleshooting-Top20.md`

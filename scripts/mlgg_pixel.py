@@ -3850,14 +3850,14 @@ def step_run(state: Dict) -> Any:
         evidence_dir = str(Path(project_root) / "evidence")
         workflow_script = SCRIPTS_DIR / "run_productized_workflow.py"
         if not workflow_script.exists():
-            workflow_script = SCRIPTS_DIR / "run_strict_pipeline.py"
+            workflow_script = SCRIPTS_DIR / "run_dag_pipeline.py"
         cmd = [
             sys.executable, str(workflow_script),
             "--request", request_json,
             "--evidence-dir", evidence_dir,
             "--strict",
             "--allow-missing-compare",
-            "--report", str(Path(evidence_dir) / "strict_pipeline_report.json"),
+            "--report", str(Path(evidence_dir) / "dag_pipeline_report.json"),
         ]
         rc, _, err = run_spinner(cmd, t("x_pipeline_full"))
         print()

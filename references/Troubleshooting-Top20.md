@@ -2,7 +2,7 @@
 
 Use this list with strict pipeline failure codes.
 
-使用方式：先在 `evidence/strict_pipeline_report.json` 找 `failures[].code`，再按下表执行。
+使用方式：先在 `evidence/dag_pipeline_report.json` 找 `failures[].code`，再按下表执行。
 
 ---
 

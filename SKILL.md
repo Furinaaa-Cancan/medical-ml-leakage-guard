@@ -163,7 +163,7 @@ Produce these deterministic artifacts:
 26. `evidence/permutation_report.json`
 27. `evidence/publication_gate_report.json`
 28. `evidence/self_critique_report.json`
-29. `evidence/strict_pipeline_report.json`
+29. `evidence/dag_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 

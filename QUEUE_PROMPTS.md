@@ -352,7 +352,7 @@ subprocess.run([sys.executable, "scripts/mlgg.py", "onboarding",
 - report 中 `termination_reason` = "completed_successfully"
 - report 中 `contract_version` = "onboarding_report.v2"
 - `data/train.csv`, `data/valid.csv`, `data/test.csv` 存在
-- `evidence/strict_pipeline_report.json` 存在
+- `evidence/dag_pipeline_report.json` 存在
 - `models/` 目录非空
 
 **第三步：运行测试（需要较长时间）。**
@@ -423,7 +423,7 @@ mlgg.py split -- --input examples/heart_disease.csv --output-dir <tmp>/data
 2. 运行 bootstrap workflow（--allow-missing-compare）
 3. 验证 manifest_baseline.bootstrap.json 存在
 4. 运行 compare workflow（--compare-manifest）
-5. 验证 strict_pipeline_report.json 存在且 status 正确
+5. 验证 dag_pipeline_report.json 存在且 status 正确
 6. 验证 productized_workflow_report.json 的 contract_version、status、status_reason
 7. 超时 600 秒
 
@@ -818,7 +818,7 @@ mlgg.py split -- --input examples/heart_disease.csv --output-dir <tmp>/data
 - 28 步的执行顺序是否与 SKILL.md 中定义的一致？
 - 每步的参数传递是否正确？
 - 错误传播：任何 gate 返回非 0 exit code 是否正确停止或记录？
-- 报告聚合：strict_pipeline_report.json 的格式、所有字段
+- 报告聚合：dag_pipeline_report.json 的格式、所有字段
 - --strict 标志是否传递到每个 gate？
 - --compare-manifest 参数的传递
 

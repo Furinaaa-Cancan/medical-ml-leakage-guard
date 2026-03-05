@@ -3271,11 +3271,11 @@ def prepare_case_artifacts(
         }
     write_json(cfg_dir / "request.json", request_payload)
 
-    bootstrap_report = evidence_dir / "strict_pipeline_bootstrap_report.json"
+    bootstrap_report = evidence_dir / "dag_pipeline_bootstrap_report.json"
     bootstrap_proc = run_cmd(
         [
             sys.executable,
-            str(SCRIPTS_ROOT / "run_strict_pipeline.py"),
+            str(SCRIPTS_ROOT / "run_dag_pipeline.py"),
             "--request",
             str(cfg_dir / "request.json"),
             "--evidence-dir",
@@ -3308,11 +3308,11 @@ def prepare_case_artifacts(
         raise RuntimeError(f"Bootstrap manifest missing for {case.case_id}: {manifest_path}")
     shutil.copy2(manifest_path, baseline_manifest)
 
-    final_report = evidence_dir / "strict_pipeline_report.json"
+    final_report = evidence_dir / "dag_pipeline_report.json"
     final_proc = run_cmd(
         [
             sys.executable,
-            str(SCRIPTS_ROOT / "run_strict_pipeline.py"),
+            str(SCRIPTS_ROOT / "run_dag_pipeline.py"),
             "--request",
             str(cfg_dir / "request.json"),
             "--evidence-dir",
