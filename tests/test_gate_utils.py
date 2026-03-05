@@ -6,6 +6,8 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
 # Ensure scripts/ is importable
@@ -14,6 +16,7 @@ from _gate_utils import (
     add_issue,
     add_timeout_argument,
     canonical_metric_token,
+    confusion_counts,
     epoch_to_iso,
     get_gate_elapsed,
     inject_execution_time,
@@ -22,6 +25,8 @@ from _gate_utils import (
     load_json_from_path,
     load_json_from_str,
     load_json_optional,
+    metric_panel,
+    normalize_binary,
     resolve_path,
     safe_ratio,
     start_gate_timer,
@@ -758,3 +763,116 @@ class TestSafeRatio:
 
     def test_large_values(self):
         assert safe_ratio(1e15, 1e10) == 1e5
+
+
+# ────────────────────────────────────────────────────────
+# confusion_counts
+# ────────────────────────────────────────────────────────
+
+class TestConfusionCounts:
+    def test_perfect(self):
+        cm = confusion_counts(np.array([1, 1, 0, 0]), np.array([1, 1, 0, 0]))
+        assert cm == {"tp": 2, "fp": 0, "tn": 2, "fn": 0}
+
+    def test_all_wrong(self):
+        cm = confusion_counts(np.array([1, 1, 0, 0]), np.array([0, 0, 1, 1]))
+        assert cm == {"tp": 0, "fp": 2, "tn": 0, "fn": 2}
+
+    def test_mixed(self):
+        cm = confusion_counts(np.array([1, 0, 1, 0, 1]), np.array([1, 0, 0, 1, 1]))
+        assert cm["tp"] == 2 and cm["fp"] == 1 and cm["tn"] == 1 and cm["fn"] == 1
+
+    def test_single_element(self):
+        assert confusion_counts(np.array([1]), np.array([0])) == {"tp": 0, "fp": 0, "tn": 0, "fn": 1}
+
+    def test_returns_int(self):
+        cm = confusion_counts(np.array([1, 0]), np.array([1, 0]))
+        assert all(isinstance(v, int) for v in cm.values())
+
+    def test_sum_equals_n(self):
+        y = np.array([1, 0, 1, 0, 0, 1, 1, 0])
+        p = np.array([1, 1, 0, 0, 1, 1, 0, 0])
+        cm = confusion_counts(y, p)
+        assert sum(cm.values()) == len(y)
+
+
+# ────────────────────────────────────────────────────────
+# normalize_binary
+# ────────────────────────────────────────────────────────
+
+class TestNormalizeBinary:
+    def test_valid_binary(self):
+        result = normalize_binary(pd.Series([0, 1, 0, 1, 1]))
+        assert result is not None
+        np.testing.assert_array_equal(result, [0, 1, 0, 1, 1])
+        assert result.dtype == int
+
+    def test_string_binary(self):
+        result = normalize_binary(pd.Series(["0", "1", "0"]))
+        assert result is not None
+        np.testing.assert_array_equal(result, [0, 1, 0])
+
+    def test_non_binary_returns_none(self):
+        assert normalize_binary(pd.Series([0, 1, 2])) is None
+
+    def test_nan_returns_none(self):
+        assert normalize_binary(pd.Series([0, 1, float("nan")])) is None
+
+    def test_non_numeric_returns_none(self):
+        assert normalize_binary(pd.Series(["a", "b"])) is None
+
+    def test_float_binary(self):
+        result = normalize_binary(pd.Series([0.0, 1.0, 0.0]))
+        assert result is not None
+        np.testing.assert_array_equal(result, [0, 1, 0])
+
+
+# ────────────────────────────────────────────────────────
+# metric_panel
+# ────────────────────────────────────────────────────────
+
+class TestMetricPanel:
+    def _make_data(self):
+        y_true = np.array([1, 1, 0, 0, 1, 0, 1, 0])
+        y_score = np.array([0.9, 0.8, 0.3, 0.1, 0.7, 0.4, 0.6, 0.2])
+        y_pred = (y_score >= 0.5).astype(int)
+        return y_true, y_score, y_pred
+
+    def test_returns_tuple(self):
+        y_true, y_score, y_pred = self._make_data()
+        result = metric_panel(y_true, y_score, y_pred, beta=2.0)
+        assert isinstance(result, tuple) and len(result) == 2
+
+    def test_metrics_keys(self):
+        y_true, y_score, y_pred = self._make_data()
+        metrics, cm = metric_panel(y_true, y_score, y_pred, beta=2.0)
+        for key in ("accuracy", "precision", "ppv", "npv", "sensitivity",
+                     "specificity", "f1", "f2_beta", "roc_auc", "pr_auc", "brier"):
+            assert key in metrics, f"Missing key: {key}"
+
+    def test_confusion_matrix_keys(self):
+        y_true, y_score, y_pred = self._make_data()
+        _, cm = metric_panel(y_true, y_score, y_pred, beta=2.0)
+        assert set(cm.keys()) == {"tp", "fp", "tn", "fn"}
+
+    def test_metrics_in_range(self):
+        y_true, y_score, y_pred = self._make_data()
+        metrics, _ = metric_panel(y_true, y_score, y_pred, beta=2.0)
+        for key in ("accuracy", "precision", "sensitivity", "specificity", "f1", "roc_auc"):
+            assert 0.0 <= metrics[key] <= 1.0, f"{key}={metrics[key]} out of [0,1]"
+
+    def test_perfect_predictions(self):
+        y = np.array([1, 1, 0, 0])
+        s = np.array([0.99, 0.98, 0.01, 0.02])
+        p = np.array([1, 1, 0, 0])
+        metrics, cm = metric_panel(y, s, p, beta=2.0)
+        assert metrics["accuracy"] == 1.0
+        assert metrics["f1"] == 1.0
+        assert cm["fp"] == 0 and cm["fn"] == 0
+
+    def test_brier_perfect_near_zero(self):
+        y = np.array([1, 0])
+        s = np.array([1.0, 0.0])
+        p = np.array([1, 0])
+        metrics, _ = metric_panel(y, s, p, beta=2.0)
+        assert metrics["brier"] < 0.01
