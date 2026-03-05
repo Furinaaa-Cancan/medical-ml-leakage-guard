@@ -24,8 +24,8 @@ MTIME_EPSILON_SECONDS = 0.5
 BLOCKING_STEP_NAMES = {
     "env_doctor",
     "schema_preflight",
-    "run_strict_pipeline",
-    "run_strict_pipeline_with_bootstrap_baseline",
+    "run_dag_pipeline",
+    "run_dag_pipeline_with_bootstrap_baseline",
     "render_user_summary",
 }
 
@@ -159,9 +159,9 @@ def main() -> int:
     )
 
     strict_run_started_epoch = time.time()
-    strict_cmd = [
+    dag_cmd = [
         args.python,
-        str(scripts_dir / "run_strict_pipeline.py"),
+        str(scripts_dir / "run_dag_pipeline.py"),
         "--request",
         str(request_path),
         "--evidence-dir",
@@ -169,12 +169,12 @@ def main() -> int:
         "--strict",
     ]
     if args.compare_manifest:
-        strict_cmd.extend(["--compare-manifest", str(resolve_path(project_base, args.compare_manifest))])
+        dag_cmd.extend(["--compare-manifest", str(resolve_path(project_base, args.compare_manifest))])
     if args.allow_missing_compare:
-        strict_cmd.append("--allow-missing-compare")
+        dag_cmd.append("--allow-missing-compare")
     if args.continue_on_fail:
-        strict_cmd.append("--continue-on-fail")
-    strict_step = append_step("run_strict_pipeline", strict_cmd)
+        dag_cmd.append("--continue-on-fail")
+    strict_step = append_step("run_dag_pipeline", dag_cmd)
 
     def _publication_missing_manifest(evidence: Path, min_mtime_epoch: float) -> tuple[bool, Optional[str]]:
         pub_path = evidence / "publication_gate_report.json"
@@ -206,9 +206,9 @@ def main() -> int:
         if is_recent(manifest_path, strict_run_started_epoch):
             bootstrap_baseline_path = evidence_dir / "manifest_baseline.bootstrap.json"
             shutil.copy2(manifest_path, bootstrap_baseline_path)
-            strict_retry_cmd = [
+            retry_cmd = [
                 args.python,
-                str(scripts_dir / "run_strict_pipeline.py"),
+                str(scripts_dir / "run_dag_pipeline.py"),
                 "--request",
                 str(request_path),
                 "--evidence-dir",
@@ -218,13 +218,13 @@ def main() -> int:
                 str(bootstrap_baseline_path),
             ]
             if args.continue_on_fail:
-                strict_retry_cmd.append("--continue-on-fail")
-            retry_step = append_step("run_strict_pipeline_with_bootstrap_baseline", strict_retry_cmd)
+                retry_cmd.append("--continue-on-fail")
+            retry_step = append_step("run_dag_pipeline_with_bootstrap_baseline", retry_cmd)
             strict_exit = int(retry_step["exit_code"])
             if strict_exit == 0:
                 strict_step["status"] = "recovered"
                 strict_step["blocking"] = False
-                strict_step["recovered_by_step"] = "run_strict_pipeline_with_bootstrap_baseline"
+                strict_step["recovered_by_step"] = "run_dag_pipeline_with_bootstrap_baseline"
                 bootstrap_recovery_applied = True
                 bootstrap_recovery_source = missing_source
 

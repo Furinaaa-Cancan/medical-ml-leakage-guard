@@ -15,7 +15,7 @@ from _gate_utils import load_json_optional as load_json, write_json
 
 
 DEFAULT_GATE_FILES = {
-    "strict_pipeline": "strict_pipeline_report.json",
+    "dag_pipeline": "dag_pipeline_report.json",
     "publication_gate": "publication_gate_report.json",
     "self_critique": "self_critique_report.json",
     "clinical_metrics": "clinical_metrics_report.json",
@@ -40,6 +40,15 @@ def write_text(path: Path, content: str) -> None:
     tmp_path.replace(path)
 
 
+def _get_summary_field(payload: Dict[str, Any], key: str, default: Any = None) -> Any:
+    summary = payload.get("summary")
+    if isinstance(summary, dict):
+        val = summary.get(key)
+        if val is not None:
+            return val
+    return payload.get(key, default)
+
+
 def summarize_gate(name: str, payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         return {"name": name, "status": "missing", "failure_count": None, "warning_count": None}
@@ -48,6 +57,8 @@ def summarize_gate(name: str, payload: Optional[Dict[str, Any]]) -> Dict[str, An
         "status": str(payload.get("status", "unknown")),
         "failure_count": payload.get("failure_count"),
         "warning_count": payload.get("warning_count"),
+        "envelope_version": payload.get("envelope_version"),
+        "execution_time_seconds": payload.get("execution_time_seconds"),
     }
 
 
@@ -67,6 +78,25 @@ def get_top_failure_codes(payload: Optional[Dict[str, Any]], limit: int = 5) -> 
         if len(out) >= limit:
             break
     return out
+
+
+def get_remediation_hints(payload: Optional[Dict[str, Any]], limit: int = 5) -> List[str]:
+    if not isinstance(payload, dict):
+        return []
+    hints: List[str] = []
+    for issue_list_key in ("failures", "warnings"):
+        issues = payload.get(issue_list_key)
+        if not isinstance(issues, list):
+            continue
+        for row in issues:
+            if not isinstance(row, dict):
+                continue
+            hint = row.get("remediation")
+            if isinstance(hint, str) and hint.strip() and hint not in hints:
+                hints.append(hint)
+            if len(hints) >= limit:
+                return hints
+    return hints
 
 
 def extract_metrics(evaluation_report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -139,6 +169,7 @@ def to_markdown(summary: Dict[str, Any]) -> str:
     lines.append(f"- Study: `{summary.get('study_id')}`")
     lines.append(f"- Run: `{summary.get('run_id')}`")
     lines.append(f"- Overall status: `{summary.get('overall_status')}`")
+    lines.append(f"- Pipeline status: `{summary.get('pipeline_status_raw')}`")
     lines.append(f"- Publication gate: `{summary.get('publication_status')}`")
     lines.append(f"- Self-critique: `{summary.get('self_critique_status')}` (score: `{summary.get('self_critique_score')}`)")
     lines.append("")
@@ -180,9 +211,10 @@ def to_markdown(summary: Dict[str, Any]) -> str:
     lines.append("")
     lines.append("## Gate Health")
     for gate in summary.get("gate_status", []):
+        elapsed_str = f", {gate['execution_time_seconds']:.1f}s" if gate.get("execution_time_seconds") else ""
         lines.append(
             f"- `{gate.get('name')}`: `{gate.get('status')}` "
-            f"(failures=`{gate.get('failure_count')}`, warnings=`{gate.get('warning_count')}`)"
+            f"(failures=`{gate.get('failure_count')}`, warnings=`{gate.get('warning_count')}`{elapsed_str})"
         )
     lines.append("")
     lines.append("## Next Actions")
@@ -199,12 +231,16 @@ def to_markdown(summary: Dict[str, Any]) -> str:
 def derive_next_actions(summary: Dict[str, Any]) -> List[str]:
     actions: List[str] = []
     if summary.get("overall_status") != "pass":
-        actions.append("Fix failing gates listed below and rerun strict pipeline.")
+        actions.append("Fix failing gates listed below and rerun DAG pipeline.")
     failing_gates = [g for g in summary.get("gate_status", []) if str(g.get("status")) == "fail"]
+    hints_map = summary.get("remediation_hints", {})
     for gate in failing_gates[:3]:
         gate_name = str(gate.get("name"))
+        hints = hints_map.get(gate_name, [])
         codes = summary.get("top_failure_codes", {}).get(gate_name, [])
-        if codes:
+        if hints:
+            actions.append(f"{gate_name}: {hints[0]}")
+        elif codes:
             actions.append(f"{gate_name}: address failure codes {', '.join(codes)}.")
         else:
             actions.append(f"{gate_name}: inspect report details and remediate.")
@@ -218,7 +254,7 @@ def main() -> int:
     evidence_dir = Path(args.evidence_dir).expanduser().resolve()
     request_payload = load_json(Path(args.request).expanduser().resolve()) if args.request else None
 
-    strict_pipeline = load_json(evidence_dir / "strict_pipeline_report.json")
+    dag_pipeline = load_json(evidence_dir / "dag_pipeline_report.json")
     publication = load_json(evidence_dir / "publication_gate_report.json")
     self_critique = load_json(evidence_dir / "self_critique_report.json")
     evaluation = load_json(evidence_dir / "evaluation_report.json")
@@ -230,18 +266,19 @@ def main() -> int:
     }
     gate_status = [summarize_gate(name, payload) for name, payload in gate_payloads.items()]
     top_failure_codes = {name: get_top_failure_codes(payload) for name, payload in gate_payloads.items()}
-    strict_pipeline_status_raw = str((strict_pipeline or {}).get("status", "missing"))
-    overall_status = "pass" if strict_pipeline_status_raw.strip().lower() == "pass" else "fail"
+    remediation_hints = {name: get_remediation_hints(payload) for name, payload in gate_payloads.items()}
+    pipeline_status_raw = str((dag_pipeline or {}).get("status", "missing"))
+    overall_status = "pass" if pipeline_status_raw.strip().lower() == "pass" else "fail"
 
     summary: Dict[str, Any] = {
         "generated_at_utc": datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         "study_id": request_payload.get("study_id") if isinstance(request_payload, dict) else None,
         "run_id": request_payload.get("run_id") if isinstance(request_payload, dict) else None,
         "overall_status": overall_status,
-        "strict_pipeline_status_raw": strict_pipeline_status_raw,
+        "pipeline_status_raw": pipeline_status_raw,
         "publication_status": str((publication or {}).get("status", "missing")),
         "self_critique_status": str((self_critique or {}).get("status", "missing")),
-        "self_critique_score": (self_critique or {}).get("quality_score"),
+        "self_critique_score": _get_summary_field(self_critique or {}, "quality_score"),
         "selected_model_id": (evaluation or {}).get("model_id"),
         "primary_metric": (evaluation or {}).get("primary_metric"),
         "test_metrics": extract_metrics(evaluation),
@@ -249,6 +286,7 @@ def main() -> int:
         "external_validation": extract_external_summary(external_validation),
         "gate_status": gate_status,
         "top_failure_codes": top_failure_codes,
+        "remediation_hints": remediation_hints,
     }
     summary["next_actions"] = derive_next_actions(summary)
 
