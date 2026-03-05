@@ -296,7 +296,7 @@ class TestCLI:
         result = self._run(tmp_path, setup)
         assert result.returncode == 0
         report = json.loads((tmp_path / "report.json").read_text())
-        assert report["strategy"] == "smote"
+        assert report["summary"]["strategy"] == "smote"
 
     def test_smote_all_splits_fails(self, tmp_path: Path):
         policy = _good_policy()
@@ -432,8 +432,8 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         assert "status" in report
         assert "strict_mode" in report
-        assert "strategy" in report
-        assert "policy_spec" in report
+        assert "strategy" in report["summary"]
+        assert "policy_spec" in report.get("summary", {}).get("policy_fields_present", []) or "policy_spec" in report.get("input_files", {})
         assert "failure_count" in report
         assert "warning_count" in report
         assert "summary" in report

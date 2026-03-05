@@ -145,14 +145,14 @@ class TestCLIPass:
         report = _run_gate(tmp_path)
         assert report["status"] == "pass"
         assert report["failure_count"] == 0
-        assert report["quality_score"] > 0
+        assert report["summary"]["quality_score"] > 0
 
     def test_report_structure(self, tmp_path):
         report = _run_gate(tmp_path)
-        assert "quality_score" in report
-        assert "claim_tier_decision" in report
-        assert "recommendations" in report
-        assert "artifacts" in report
+        assert "quality_score" in report["summary"]
+        assert "claim_tier_decision" in report["summary"]
+        assert "recommendations" in report["summary"]
+        assert "artifacts" in report["summary"]
 
 
 class TestComponentFailure:

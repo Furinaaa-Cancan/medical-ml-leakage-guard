@@ -150,7 +150,7 @@ class TestCLI:
         assert result.returncode == 0, f"stdout: {result.stdout}"
         report = json.loads((tmp_path / "report.json").read_text())
         assert report["status"] == "pass"
-        assert report["p_value_one_sided"] < 0.01
+        assert report["summary"]["p_value_one_sided"] < 0.01
 
     def test_not_significant(self, tmp_path: Path):
         """actual=0.51 vs null=[0.50..0.55] → not significant."""
@@ -203,7 +203,7 @@ class TestCLI:
                            extra_args=["--lower-is-better"])
         assert result.returncode == 0
         report = json.loads((tmp_path / "report.json").read_text())
-        assert report["higher_is_better"] is False
+        assert report["summary"]["higher_is_better"] is False
 
     def test_invalid_null_file(self, tmp_path: Path):
         null_path = tmp_path / "null.json"
@@ -220,12 +220,12 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         assert "status" in report
         assert "strict_mode" in report
-        assert "metric_name" in report
-        assert "actual" in report
-        assert "null_count" in report
-        assert "null_summary" in report
-        assert "p_value_one_sided" in report
-        assert "effect_delta_vs_null_mean" in report
-        assert "alpha" in report
+        assert "metric_name" in report["summary"]
+        assert "actual" in report["summary"]
+        assert "null_count" in report["summary"]
+        assert "null_summary" in report["summary"]
+        assert "p_value_one_sided" in report["summary"]
+        assert "effect_delta_vs_null_mean" in report["summary"]
+        assert "alpha" in report["summary"]
         assert "failures" in report
         assert "warnings" in report

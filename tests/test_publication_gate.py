@@ -360,7 +360,7 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         assert "status" in report
         assert "strict_mode" in report
-        assert "quality_score" in report
+        assert "quality_score" in report["summary"]
         assert "failure_count" in report
         assert "warning_count" in report
         assert "failures" in report
@@ -373,7 +373,7 @@ class TestCLI:
         cmd = _build_cmd(tmp_path, paths)
         subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         report = json.loads((tmp_path / "report.json").read_text())
-        assert report["quality_score"] == 100.0
+        assert report["summary"]["quality_score"] == 100.0
 
     def test_strict_mode_non_strict_components_fail(self, tmp_path: Path):
         paths = _make_all_artifacts(tmp_path)

@@ -212,12 +212,12 @@ class TestCLIPass:
         report = _run_gate(tmp_path, expected=0.85)
         assert report["status"] == "pass"
         assert report["failure_count"] == 0
-        assert report["actual_metric"] == 0.85
+        assert report["summary"]["actual_metric"] == 0.85
 
     def test_report_structure(self, tmp_path):
         report = _run_gate(tmp_path, expected=0.85)
-        assert "metric_name" in report
-        assert "actual_metric" in report
+        assert "metric_name" in report["summary"]
+        assert "actual_metric" in report["summary"]
         assert "failures" in report
         assert "warnings" in report
 

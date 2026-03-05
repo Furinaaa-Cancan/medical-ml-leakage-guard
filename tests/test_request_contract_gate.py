@@ -850,7 +850,7 @@ class TestCLIIntegration:
         report = _run_gate(req, report_path)
         assert "status" in report
         assert "strict_mode" in report
-        assert "request_path" in report
+        assert "request_path" in report.get("summary", {})
         assert "failure_count" in report
         assert "warning_count" in report
         assert "failures" in report

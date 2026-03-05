@@ -336,9 +336,9 @@ class TestCLIPass:
         report = _run_gate(tmp_path, protocol)
         assert "status" in report
         assert "strict_mode" in report
-        assert "split_strategy" in report
-        assert "split_reference" in report
-        assert "protocol_spec" in report
+        assert "split_strategy" in report["summary"]
+        assert "split_reference" in report["summary"]
+        assert "protocol_spec" in report.get("input_files", {})
         assert "failure_count" in report
         assert "warning_count" in report
         assert "failures" in report
