@@ -6,7 +6,6 @@ Fail-closed seed stability gate for publication-grade medical prediction.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import statistics
 from pathlib import Path

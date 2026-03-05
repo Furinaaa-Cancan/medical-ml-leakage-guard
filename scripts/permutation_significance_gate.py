@@ -10,7 +10,7 @@ import json
 import math
 import statistics
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from _gate_framework import (
     GateIssue,

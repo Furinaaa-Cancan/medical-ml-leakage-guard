@@ -19,12 +19,11 @@ import datetime as dt
 import hashlib
 import json
 import math
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 from _gate_framework import (
     GateIssue,

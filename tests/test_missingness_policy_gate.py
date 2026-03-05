@@ -201,7 +201,7 @@ class TestRequireNumber:
 
     def test_bool_rejected(self):
         f = []
-        result = require_number({"k": True}, "k", f, default=0.0)
+        require_number({"k": True}, "k", f, default=0.0)
         assert len(f) == 1
 
     def test_inf_rejected(self):
@@ -227,7 +227,7 @@ class TestRequireStrList:
 
     def test_empty_string_item(self):
         f = []
-        result = require_str_list({"k": ["a", ""]}, "k", f)
+        require_str_list({"k": ["a", ""]}, "k", f)
         assert len(f) == 1
 
 
@@ -398,7 +398,7 @@ class TestCLI:
             tmp_path, policy=policy,
             train_data=[["P1", "0", "30", ""], ["P2", "1", "40", "130"]],
         )
-        result = self._run(tmp_path, setup)
+        self._run(tmp_path, setup)
         # complete_case_analysis=True bypasses missingness_unhandled
         report = json.loads((tmp_path / "report.json").read_text())
         fail_codes = [f["code"] for f in report["failures"]]
@@ -419,7 +419,7 @@ class TestCLI:
         policy = _good_policy()
         policy["valid_used_for_fit"] = True
         setup = _make_setup(tmp_path, policy=policy)
-        result = self._run(tmp_path, setup)
+        self._run(tmp_path, setup)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "valid_used_for_imputer_fit" in warn_codes

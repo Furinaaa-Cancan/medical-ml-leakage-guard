@@ -6,10 +6,9 @@ One-command project bootstrap for ml-leakage-guard publication-grade workflow.
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from _gate_utils import load_json_from_path as load_json, write_json
 

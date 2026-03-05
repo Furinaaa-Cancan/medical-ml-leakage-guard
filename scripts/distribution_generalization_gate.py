@@ -6,7 +6,6 @@ Fail-closed distribution/generalization gate for publication-grade medical predi
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import sys
 from pathlib import Path

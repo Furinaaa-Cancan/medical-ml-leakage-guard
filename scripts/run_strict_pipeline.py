@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
-import json
 import shlex
 import subprocess
 import sys
 import time as _time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from _gate_utils import load_json_from_path as load_json, resolve_path
 

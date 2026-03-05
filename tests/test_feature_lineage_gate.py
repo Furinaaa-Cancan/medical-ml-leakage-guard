@@ -271,7 +271,7 @@ class TestCLI:
         """--allow-missing-lineage + --strict → warning instead of fail."""
         lineage = {"age": []}
         setup = _make_setup(tmp_path, self._def_spec(), lineage)
-        result = self._run(tmp_path, setup,
+        self._run(tmp_path, setup,
                            extra_args=["--strict", "--allow-missing-lineage"])
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]

@@ -346,7 +346,7 @@ class TestCLI:
         _write_csv(test_p, ["pid", "y", "t"],
                    [["C", "0", "2024-06-01"], ["D", "1", "2024-12-01"]])
         splits = {"train": train_p, "test": test_p}
-        result = self._run(tmp_path, splits, extra_args=["--time-col", "t"])
+        self._run(tmp_path, splits, extra_args=["--time-col", "t"])
         # left_max >= right_min is the check (fail-closed), so equal times SHOULD fail
         report = json.loads((tmp_path / "report.json").read_text())
         temporal_failures = [f for f in report["failures"] if f["code"] == "temporal_overlap"]
@@ -362,7 +362,7 @@ class TestCLI:
         _write_csv(test_p, ["pid", "y", "label_encoded", "has_outcome_flag"],
                    [["B", "1", "3", "4"]])
         splits = {"train": train_p, "test": test_p}
-        result = self._run(tmp_path, splits, extra_args=["--target-col", "y"])
+        self._run(tmp_path, splits, extra_args=["--target-col", "y"])
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "suspicious_feature_names" in warn_codes
@@ -376,7 +376,7 @@ class TestCLI:
         _write_csv(test_p, ["pid", "target", "age"],
                    [["B", "1", "40"]])
         splits = {"train": train_p, "test": test_p}
-        result = self._run(tmp_path, splits, extra_args=["--target-col", "target"])
+        self._run(tmp_path, splits, extra_args=["--target-col", "target"])
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "suspicious_feature_names" not in warn_codes
@@ -389,7 +389,7 @@ class TestCLI:
         _write_csv(test_p, ["pid", "y"],
                    [["B", "1"]])
         splits = {"train": train_p, "test": test_p}
-        result = self._run(tmp_path, splits)
+        self._run(tmp_path, splits)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "column_mismatch" in warn_codes

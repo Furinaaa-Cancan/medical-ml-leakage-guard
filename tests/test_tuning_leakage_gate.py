@@ -402,7 +402,7 @@ class TestCLI:
         spec["model_selection_data"] = "cv_inner"
         spec["cv"]["nested"] = True
         spec_path = _write_json(tmp_path / "spec.json", spec)
-        result = self._run(tmp_path, spec_path)
+        self._run(tmp_path, spec_path)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "nested_cv_overconfigured" in warn_codes

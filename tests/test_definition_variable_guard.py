@@ -491,7 +491,7 @@ class TestCLI:
             train_headers=["patient_id", "y", "age", "bp_systolic", "creatinine"],
             test_headers=["patient_id", "y", "age", "extra_col"],
         )
-        result = self._run(tmp_path, setup)
+        self._run(tmp_path, setup)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "column_mismatch" in warn_codes

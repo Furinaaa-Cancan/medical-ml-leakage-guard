@@ -618,7 +618,7 @@ class TestGateBase:
 
 
 # ────────────────────────────────────────────────────────
-# wrap_legacy_report — uncovered paths
+# wrap_legacy_report — extended coverage
 # ────────────────────────────────────────────────────────
 
 class TestWrapLegacyReportExtended:
@@ -696,11 +696,11 @@ class TestWrapLegacyReportExtended:
 
 
 # ────────────────────────────────────────────────────────
-# load_gate_report
+# load_gate_report — extended coverage
 # ────────────────────────────────────────────────────────
 
-class TestLoadGateReport:
-    def test_loads_and_wraps_legacy(self, tmp_path):
+class TestLoadGateReportExtended:
+    def test_loads_and_wraps_legacy_with_status(self, tmp_path):
         report_path = tmp_path / "report.json"
         report_path.write_text(json.dumps({
             "status": "pass",
@@ -726,10 +726,10 @@ class TestLoadGateReport:
 
 
 # ────────────────────────────────────────────────────────
-# format_issue_line — color and plain output
+# format_issue_line — extended coverage
 # ────────────────────────────────────────────────────────
 
-class TestFormatIssueLine:
+class TestFormatIssueLineExtended:
     def test_error_issue_contains_code_and_message(self):
         issue = GateIssue(code="bad_input", severity=Severity.ERROR, message="File is invalid")
         line = format_issue_line(issue)

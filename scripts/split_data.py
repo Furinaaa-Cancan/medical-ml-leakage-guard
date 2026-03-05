@@ -779,7 +779,7 @@ def main() -> int:
         return 2
 
     try:
-        target_na_count = validate_binary_target(df, args.target_col)
+        validate_binary_target(df, args.target_col)
     except ValueError as exc:
         print(f"[FAIL] {exc}", file=sys.stderr)
         return 2

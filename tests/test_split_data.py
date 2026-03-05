@@ -458,7 +458,7 @@ class TestSplitStratifiedGrouped:
 
     def test_few_patients_one_class(self):
         """If one class has <3 patients, they go to train only."""
-        rng = np.random.default_rng(42)
+        np.random.default_rng(42)
         rows = []
         # 2 positive patients (will be < 3, should go to train)
         for pid in range(2):
@@ -520,7 +520,7 @@ class TestValidateSplits:
         assert "patient_overlap" in codes
 
     def test_prevalence_shift(self):
-        rng = np.random.default_rng(42)
+        np.random.default_rng(42)
         splits = {
             "train": pd.DataFrame({
                 "patient_id": [f"T{i}" for i in range(30)],

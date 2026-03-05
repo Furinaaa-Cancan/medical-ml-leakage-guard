@@ -3140,7 +3140,6 @@ def metric_panel_robust(y_true: np.ndarray, proba: np.ndarray, threshold: float,
     cm = confusion_counts(y_true, y_pred)
     tp = float(cm["tp"])
     fp = float(cm["fp"])
-    tn = float(cm["tn"])
     fn = float(cm["fn"])
     precision = safe_ratio(tp, tp + fp)
     sensitivity = safe_ratio(tp, tp + fn)
@@ -4198,7 +4197,6 @@ def _delong_test(
         Dict with auc_a, auc_b, z_statistic, p_value.
     """
     from scipy import stats as _stats
-    n = len(y_true)
     pos = np.where(y_true == 1)[0]
     neg = np.where(y_true == 0)[0]
     m = len(pos)

@@ -20,7 +20,6 @@ from __future__ import annotations
 import csv
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -243,7 +242,7 @@ def test_leakage_gate_temporal_boundary_equal_is_ok() -> None:
         write_csv(td / "train.csv", train_rows, headers)
         write_csv(td / "valid.csv", valid_rows, headers)
         report_path = td / "report.json"
-        proc = run_gate([
+        run_gate([
             str(SCRIPTS_DIR / "leakage_gate.py"),
             "--train", str(td / "train.csv"),
             "--valid", str(td / "valid.csv"),
@@ -355,7 +354,6 @@ def test_run_strict_pipeline_requires_strict() -> None:
 def test_transport_drop_ci_not_computed_sentinel() -> None:
     print("\n=== train_select_evaluate: transport_drop_ci uses ci_note sentinel ===")
     import importlib.util
-    import types
 
     # Minimal stub: simulate the build_ci_matrix_report transport block directly
     # by importing the function and constructing minimal payloads.
@@ -746,7 +744,7 @@ def test_release_benchmark_contract_v2_fields_present() -> None:
             ],
         )
         out = td / "benchmark_report.json"
-        artifacts_dir = td / "_benchmark_matrix_runs"
+        _artifacts_dir = td / "_benchmark_matrix_runs"  # noqa: F841 – used by subprocess
         proc = run_gate(
             [
                 str(SCRIPTS_DIR.parent / "experiments" / "authority-e2e" / "run_release_benchmark_matrix.py"),

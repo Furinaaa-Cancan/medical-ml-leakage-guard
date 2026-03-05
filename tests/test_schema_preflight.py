@@ -425,7 +425,7 @@ class TestCLISplitMode:
 
     def test_single_class_warning(self, tmp_path: Path):
         splits = _make_split_csvs(tmp_path, single_class=True)
-        result = self._run(tmp_path, splits)
+        self._run(tmp_path, splits)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "target_single_class_split" in warn_codes
@@ -433,7 +433,7 @@ class TestCLISplitMode:
     def test_auto_mapping_warning(self, tmp_path: Path):
         # Use non-default column names that match aliases
         splits = _make_split_csvs(tmp_path, target_col="label", pid_col="subject_id", time_col="timestamp")
-        result = self._run(tmp_path, splits)
+        self._run(tmp_path, splits)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "column_auto_mapped" in warn_codes
@@ -518,7 +518,7 @@ class TestCLISingleFileMode:
 
     def test_single_class_warning(self, tmp_path: Path):
         csv_path = _make_single_csv(tmp_path, single_class=True)
-        result = self._run(tmp_path, csv_path)
+        self._run(tmp_path, csv_path)
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "target_single_class" in warn_codes

@@ -487,7 +487,7 @@ def test_14_column_count_error():
             s.send(tmp_path.encode() + KEY_ENTER, delay=0.05)
             # Should show name prompt, then Step 4 with error about too few columns
             s.read_until("Step", timeout=8)
-            final = s.text()
+            s.text()
             # Check process is still alive (no crash/infinite loop)
             try:
                 os.kill(s.pid, 0)

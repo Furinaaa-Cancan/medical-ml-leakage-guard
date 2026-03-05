@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-import datetime as dt
 import json
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 from _gate_framework import (
     GateIssue,

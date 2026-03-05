@@ -55,7 +55,7 @@ class TestBuildRequestPayload:
 
 class TestEnsureDirs:
     def test_creates_dirs(self, tmp_path):
-        created = ip.ensure_dirs(tmp_path)
+        ip.ensure_dirs(tmp_path)
         for d in ("configs", "data", "evidence", "models", "keys"):
             assert (tmp_path / d).exists()
 

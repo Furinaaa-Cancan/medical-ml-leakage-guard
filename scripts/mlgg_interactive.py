@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import csv as _csv_mod
 import importlib.util
-import json
 import os
 import re
 import shlex

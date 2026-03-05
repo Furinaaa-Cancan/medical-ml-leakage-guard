@@ -6,10 +6,9 @@ Fail-closed robustness gate for publication-grade medical prediction.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from _gate_utils import add_issue, is_finite_number as _shared_is_finite_number, load_json_from_str as load_json_object
 from _gate_framework import (

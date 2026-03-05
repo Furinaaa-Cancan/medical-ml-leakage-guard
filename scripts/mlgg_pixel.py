@@ -14,7 +14,6 @@ import importlib.util
 import itertools
 import locale
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -95,7 +94,7 @@ def _clear() -> None:
 def _trunc(text: str, maxw: int) -> str:
     if _wlen(text) <= maxw:
         return text
-    import unicodedata, re
+    import unicodedata
     # Walk visible characters, skipping ANSI sequences
     w = 0
     i = 0
@@ -1570,7 +1569,6 @@ def compute_feature_stats(
     """
     import math as _math
 
-    col_set = set(feature_cols)
     n_rows = 0
     col_vals: Dict[str, List[Optional[float]]] = {c: [] for c in feature_cols}
     col_raw_distinct: Dict[str, set] = {c: set() for c in feature_cols}

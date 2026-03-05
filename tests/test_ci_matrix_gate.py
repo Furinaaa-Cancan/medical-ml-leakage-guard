@@ -119,7 +119,7 @@ def _generate_cohort_data(n_pos, n_neg, threshold=0.5, rng=None):
 
 
 def _build_test_artifacts(tmp_path, threshold=0.5):
-    rng = np.random.RandomState(42)
+    np.random.RandomState(42)
     rows = []
 
     # Internal splits

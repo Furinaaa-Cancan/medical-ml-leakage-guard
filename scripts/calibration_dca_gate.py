@@ -10,9 +10,8 @@ Evaluates calibration (ECE/slope/intercept) and DCA net-benefit for:
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -339,7 +338,7 @@ def main() -> int:
         return finish(args, failures, warnings, {})
 
     try:
-        eval_report = load_json_obj(str(eval_path))
+        _eval_report = load_json_obj(str(eval_path))  # noqa: F841 – validates JSON parse
         ext_report = load_json_obj(str(ext_path))
         policy = load_json_obj(args.performance_policy) if args.performance_policy else {}
     except Exception as exc:

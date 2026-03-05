@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
@@ -100,7 +99,7 @@ def test_basic_temporal_split():
         # Verify temporal order
         train_max = pd.to_datetime(train_df["event_time"]).max()
         valid_min = pd.to_datetime(valid_df["event_time"]).min()
-        test_min = pd.to_datetime(test_df["event_time"]).min()
+        _test_min = pd.to_datetime(test_df["event_time"]).min()  # noqa: F841 – available for future assertions
         assert train_max < valid_min, f"train max {train_max} >= valid min {valid_min}"
 
         # Verify total rows (row count preservation)

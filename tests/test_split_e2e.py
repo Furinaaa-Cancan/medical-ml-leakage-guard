@@ -117,7 +117,7 @@ class TestSplitStratifiedGrouped:
     def test_patient_disjoint(self, tmp_path: Path):
         _run_split(tmp_path, "stratified_grouped", time_col="")
         train = pd.read_csv(tmp_path / "data" / "train.csv")
-        valid = pd.read_csv(tmp_path / "data" / "valid.csv")
+        pd.read_csv(tmp_path / "data" / "valid.csv")
         test = pd.read_csv(tmp_path / "data" / "test.csv")
         assert set(train["patient_id"]).isdisjoint(set(test["patient_id"]))
 

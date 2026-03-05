@@ -180,7 +180,7 @@ class TestCLI:
     def test_low_permutation_count_warning(self, tmp_path: Path):
         """Less than min_permutations → warning."""
         null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
-        result = self._run(tmp_path, null_path, actual=0.85,
+        self._run(tmp_path, null_path, actual=0.85,
                            extra_args=["--min-permutations", "100"])
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
