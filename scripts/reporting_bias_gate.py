@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue, load_json_from_str as load_json
+from _gate_utils import add_issue
 from _gate_framework import (
     GateIssue,
     Severity,
