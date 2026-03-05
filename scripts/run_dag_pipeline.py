@@ -690,6 +690,17 @@ def main() -> int:
     checkpoint = load_checkpoint(evidence_dir) if (args.resume or args.rerun_failed) and not args.force else {}
     passed_gates: Set[str] = set(checkpoint.get("passed_gates", []))
 
+    # Validate checkpoint: remove gates whose report files are missing
+    if passed_gates:
+        invalidated: List[str] = []
+        for pg in sorted(passed_gates):
+            if pg in report_paths and not report_paths[pg].exists():
+                invalidated.append(pg)
+        if invalidated:
+            print(f"[WARN] Checkpoint reports missing for: {', '.join(invalidated)}. "
+                  f"These gates will be re-run.", file=sys.stderr)
+            passed_gates -= set(invalidated)
+
     # Determine which gates to run
     all_gates = topological_sort()
     gates_to_run = _compute_gates_to_run(args, all_gates, passed_gates)

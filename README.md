@@ -96,7 +96,7 @@ python3 scripts/mlgg.py split -- \
 |---|---|---|---|
 | `play` quick readiness card | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | Lightweight educational signal in play mode | No |
 | `onboarding_report.json` | `status=pass|fail` + `termination_reason` | Whether onboarding flow completed cleanly | No (onboarding is a wrapper) |
-| `strict_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28-gate strict result | Yes |
+| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28-gate strict result | Yes |
 
 ### 0.3 Fastest own-CSV strict closed loop (copy-paste)
 
@@ -137,7 +137,7 @@ python3 scripts/mlgg.py workflow \
 
 This repository:
 - Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
-- Enforces **28 sequential fail-closed gates** covering:
+- Enforces **28 DAG-orchestrated fail-closed gates** covering:
   - definition-variable leakage (disease-defining features used as predictors)
   - feature lineage leakage (features derived from post-index-time data)
   - split/time contamination (patient overlap or temporal ordering violations)
@@ -147,7 +147,7 @@ This repository:
 - Outputs machine-checkable evidence and gate reports for release decisions.
 - Every gate is **binary pass/fail**: all 28 must pass for a publication-grade claim.
 
-**Architecture overview**: the pipeline runs as `request contract validation → data fingerprinting → execution attestation → leakage/protocol gates → model audit gates → external validation gates → aggregated publication gate → self-critique scoring`. Each gate is an independent CLI script producing a JSON report.
+**Architecture overview**: the pipeline is organized as a dependency DAG with 8 execution layers: `request contract validation → data fingerprinting → execution attestation → leakage/protocol gates → model audit gates → external validation gates → aggregated publication gate → self-critique scoring`. Each gate is an independent CLI script producing a standardized JSON report envelope (v2.0.0). The DAG executor (`run_dag_pipeline.py`) supports parallel execution within layers, checkpoint/resume, single-gate re-runs, and rich terminal output.
 
 **Expected runtime**:
 - Onboarding demo (guided mode): ~3-8 minutes depending on hardware
@@ -222,7 +222,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
 
 After onboarding (or manual workflow), check:
 - `<project>/evidence/onboarding_report.json`
-- `<project>/evidence/strict_pipeline_report.json`
+- `<project>/evidence/dag_pipeline_report.json`
 - `<project>/evidence/productized_workflow_report.json`
 - `<project>/evidence/user_summary.md`
 
@@ -685,7 +685,7 @@ python3 scripts/mlgg.py split -- \
 |---|---|---|---|
 | `play` 快速就绪卡片 | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | play 模式下的轻量提示 | 否 |
 | `onboarding_report.json` | `status=pass|fail` + `termination_reason` | onboarding 包装流程是否执行完好 | 否（onboarding 是包装层） |
-| `strict_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28 门严格结果 | 是 |
+| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28 门严格结果 | 是 |
 
 ### 0.3 自有 CSV 最短严格闭环（可直接复制）
 
@@ -811,7 +811,7 @@ python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --n
 
 重点看：
 - `<project>/evidence/onboarding_report.json`
-- `<project>/evidence/strict_pipeline_report.json`
+- `<project>/evidence/dag_pipeline_report.json`
 - `<project>/evidence/productized_workflow_report.json`
 - `<project>/evidence/user_summary.md`
 

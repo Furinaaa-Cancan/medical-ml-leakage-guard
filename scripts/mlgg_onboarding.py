@@ -1444,7 +1444,7 @@ def main() -> int:
         auto_yes=auto_yes,
         steps=step_rows,
         expected_artifacts=[
-            project_root / "evidence" / "strict_pipeline_report.json",
+            project_root / "evidence" / "dag_pipeline_report.json",
             project_root / "evidence" / "manifest_baseline.bootstrap.json",
             project_root / "evidence" / "user_summary.md",
             workflow_bootstrap_report,
@@ -1479,7 +1479,7 @@ def main() -> int:
         steps=step_rows,
         expected_artifacts=[
             compare_manifest,
-            project_root / "evidence" / "strict_pipeline_report.json",
+            project_root / "evidence" / "dag_pipeline_report.json",
             project_root / "evidence" / "user_summary.md",
             workflow_compare_report,
         ],

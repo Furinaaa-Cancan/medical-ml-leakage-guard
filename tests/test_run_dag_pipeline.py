@@ -271,6 +271,52 @@ class TestCheckpoint:
 # run_gate_subprocess
 # ────────────────────────────────────────────────────────
 
+class TestCheckpointIntegrity:
+    """Tests for E3a: checkpoint report file integrity validation."""
+
+    def test_missing_report_invalidates_gate(self, tmp_path):
+        """If a checkpoint says gate passed but report file is gone, gate should be re-run."""
+        # Save checkpoint claiming leakage_gate passed
+        save_checkpoint(tmp_path, {"passed_gates": ["request_contract_gate", "leakage_gate"]})
+
+        # Create report_paths but DON'T create the actual leakage report file
+        report_paths = _make_report_paths(tmp_path)
+        # Create the request_contract report so it stays valid
+        report_paths["request_contract_gate"].write_text('{"envelope_version":"2.0.0"}', encoding="utf-8")
+
+        # Load checkpoint and simulate the validation logic from main()
+        checkpoint = load_checkpoint(tmp_path)
+        passed_gates = set(checkpoint.get("passed_gates", []))
+        assert "leakage_gate" in passed_gates
+
+        # Apply the same validation logic as run_dag_pipeline.main()
+        invalidated = []
+        for pg in sorted(passed_gates):
+            if pg in report_paths and not report_paths[pg].exists():
+                invalidated.append(pg)
+        passed_gates -= set(invalidated)
+
+        assert "leakage_gate" in invalidated
+        assert "leakage_gate" not in passed_gates
+        assert "request_contract_gate" in passed_gates
+
+    def test_all_reports_present_no_invalidation(self, tmp_path):
+        """If all checkpoint reports exist, no gates should be invalidated."""
+        save_checkpoint(tmp_path, {"passed_gates": ["request_contract_gate", "leakage_gate"]})
+        report_paths = _make_report_paths(tmp_path)
+        # Create both report files
+        report_paths["request_contract_gate"].write_text('{}', encoding="utf-8")
+        report_paths["leakage_gate"].write_text('{}', encoding="utf-8")
+
+        checkpoint = load_checkpoint(tmp_path)
+        passed_gates = set(checkpoint.get("passed_gates", []))
+        invalidated = [
+            pg for pg in sorted(passed_gates)
+            if pg in report_paths and not report_paths[pg].exists()
+        ]
+        assert invalidated == []
+
+
 class TestRunGateSubprocess:
     def test_successful_command(self):
         result = run_gate_subprocess("echo_test", [sys.executable, "-c", "print('ok')"])

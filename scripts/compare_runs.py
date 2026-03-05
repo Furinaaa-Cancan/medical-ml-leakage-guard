@@ -167,8 +167,14 @@ def compare(baseline_dir: Path, candidate_dir: Path) -> Dict[str, Any]:
                 })
 
     # Pipeline-level summary
-    base_pipeline = _load_report(baseline_dir / "strict_pipeline_report.json")
-    cand_pipeline = _load_report(candidate_dir / "strict_pipeline_report.json")
+    base_pipeline = (
+        _load_report(baseline_dir / "dag_pipeline_report.json")
+        or _load_report(baseline_dir / "strict_pipeline_report.json")
+    )
+    cand_pipeline = (
+        _load_report(candidate_dir / "dag_pipeline_report.json")
+        or _load_report(candidate_dir / "strict_pipeline_report.json")
+    )
 
     return {
         "schema_version": "v1.0",
