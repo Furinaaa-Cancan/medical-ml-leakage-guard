@@ -490,9 +490,11 @@ _register(GateSpec(
 # DAG resolution utilities
 # ---------------------------------------------------------------------------
 
-def get_execution_layers() -> List[List[str]]:
+def get_execution_layers() -> List[Tuple[int, List[str]]]:
     """Return gate names grouped by execution layer, sorted by layer order.
 
+    Each element is (layer_value, [gate_names]) so callers can map back to
+    the correct GateLayer enum value even when some layers are empty.
     Within each layer, gates are listed alphabetically for determinism.
     Gates in the same layer can execute in parallel.
     """
@@ -500,9 +502,9 @@ def get_execution_layers() -> List[List[str]]:
     for name, spec in GATE_REGISTRY.items():
         layer_map.setdefault(spec.layer.value, []).append(name)
 
-    layers: List[List[str]] = []
+    layers: List[Tuple[int, List[str]]] = []
     for layer_idx in sorted(layer_map.keys()):
-        layers.append(sorted(layer_map[layer_idx]))
+        layers.append((layer_idx, sorted(layer_map[layer_idx])))
     return layers
 
 
@@ -634,9 +636,9 @@ def print_dag_summary() -> None:
     """Print a human-readable DAG summary to stdout."""
     layers = get_execution_layers()
     print(f"\nGate DAG: {len(GATE_REGISTRY)} gates in {len(layers)} layers\n")
-    for i, layer_gates in enumerate(layers):
-        layer_enum = GateLayer(i)
-        print(f"  Layer {i} ({layer_enum.name}):")
+    for layer_val, layer_gates in layers:
+        layer_enum = GateLayer(layer_val)
+        print(f"  Layer {layer_val} ({layer_enum.name}):")
         for gate_name in layer_gates:
             spec = GATE_REGISTRY[gate_name]
             deps = ", ".join(sorted(spec.depends_on)) if spec.depends_on else "(none)"

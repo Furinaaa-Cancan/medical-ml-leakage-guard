@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from _gate_utils import add_issue, load_json_from_str as load_json, to_float
 from _gate_framework import (
-    GateBase,
     GateIssue,
     Severity,
     build_report_envelope,

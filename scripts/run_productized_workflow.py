@@ -176,7 +176,7 @@ def main() -> int:
         dag_cmd.append("--continue-on-fail")
     strict_step = append_step("run_dag_pipeline", dag_cmd)
 
-    def _publication_missing_manifest(evidence: Path, min_mtime_epoch: float) -> tuple[bool, Optional[str]]:
+    def _publication_missing_manifest(evidence: Path, min_mtime_epoch: float) -> Tuple[bool, Optional[str]]:
         pub_path = evidence / "publication_gate_report.json"
         if not is_recent(pub_path, min_mtime_epoch):
             return False, None

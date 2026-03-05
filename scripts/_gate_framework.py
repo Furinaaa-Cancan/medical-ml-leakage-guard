@@ -15,19 +15,16 @@ from __future__ import annotations
 import abc
 import argparse
 import enum
-import json
 import os
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
+from typing import Any, Dict, List, Optional, Sequence
 
 from _gate_utils import (
     add_issue,
     add_timeout_argument,
     get_gate_elapsed,
-    inject_execution_time,
     install_gate_timeout,
     start_gate_timer,
     write_json,

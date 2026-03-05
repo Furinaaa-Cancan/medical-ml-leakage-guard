@@ -169,15 +169,17 @@ def install_gate_timeout(
     def _handler(signum: int, frame: Any) -> None:
         payload: Dict[str, Any] = {
             "status": "fail",
-            "gate": gate_name,
+            "gate_name": gate_name,
+            "strict_mode": True,
             "timeout_seconds": timeout_seconds,
-            "issues": [
+            "failures": [
                 {
                     "code": "gate_timeout",
                     "message": f"Gate exceeded {timeout_seconds}s timeout.",
                     "details": {"timeout_seconds": timeout_seconds},
                 }
             ],
+            "warnings": [],
         }
         if report_path is not None:
             try:

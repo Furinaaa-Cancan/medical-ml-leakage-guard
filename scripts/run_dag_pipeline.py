@@ -246,7 +246,7 @@ def build_gate_command(
             cmd.extend(["--compare-with", str(resolve_path(Path.cwd(), args.compare_manifest))])
         return cmd
     elif spec.name in ("publication_gate", "self_critique_gate"):
-        cmd.extend(_build_aggregation_cmd(spec.name, report_paths))
+        cmd.extend(_build_aggregation_cmd(spec.name, report_paths, args))
     else:
         cmd.extend(_build_standard_gate_cmd(spec, normalized, split_paths, report_paths))
 
@@ -446,6 +446,7 @@ def _build_manifest_cmd(
 def _build_aggregation_cmd(
     gate_name: str,
     report_paths: Dict[str, Path],
+    args: argparse.Namespace,
 ) -> List[str]:
     """Build CLI args for publication_gate and self_critique_gate."""
     cmd: List[str] = []
@@ -488,6 +489,8 @@ def _build_aggregation_cmd(
 
     if gate_name == "self_critique_gate":
         cmd.extend(["--min-score", "95"])
+        if getattr(args, "allow_missing_compare", False):
+            cmd.append("--allow-missing-comparison")
 
     return cmd
 
@@ -705,7 +708,7 @@ def main() -> int:
     newly_passed: Set[str] = set()
 
     execution_layers = get_execution_layers()
-    for layer_idx, layer_gates in enumerate(execution_layers):
+    for layer_idx, layer_gates in execution_layers:
         runnable_in_layer = [g for g in layer_gates if g in gates_to_run and g != "request_contract_gate"]
         if not runnable_in_layer:
             continue
