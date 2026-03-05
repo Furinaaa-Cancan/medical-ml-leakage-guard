@@ -10,12 +10,9 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-import pytest
-from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "external_validation_gate.py"

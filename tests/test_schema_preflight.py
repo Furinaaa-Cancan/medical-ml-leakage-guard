@@ -5,7 +5,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -15,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from schema_preflight import (
     TARGET_ALIASES,
     PATIENT_ID_ALIASES,
-    TIME_ALIASES,
     load_split,
     missing_ratio,
     normalize_col,

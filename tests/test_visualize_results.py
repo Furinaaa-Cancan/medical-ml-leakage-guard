@@ -8,7 +8,6 @@ from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import visualize_results as viz

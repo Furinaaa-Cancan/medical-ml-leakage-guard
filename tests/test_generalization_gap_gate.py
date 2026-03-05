@@ -10,9 +10,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict
 
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "generalization_gap_gate.py"

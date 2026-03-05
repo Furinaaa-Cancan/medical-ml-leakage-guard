@@ -10,9 +10,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "feature_engineering_audit_gate.py"

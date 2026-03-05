@@ -7,7 +7,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import unittest
 
 SCRIPTS_DIR = str(Path(__file__).resolve().parent.parent / "scripts")

@@ -7,7 +7,6 @@ parse_command_overrides, build_command, profile save/load, CLI --help,
 """
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path

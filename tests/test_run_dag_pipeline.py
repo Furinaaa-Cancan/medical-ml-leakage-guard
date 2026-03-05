@@ -2,17 +2,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
-from unittest.mock import patch
+from typing import Dict
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from _gate_registry import GATE_REGISTRY, GateSpec, GateLayer
+from _gate_registry import GATE_REGISTRY
 from run_dag_pipeline import (
     _build_aggregation_cmd,
     _build_standard_gate_cmd,
@@ -356,8 +353,6 @@ class TestRunParallelResilience:
 
     def test_parallel_exception_produces_fail_result(self):
         """Bug 3 regression: exception in future.result() should produce a fail step."""
-        from run_dag_pipeline import _run_parallel
-        import concurrent.futures
 
         # We can't easily test _run_parallel directly (needs full args),
         # but we verify the pattern: exception -> structured fail result

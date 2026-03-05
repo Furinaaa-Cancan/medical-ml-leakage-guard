@@ -10,7 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "run_productized_workflow.py"

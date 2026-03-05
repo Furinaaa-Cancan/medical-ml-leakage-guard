@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
 
-import pytest
 
 # Ensure scripts/ is importable and skip terminal-dependent init
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -15,9 +13,6 @@ import mlgg_pixel
 mlgg_pixel._TEST_MODE = True
 
 from mlgg_pixel import (
-    _PID_HINTS,
-    _TGT_HINTS,
-    _TIME_HINTS,
     _hint_match,
     detect_columns,
 )

@@ -12,7 +12,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "generate_demo_medical_dataset.py"

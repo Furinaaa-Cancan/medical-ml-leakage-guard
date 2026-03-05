@@ -19,7 +19,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 PYTHON = sys.executable

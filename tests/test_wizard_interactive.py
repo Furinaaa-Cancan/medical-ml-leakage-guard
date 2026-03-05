@@ -144,7 +144,7 @@ class TestResult:
         print(f"\n{'='*60}")
         print(f"  Results: {self.passed}/{total} passed, {self.failed} failed")
         if self.errors:
-            print(f"\n  Failed tests:")
+            print("\n  Failed tests:")
             for name, detail in self.errors:
                 print(f"    - {name}: {str(detail)[:100]}")
         print(f"{'='*60}")
@@ -588,7 +588,7 @@ def test_16_step_confirm_info():
 
 def main():
     print(f"\n{'='*60}")
-    print(f"  mlgg_pixel.py Interactive Tests (pty + MLGG_TEST)")
+    print("  mlgg_pixel.py Interactive Tests (pty + MLGG_TEST)")
     print(f"{'='*60}\n")
 
     test_01_launch_and_quit()

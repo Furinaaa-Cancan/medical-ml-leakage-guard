@@ -11,9 +11,7 @@ import statistics
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "seed_stability_gate.py"

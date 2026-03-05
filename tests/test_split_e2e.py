@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"

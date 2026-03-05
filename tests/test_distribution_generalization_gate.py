@@ -7,15 +7,12 @@ group_drift_summary, build_external_paths), and CLI integration.
 from __future__ import annotations
 
 import json
-import math
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 GATE_SCRIPT = SCRIPTS_DIR / "distribution_generalization_gate.py"

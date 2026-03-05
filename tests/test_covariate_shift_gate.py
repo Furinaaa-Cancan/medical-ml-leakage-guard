@@ -8,11 +8,9 @@ pair evaluation, threshold validation, prevalence checks, and CLI integration.
 from __future__ import annotations
 
 import json
-import math
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
 import pytest
 

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from _gate_framework import (
@@ -19,7 +18,6 @@ from _gate_framework import (
     format_issue_line,
     get_remediation,
     load_gate_report,
-    print_gate_summary,
     register_remediation,
     register_remediations,
     validate_input_files,

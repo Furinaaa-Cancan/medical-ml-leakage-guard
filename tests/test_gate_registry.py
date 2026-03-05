@@ -3,15 +3,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Set, Tuple
+from typing import Set
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from _gate_registry import (
     GATE_REGISTRY,
     GateLayer,
-    GateSpec,
     get_dependencies,
     get_dependents,
     get_execution_layers,
