@@ -152,7 +152,9 @@ class TestBuildStandardGateCmd:
         spec = GATE_REGISTRY["evaluation_quality_gate"]
         report_paths = _make_report_paths(Path("/tmp/ev"))
         cmd = _build_standard_gate_cmd(spec, {}, {}, report_paths)
-        assert "--metric-report" in cmd
+        # evaluation_quality_gate does not accept --metric-report;
+        # the former report_inputs entry was dead config and has been removed.
+        assert "--metric-report" not in cmd
 
 
 # ────────────────────────────────────────────────────────

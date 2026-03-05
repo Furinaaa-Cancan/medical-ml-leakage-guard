@@ -431,9 +431,6 @@ _register(GateSpec(
         "evaluation_report_file": "--evaluation-report",
         "ci_matrix_report_file": "--ci-matrix-report",
     },
-    report_inputs={
-        "metric_consistency_gate": "--metric-report",
-    },
     report_output="evaluation_quality_report.json",
     category="performance",
 ))
@@ -446,9 +443,6 @@ _register(GateSpec(
     depends_on=frozenset({"request_contract_gate", "metric_consistency_gate"}),
     request_inputs={
         "permutation_null_metrics_file": "--null-metrics-file",
-    },
-    report_inputs={
-        "metric_consistency_gate": "--metric-report",
     },
     report_output="permutation_report.json",
     category="performance",
