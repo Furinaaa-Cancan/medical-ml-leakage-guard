@@ -16,6 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Supports `--json` for machine-readable output and `--output` for file output
   - 21 comprehensive unit tests
 
+- **Evidence Digest Tool** (`evidence_digest.py`)
+  - Generates a compact, shareable one-page summary from an evidence directory
+  - Extracts pipeline status, key metrics, model info, split statistics, gate counts
+  - Markdown output for paper submissions; JSON for programmatic use
+  - 31 comprehensive unit tests
+
 ### Changed
 
 - **Code Quality Cleanup**
