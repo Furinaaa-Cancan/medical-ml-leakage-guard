@@ -55,8 +55,8 @@ jobs:
       - name: Gate smoke
         run: python3 -m coverage run --append scripts/test_gate_smoke.py
 
-      - name: Unit tests (pytest)
-        run: python3 -m coverage run --append -m pytest tests/test_train_select_evaluate.py -v --tb=short -x
+      - name: Unit tests (pytest – full suite)
+        run: python3 -m coverage run --append -m pytest tests/ -v --tb=short -x
 
       - name: Interactive wizard tests (pty)
         if: runner.os != 'Windows'
