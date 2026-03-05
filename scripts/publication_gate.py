@@ -6,9 +6,7 @@ Aggregate fail-closed publication gate for medical prediction evidence artifacts
 from __future__ import annotations
 
 import argparse
-import json
 import math
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

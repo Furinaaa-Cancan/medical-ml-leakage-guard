@@ -6,7 +6,6 @@ Fail-closed CI matrix gate for publication-grade medical prediction.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple

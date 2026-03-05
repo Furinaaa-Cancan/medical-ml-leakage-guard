@@ -6,7 +6,6 @@ Fail-closed feature engineering audit gate for publication-grade medical predict
 from __future__ import annotations
 
 import argparse
-import json
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set

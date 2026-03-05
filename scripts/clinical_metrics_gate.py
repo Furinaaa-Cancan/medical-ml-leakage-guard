@@ -6,10 +6,8 @@ Fail-closed clinical metrics gate for medical binary prediction reports.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import re
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 

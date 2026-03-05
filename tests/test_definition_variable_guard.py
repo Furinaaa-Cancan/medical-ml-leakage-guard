@@ -520,8 +520,8 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         assert "status" in report
         assert "strict_mode" in report
-        assert "target" in report
-        assert "definition_spec" in report
+        assert "target" in report.get("summary", {})
+        assert "definition_spec" in report.get("input_files", {})
         assert "failure_count" in report
         assert "warning_count" in report
         assert "failures" in report
