@@ -185,7 +185,7 @@ def plot_feature_importance(
 ) -> None:
     """Generate and save feature importance bar chart from evaluation report."""
     fi = report.get("feature_importance")
-    if not isinstance(fi, dict) or not fi:
+    if not isinstance(fi, (dict, list)) or not fi:
         fi = report.get("feature_importances")
     if not isinstance(fi, (dict, list)) or not fi:
         print("  [SKIP] Feature importance: not available in report.")
