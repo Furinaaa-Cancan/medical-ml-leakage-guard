@@ -15,7 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from _gate_utils import add_issue, load_json_from_str as load_json, to_float
 from _gate_framework import (
     GateBase,
+    GateIssue,
     Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
     register_remediations,
 )
 
@@ -228,22 +232,13 @@ def finish(
     warnings: List[Dict[str, Any]],
     summary: Dict[str, Any],
 ) -> int:
-    from _gate_framework import (
-        GateIssue,
-        build_report_envelope,
-        get_remediation,
-        print_gate_summary,
-        start_gate_timer,
-        Severity as _Sev,
-    )
     from _gate_utils import get_gate_elapsed, write_json as _write_report
 
     should_fail = bool(failures) or (args.strict and bool(warnings))
     status = "fail" if should_fail else "pass"
 
-    # Convert legacy issues to GateIssue for rich display
-    fi = [GateIssue.from_legacy(f, _Sev.ERROR) for f in failures]
-    wi = [GateIssue.from_legacy(w, _Sev.WARNING) for w in warnings]
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
     for issue in fi + wi:
         if not issue.remediation:
             issue.remediation = get_remediation(issue.code)

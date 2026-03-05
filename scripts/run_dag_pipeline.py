@@ -62,10 +62,7 @@ from _gate_registry import (
     topological_sort,
     validate_dag,
 )
-from _gate_framework import (
-    Severity,
-    wrap_legacy_report,
-)
+from _gate_framework import Severity
 
 
 # ---------------------------------------------------------------------------
