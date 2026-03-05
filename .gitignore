@@ -16,3 +16,4 @@ experiments/authority-e2e/*.auto.json
 
 evidence/
 output/
+.coverage
