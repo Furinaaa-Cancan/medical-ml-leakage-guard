@@ -6,8 +6,6 @@ Smoke tests for split_data.py and schema_preflight.py single-file mode.
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import subprocess
 import sys
 import tempfile

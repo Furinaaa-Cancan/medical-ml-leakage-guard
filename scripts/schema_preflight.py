@@ -6,7 +6,6 @@ Dataset schema preflight with auto-mapping suggestions for train/valid/test spli
 from __future__ import annotations
 
 import argparse
-import json
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple

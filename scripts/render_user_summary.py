@@ -6,7 +6,6 @@ Render a user-facing summary (Markdown + JSON) from strict evidence artifacts.
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
