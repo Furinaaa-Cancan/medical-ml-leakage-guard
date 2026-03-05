@@ -6,7 +6,6 @@ Fail-closed generalization gap gate for train/valid/test overfitting detection.
 from __future__ import annotations
 
 import argparse
-import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
