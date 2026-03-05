@@ -15,7 +15,26 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, try_parse_time as _shared_try_parse_time, epoch_to_iso as _shared_epoch_to_iso
+
+
+register_remediations({
+    "split_protocol_missing": "Provide a valid split_protocol_spec JSON describing the splitting strategy.",
+    "temporal_ordering_violation": "Temporal ordering violated between splits. Ensure train < valid < test in time.",
+    "id_overlap_between_splits": "Patient IDs overlap between splits. Use strict patient-level splitting.",
+    "missing_target_col": "Target column not found in split CSV. Verify --target-col matches your data.",
+    "prevalence_too_low": "Label prevalence is critically low. Consider stratified splitting or oversampling.",
+    "missing_time_col": "Time column missing or unparseable in split data. Verify --time-col.",
+    "missing_id_col": "ID column missing in split data. Verify --id-col.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -386,7 +405,17 @@ def finish(
     split_strategy: Optional[str] = None,
     split_reference: Optional[str] = None,
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
     split_summary = {}
     for split_name, stats in splits.items():
         split_summary[split_name] = {
@@ -405,34 +434,45 @@ def finish(
             "missing_id_rows": stats.get("missing_id_rows"),
         }
 
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "split_strategy": split_strategy,
-        "split_reference": split_reference,
+    input_files = {
         "protocol_spec": str(Path(args.protocol_spec).expanduser().resolve()),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
+        "train": str(Path(args.train).expanduser().resolve()),
+        "test": str(Path(args.test).expanduser().resolve()),
+    }
+    if getattr(args, "valid", None):
+        input_files["valid"] = str(Path(args.valid).expanduser().resolve())
+
+    report = build_report_envelope(
+        gate_name="split_protocol_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "split_strategy": split_strategy,
+            "split_reference": split_reference,
             "protocol_fields_present": sorted(spec.keys()) if isinstance(spec, dict) else [],
             "splits": split_summary,
         },
-    }
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="split_protocol_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

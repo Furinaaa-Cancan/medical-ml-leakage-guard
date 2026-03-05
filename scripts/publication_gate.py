@@ -12,7 +12,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, load_json_from_str as load_json, to_int as _shared_to_int
+
+
+register_remediations({
+    "component_report_missing": "A required gate report is missing. Run the full pipeline to generate all reports.",
+    "component_status_fail": "A component gate reported failure. Fix the underlying issue before publication.",
+    "component_strict_mode_off": "A component gate was not run in strict mode. Re-run with --strict.",
+    "metric_report_missing_actual": "Metric consistency report must contain finite numeric actual_metric.",
+    "execution_attestation_incomplete": "Execution attestation report is incomplete. Ensure all attestation checks pass.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -429,18 +446,31 @@ def main() -> int:
                 {"actual_metric_type": type(actual_metric).__name__ if actual_metric is not None else None},
             )
 
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    status = "fail" if should_fail else "pass"
     quality_score = max(0.0, min(100.0, 100.0 - 20.0 * len(failures) - 2.5 * len(warnings)))
 
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "quality_score": round(quality_score, 2),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        name: str(Path(path).expanduser().resolve())
+        for name, path in files.items()
+    }
+
+    report = build_report_envelope(
+        gate_name="publication_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "quality_score": round(quality_score, 2),
             "artifacts": {
                 name: {
                     "path": str(Path(path).expanduser().resolve()),
@@ -448,23 +478,27 @@ def main() -> int:
                     "status": loaded.get(name, {}).get("status"),
                 }
                 for name, path in files.items()
-            }
+            },
         },
-    }
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="publication_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

@@ -11,7 +11,23 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, load_json_from_str as load_json
+
+
+register_remediations({
+    "quality_score_below_threshold": "Overall quality score is below minimum. Fix failing gates and re-run.",
+    "component_report_missing": "A required gate report is missing from self-critique input. Run the full pipeline.",
+    "component_status_fail": "A component gate reported failure. Fix the underlying issue.",
+    "reproducibility_comparison_missing": "Reproducibility comparison not evaluated. Provide baseline manifest for comparison.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -359,6 +375,8 @@ def main() -> int:
             {"score": quality_score, "min_score": args.min_score},
         )
 
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     blocking_warning_count = (
         sum(1 for issue in warnings if warning_is_blocking(issue, args))
         if args.strict
@@ -366,47 +384,60 @@ def main() -> int:
     )
     should_fail = bool(failures) or (args.strict and blocking_warning_count > 0)
     claim_tier = "publication-grade-ready" if (not should_fail and quality_score >= args.min_score) else "not-ready"
-    decision = "pass" if not should_fail else "fail"
+    status = "pass" if not should_fail else "fail"
 
-    report = {
-        "status": decision,
-        "strict_mode": bool(args.strict),
-        "quality_score": round(quality_score, 2),
-        "min_score": args.min_score,
-        "claim_tier_decision": claim_tier,
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "blocking_warning_count": blocking_warning_count,
-        "failures": failures,
-        "warnings": warnings,
-        "recommendations": summarize_recommendations(failures + warnings),
-        "reproducibility_comparison_evaluated": reproducibility_comparison_evaluated,
-        "artifacts": {
-            key: {
-                "path": str(Path(path).expanduser().resolve()),
-                "loaded": key in loaded,
-                "status": loaded.get(key, {}).get("status"),
-            }
-            for key, path in artifact_paths.items()
-        },
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        key: str(Path(path).expanduser().resolve())
+        for key, path in artifact_paths.items()
     }
 
+    report = build_report_envelope(
+        gate_name="self_critique_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "quality_score": round(quality_score, 2),
+            "min_score": args.min_score,
+            "claim_tier_decision": claim_tier,
+            "blocking_warning_count": blocking_warning_count,
+            "recommendations": summarize_recommendations(failures + warnings),
+            "reproducibility_comparison_evaluated": reproducibility_comparison_evaluated,
+            "artifacts": {
+                key: {
+                    "path": str(Path(path).expanduser().resolve()),
+                    "loaded": key in loaded,
+                    "status": loaded.get(key, {}).get("status"),
+                }
+                for key, path in artifact_paths.items()
+            },
+        },
+        input_files=input_files,
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(
-        f"QualityScore: {report['quality_score']:.2f} | MinScore: {args.min_score:.2f} | "
-        f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}"
+    print_gate_summary(
+        gate_name="self_critique_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
     )
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

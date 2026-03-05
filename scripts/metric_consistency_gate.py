@@ -13,7 +13,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, to_float
+
+
+register_remediations({
+    "metric_not_found": "Primary metric not found in evaluation report. Verify --metric-name and --metric-path.",
+    "metric_mismatch": "Extracted metric value does not match expected value. Re-run evaluation or fix request.json.",
+    "metric_not_finite": "Primary metric value is NaN or Inf. Check evaluation pipeline for numeric errors.",
+    "missing_evaluation_split": "Required evaluation split not found in report. Ensure evaluation includes the required split.",
+    "evaluation_report_invalid": "Evaluation report JSON is malformed or missing required fields.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -391,42 +408,60 @@ def finish(
     leaf_metric_hits: Optional[List[Dict[str, Any]]] = None,
     primary_leaf_metric_hits: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "metric_name": args.metric_name,
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
         "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve()),
-        "metric_source_path": metric_source_path,
-        "candidate_metrics": candidate_metrics or [],
-        "leaf_metric_hits": leaf_metric_hits or [],
-        "primary_leaf_metric_hits": primary_leaf_metric_hits or [],
-        "actual_metric": actual_metric,
-        "raw_metric_value": raw_value,
-        "expected_metric": args.expected,
-        "tolerance": args.tolerance,
-        "required_evaluation_split": args.required_evaluation_split,
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
     }
+    if getattr(args, "metric_path", None):
+        input_files["metric_path"] = args.metric_path
+
+    report = build_report_envelope(
+        gate_name="metric_consistency_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "metric_name": args.metric_name,
+            "metric_source_path": metric_source_path,
+            "candidate_metrics": candidate_metrics or [],
+            "leaf_metric_hits": leaf_metric_hits or [],
+            "primary_leaf_metric_hits": primary_leaf_metric_hits or [],
+            "actual_metric": actual_metric,
+            "raw_metric_value": raw_value,
+            "expected_metric": args.expected,
+            "tolerance": args.tolerance,
+            "required_evaluation_split": args.required_evaluation_split,
+        },
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    if actual_metric is not None:
-        print(f"Metric {args.metric_name} = {actual_metric} (source={metric_source_path})")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="metric_consistency_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

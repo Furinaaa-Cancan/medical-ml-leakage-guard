@@ -26,7 +26,27 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, resolve_path
+
+
+register_remediations({
+    "attestation_spec_missing": "Provide a valid execution_attestation_spec JSON with signed payload.",
+    "signature_invalid": "Detached signature verification failed. Re-sign the attestation payload.",
+    "artifact_hash_mismatch": "Artifact hash does not match expected value. Re-run pipeline to regenerate artifacts.",
+    "study_id_mismatch": "Study ID in attestation does not match request. Verify study_id consistency.",
+    "run_id_mismatch": "Run ID in attestation does not match request. Verify run_id consistency.",
+    "key_policy_violation": "Signing key does not meet assurance policy. Use a stronger key.",
+    "timestamp_missing": "Trusted timestamp record is missing. Add timestamp authority verification.",
+    "transparency_log_missing": "Transparency log record is missing. Submit attestation to transparency log.",
+})
 
 
 ALLOWED_SIGNING_METHODS = {"openssl-dgst-sha256"}
@@ -2954,30 +2974,50 @@ def finish(
     summary: Dict[str, Any],
     payload_metadata: Dict[str, Any],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": summary,
-        "payload_metadata": payload_metadata,
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        "attestation_spec": str(Path(args.attestation_spec).expanduser().resolve()),
+        "evaluation_report": str(Path(args.evaluation_report).expanduser().resolve()),
     }
 
+    summary["payload_metadata"] = payload_metadata
+
+    report = build_report_envelope(
+        gate_name="execution_attestation_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary=summary,
+        input_files=input_files,
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="execution_attestation_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

@@ -14,7 +14,26 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, resolve_path, to_float, to_int as _shared_to_int
+
+
+register_remediations({
+    "request_file_missing": "Provide --request pointing to a valid request.json file.",
+    "request_json_invalid": "request.json contains invalid JSON. Fix syntax errors.",
+    "required_field_missing": "A required field is missing from request.json. Add the field.",
+    "invalid_claim_tier": "claim_tier_target must be 'publication-grade'.",
+    "split_path_missing": "Declared split path does not exist on disk. Verify file paths.",
+    "metric_not_finite": "actual_primary_metric must be a finite number.",
+    "invalid_context": "context field must be an object when provided.",
+})
 
 
 REQUIRED_STRING_FIELDS = [
@@ -3146,31 +3165,48 @@ def finish(
     normalized_request: Dict[str, Any],
     request_path: Optional[Path] = None,
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "request_path": str(request_path) if request_path else None,
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "normalized_request": normalized_request,
-    }
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {}
+    if request_path:
+        input_files["request"] = str(request_path)
+
+    report = build_report_envelope(
+        gate_name="request_contract_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={"request_path": str(request_path) if request_path else None},
+        input_files=input_files if input_files else None,
+        extra={"normalized_request": normalized_request},
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="request_contract_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

@@ -13,7 +13,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue
+
+
+register_remediations({
+    "permutation_null_too_few": "Too few permutation null samples. Run at least 100 permutations for reliable p-values.",
+    "p_value_not_significant": "Model metric does not significantly beat the permutation null. Increase sample size or improve model.",
+    "effect_delta_too_small": "Effect size vs null mean is below minimum threshold. Model may not generalize.",
+    "null_metrics_file_missing": "Provide --null-metrics-file pointing to permutation null metric values.",
+    "null_metrics_empty": "Null metrics file is empty or contains no valid numeric values.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,43 +220,58 @@ def finish(
     p_value: float = math.nan,
     delta: float = math.nan,
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    status = "fail" if should_fail else "pass"
     stats = summarize(null_metrics)
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "metric_name": args.metric_name,
-        "higher_is_better": not args.lower_is_better,
-        "actual": args.actual,
-        "null_count": len(null_metrics),
-        "null_summary": stats,
-        "p_value_one_sided": p_value,
-        "effect_delta_vs_null_mean": delta,
-        "alpha": args.alpha,
-        "min_delta": args.min_delta,
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
+        "null_metrics_file": str(Path(args.null_metrics_file).expanduser().resolve()),
     }
 
+    report = build_report_envelope(
+        gate_name="permutation_significance_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "metric_name": args.metric_name,
+            "higher_is_better": not args.lower_is_better,
+            "actual": args.actual,
+            "null_count": len(null_metrics),
+            "null_summary": stats,
+            "p_value_one_sided": p_value,
+            "effect_delta_vs_null_mean": delta,
+            "alpha": args.alpha,
+            "min_delta": args.min_delta,
+        },
+        input_files=input_files,
+    )
+
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    print(
-        f"Metric={args.metric_name} actual={args.actual:.6f} null_mean={stats['mean']:.6f} "
-        f"delta={delta:.6f} p={p_value:.6g}"
+    print_gate_summary(
+        gate_name="permutation_significance_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
     )
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

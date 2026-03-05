@@ -14,7 +14,24 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue
+
+
+register_remediations({
+    "imbalance_policy_missing": "Provide a valid imbalance_policy_spec JSON with strategy and thresholds.",
+    "extreme_imbalance": "Class imbalance ratio exceeds safe threshold. Apply resampling or cost-sensitive learning.",
+    "strategy_not_declared": "Imbalance handling strategy not declared in policy spec.",
+    "prevalence_mismatch": "Observed prevalence differs significantly between splits. Check stratification.",
+    "reconciliation_mismatch": "Declared imbalance strategy doesn't match execution evidence.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -537,7 +554,17 @@ def finish(
     strategy: Optional[str] = None,
     reconciliation: Optional[Dict[str, Any]] = None,
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
     split_summary: Dict[str, Any] = {}
     for split_name, stats in splits.items():
         split_summary[split_name] = {
@@ -552,34 +579,47 @@ def finish(
             "invalid_label_rows": stats.get("invalid_label_rows"),
         }
 
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "strategy": strategy,
+    input_files = {
         "policy_spec": str(Path(args.policy_spec).expanduser().resolve()),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
+        "train": str(Path(args.train).expanduser().resolve()),
+        "test": str(Path(args.test).expanduser().resolve()),
+    }
+    if getattr(args, "valid", None):
+        input_files["valid"] = str(Path(args.valid).expanduser().resolve())
+    if getattr(args, "evaluation_report", None):
+        input_files["evaluation_report"] = str(Path(args.evaluation_report).expanduser().resolve())
+
+    report = build_report_envelope(
+        gate_name="imbalance_policy_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "strategy": strategy,
             "policy_fields_present": sorted(spec.keys()) if isinstance(spec, dict) else [],
             "splits": split_summary,
             "execution_reconciliation": reconciliation if isinstance(reconciliation, dict) else None,
         },
-    }
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="imbalance_policy_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

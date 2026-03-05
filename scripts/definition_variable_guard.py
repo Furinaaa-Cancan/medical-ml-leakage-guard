@@ -14,7 +14,22 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue
+
+
+register_remediations({
+    "definition_variable_leakage": "Predictor column directly matches a disease-definition variable. Remove it.",
+    "definition_proxy_leakage": "Predictor column matches a forbidden proxy pattern. Remove or rename.",
+    "definition_spec_missing": "Provide a valid phenotype_definition_spec JSON with target definitions.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -265,38 +280,59 @@ def finish(
     forbidden_patterns: List[str],
     checked_features: List[str],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
-        "target": args.target,
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
         "definition_spec": str(Path(args.definition_spec).expanduser().resolve()),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
+        "train": str(Path(args.train).expanduser().resolve()),
+    }
+    if getattr(args, "valid", None):
+        input_files["valid"] = str(Path(args.valid).expanduser().resolve())
+    if getattr(args, "test", None):
+        input_files["test"] = str(Path(args.test).expanduser().resolve())
+
+    report = build_report_envelope(
+        gate_name="definition_variable_guard",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
+            "target": args.target,
             "splits": {k: {"column_count": len(v), "columns": v} for k, v in headers_by_split.items()},
             "forbidden_exact_count": len(forbidden_exact),
             "forbidden_pattern_count": len(forbidden_patterns),
             "checked_feature_count": len(checked_features),
             "checked_features": checked_features,
         },
-    }
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="definition_variable_guard",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
 
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())

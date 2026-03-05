@@ -13,7 +13,26 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from _gate_framework import (
+    GateIssue,
+    Severity,
+    build_report_envelope,
+    get_remediation,
+    print_gate_summary,
+    register_remediations,
+)
 from _gate_utils import add_issue
+
+
+register_remediations({
+    "tuning_spec_missing": "Provide a valid tuning_protocol_spec JSON.",
+    "search_strategy_missing": "tuning_protocol_spec must declare a search_strategy (grid, random, bayesian, etc.).",
+    "cv_not_enabled": "Cross-validation must be enabled for publication-grade tuning.",
+    "cv_folds_too_low": "CV fold count is too low. Use at least 5 folds for robust tuning.",
+    "nested_cv_without_cv": "nested_cv model selection requires cv.enabled=true.",
+    "cv_inner_without_cv": "cv_inner model selection requires cv.enabled=true.",
+    "leakage_risk_refit_on_all": "Refitting on all data risks leakage. Use train+valid only.",
+})
 
 
 def parse_args() -> argparse.Namespace:
@@ -412,33 +431,50 @@ def finish(
     warnings: List[Dict[str, Any]],
     spec: Dict[str, Any],
 ) -> int:
+    from _gate_utils import get_gate_elapsed, write_json as _write_report
+
     should_fail = bool(failures) or (args.strict and bool(warnings))
-    report = {
-        "status": "fail" if should_fail else "pass",
-        "strict_mode": bool(args.strict),
+    status = "fail" if should_fail else "pass"
+
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
+    input_files = {
         "tuning_spec": str(Path(args.tuning_spec).expanduser().resolve()),
-        "failure_count": len(failures),
-        "warning_count": len(warnings),
-        "failures": failures,
-        "warnings": warnings,
-        "summary": {
+    }
+
+    report = build_report_envelope(
+        gate_name="tuning_leakage_gate",
+        status=status,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
+        summary={
             "fields_present": sorted(spec.keys()) if isinstance(spec, dict) else [],
             "has_valid_split": bool(args.has_valid_split),
         },
-    }
+        input_files=input_files,
+    )
 
     if args.report:
-        from _gate_utils import write_json as _write_report
         _write_report(Path(args.report).expanduser().resolve(), report)
 
-    print(f"Status: {report['status']}")
-    print(f"Failures: {len(failures)} | Warnings: {len(warnings)} | Strict: {args.strict}")
-    for issue in failures:
-        print(f"[FAIL] {issue['code']}: {issue['message']}")
-    for issue in warnings:
-        print(f"[WARN] {issue['code']}: {issue['message']}")
+    print_gate_summary(
+        gate_name="tuning_leakage_gate",
+        status=status,
+        failures=fi,
+        warnings=wi,
+        strict=bool(args.strict),
+        elapsed=get_gate_elapsed(),
+    )
+
     return 2 if should_fail else 0
 
 
 if __name__ == "__main__":
+    from _gate_utils import start_gate_timer
+    start_gate_timer()
     raise SystemExit(main())
