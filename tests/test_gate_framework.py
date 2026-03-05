@@ -1,6 +1,7 @@
 """Unit tests for scripts/_gate_framework.py core functions."""
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from _gate_framework import (
+    GateBase,
     GateIssue,
     Severity,
     build_report_envelope,
@@ -368,3 +370,250 @@ class TestLoadGateReport:
         p.write_text(json.dumps(report), encoding="utf-8")
         result = load_gate_report(p, "g")
         assert result["envelope_version"] == "2.0.0"
+
+
+# ────────────────────────────────────────────────────────
+# GateBase
+# ────────────────────────────────────────────────────────
+
+class _StubGate(GateBase):
+    """Minimal concrete GateBase for testing."""
+
+    gate_name = "stub_gate"
+    gate_version = "0.1.0"
+    input_file_args = ("--spec",)
+
+    def __init__(self, check_fn=None, summary_fn=None):
+        super().__init__()
+        self._check_fn = check_fn
+        self._summary_fn = summary_fn
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--spec", help="Spec file.")
+        parser.add_argument("--extra", help="Extra arg.")
+
+    def run_checks(self, args: argparse.Namespace) -> None:
+        if self._check_fn:
+            self._check_fn(self, args)
+
+    def build_summary(self, args: argparse.Namespace) -> Optional[Dict[str, Any]]:
+        if self._summary_fn:
+            return self._summary_fn(self, args)
+        return None
+
+
+class TestGateBase:
+    """Tests for the GateBase abstract class lifecycle."""
+
+    def test_add_failure(self):
+        gate = _StubGate()
+        gate.add_failure("code_a", "msg_a", {"k": 1})
+        assert len(gate._failures) == 1
+        issue = gate._failures[0]
+        assert issue.code == "code_a"
+        assert issue.message == "msg_a"
+        assert issue.details == {"k": 1}
+        assert issue.severity == Severity.ERROR
+
+    def test_add_warning(self):
+        gate = _StubGate()
+        gate.add_warning("code_w", "warn msg")
+        assert len(gate._warnings) == 1
+        issue = gate._warnings[0]
+        assert issue.code == "code_w"
+        assert issue.severity == Severity.WARNING
+
+    def test_add_failure_with_custom_severity(self):
+        gate = _StubGate()
+        gate.add_failure("crit_code", "critical msg", severity=Severity.CRITICAL)
+        assert gate._failures[0].severity == Severity.CRITICAL
+
+    def test_add_failure_with_remediation(self):
+        gate = _StubGate()
+        gate.add_failure("x", "m", remediation="do Y")
+        assert gate._failures[0].remediation == "do Y"
+
+    def test_add_failure_legacy(self):
+        gate = _StubGate()
+        bucket: List[Dict[str, Any]] = []
+        gate.add_failure_legacy(bucket, "lc", "legacy msg", {"d": 2})
+        assert len(bucket) == 1
+        assert bucket[0]["code"] == "lc"
+        assert len(gate._failures) == 1
+        assert gate._failures[0].code == "lc"
+
+    def test_add_warning_legacy(self):
+        gate = _StubGate()
+        bucket: List[Dict[str, Any]] = []
+        gate.add_warning_legacy(bucket, "wl", "warn legacy", {"d": 3})
+        assert len(bucket) == 1
+        assert len(gate._warnings) == 1
+        assert gate._warnings[0].code == "wl"
+
+    def test_create_parser(self):
+        gate = _StubGate()
+        parser = gate.create_parser()
+        args = parser.parse_args(["--report", "/tmp/r.json", "--spec", "/tmp/s.json"])
+        assert args.report == "/tmp/r.json"
+        assert args.spec == "/tmp/s.json"
+
+    def test_get_description(self):
+        gate = _StubGate()
+        assert "stub_gate" in gate.get_description()
+
+    def test_get_epilog_default_none(self):
+        gate = _StubGate()
+        assert gate.get_epilog() is None
+
+    def test_execute_pass_no_failures(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        gate = _StubGate()
+        rc = gate.execute(["--spec", str(spec), "--report", str(report_path)])
+        assert rc == 0
+
+        report = json.loads(report_path.read_text())
+        assert report["status"] == "pass"
+        assert report["gate_name"] == "stub_gate"
+        assert report["gate_version"] == "0.1.0"
+        assert report["envelope_version"] == REPORT_ENVELOPE_VERSION
+        assert report["failure_count"] == 0
+        assert report["warning_count"] == 0
+
+    def test_execute_fail_with_failures(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        def add_issue(gate, args):
+            gate.add_failure("test_fail", "something bad")
+
+        gate = _StubGate(check_fn=add_issue)
+        rc = gate.execute(["--spec", str(spec), "--report", str(report_path)])
+        assert rc == 2
+
+        report = json.loads(report_path.read_text())
+        assert report["status"] == "fail"
+        assert report["failure_count"] == 1
+        assert report["failures"][0]["code"] == "test_fail"
+
+    def test_execute_strict_mode_fail_on_warnings(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        def add_warn(gate, args):
+            gate.add_warning("test_warn", "something meh")
+
+        gate = _StubGate(check_fn=add_warn)
+        rc = gate.execute(["--spec", str(spec), "--report", str(report_path), "--strict"])
+        assert rc == 2
+
+        report = json.loads(report_path.read_text())
+        assert report["status"] == "fail"
+        assert report["strict_mode"] is True
+        assert report["warning_count"] == 1
+
+    def test_execute_non_strict_warnings_pass(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        def add_warn(gate, args):
+            gate.add_warning("test_warn", "not critical")
+
+        gate = _StubGate(check_fn=add_warn)
+        rc = gate.execute(["--spec", str(spec), "--report", str(report_path)])
+        assert rc == 0
+
+        report = json.loads(report_path.read_text())
+        assert report["status"] == "pass"
+        assert report["warning_count"] == 1
+
+    def test_execute_missing_spec_file(self, tmp_path):
+        report_path = tmp_path / "report.json"
+
+        gate = _StubGate()
+        rc = gate.execute(["--spec", str(tmp_path / "missing.json"), "--report", str(report_path)])
+        assert rc == 2
+
+        report = json.loads(report_path.read_text())
+        assert report["status"] == "fail"
+        assert any("missing" in f["code"] or "not_found" in f["code"] for f in report["failures"])
+
+    def test_execute_dry_run_pass(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+
+        gate = _StubGate()
+        rc = gate.execute(["--spec", str(spec), "--dry-run"])
+        assert rc == 0
+
+    def test_execute_dry_run_fail_missing_input(self, tmp_path):
+        gate = _StubGate()
+        rc = gate.execute(["--spec", str(tmp_path / "nope.json"), "--dry-run"])
+        assert rc == 2
+
+    def test_build_summary_included_in_report(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        def summary_fn(gate, args):
+            return {"metric": 0.95, "checked": True}
+
+        gate = _StubGate(summary_fn=summary_fn)
+        rc = gate.execute(["--spec", str(spec), "--report", str(report_path)])
+        assert rc == 0
+
+        report = json.loads(report_path.read_text())
+        assert report["summary"]["metric"] == 0.95
+        assert report["summary"]["checked"] is True
+
+    def test_input_files_in_report(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        gate = _StubGate()
+        rc = gate.execute(["--spec", str(spec), "--report", str(report_path)])
+        assert rc == 0
+
+        report = json.loads(report_path.read_text())
+        assert "input_files" in report
+        assert "spec" in report["input_files"]
+
+    def test_execute_no_report_file(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+
+        gate = _StubGate()
+        rc = gate.execute(["--spec", str(spec)])
+        assert rc == 0
+
+    def test_critical_file_issue_skips_run_checks(self, tmp_path):
+        report_path = tmp_path / "report.json"
+        check_called = []
+
+        def track_checks(gate, args):
+            check_called.append(True)
+
+        gate = _StubGate(check_fn=track_checks)
+        rc = gate.execute(["--spec", str(tmp_path / "missing.json"), "--report", str(report_path)])
+        assert rc == 2
+        assert len(check_called) == 0
+
+    def test_execution_timestamp_present(self, tmp_path):
+        spec = tmp_path / "spec.json"
+        spec.write_text("{}", encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        gate = _StubGate()
+        gate.execute(["--spec", str(spec), "--report", str(report_path)])
+
+        report = json.loads(report_path.read_text())
+        assert "execution_timestamp_utc" in report
+        assert "execution_time_seconds" in report
+        assert report["execution_time_seconds"] >= 0
