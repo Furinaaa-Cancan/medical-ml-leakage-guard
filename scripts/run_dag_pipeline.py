@@ -45,7 +45,7 @@ import subprocess
 import sys
 import time as _time
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from _gate_utils import (
     load_json_from_path as load_json,
@@ -62,7 +62,6 @@ from _gate_registry import (
     topological_sort,
     validate_dag,
 )
-from _gate_framework import Severity
 
 
 # ---------------------------------------------------------------------------

@@ -12,15 +12,22 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from _gate_utils import (
     add_issue,
+    add_timeout_argument,
     canonical_metric_token,
+    epoch_to_iso,
+    get_gate_elapsed,
+    inject_execution_time,
     is_finite_number,
     load_json,
     load_json_from_path,
     load_json_from_str,
     load_json_optional,
     resolve_path,
+    safe_ratio,
+    start_gate_timer,
     to_float,
     to_int,
+    try_parse_time,
     write_json,
 )
 
@@ -581,3 +588,173 @@ class TestToInt:
 
     def test_list(self):
         assert to_int([1]) is None
+
+
+# ────────────────────────────────────────────────────────
+# start_gate_timer / get_gate_elapsed
+# ────────────────────────────────────────────────────────
+
+class TestGateTimer:
+    def test_elapsed_returns_float(self):
+        import _gate_utils
+        _gate_utils._gate_start_time = None
+        assert get_gate_elapsed() == 0.0
+
+    def test_timer_round_trip(self):
+        import time
+        start_gate_timer()
+        time.sleep(0.05)
+        elapsed = get_gate_elapsed()
+        assert elapsed >= 0.04
+        assert elapsed < 2.0
+
+    def test_timer_not_started(self):
+        import _gate_utils
+        _gate_utils._gate_start_time = None
+        assert get_gate_elapsed() == 0.0
+
+
+# ────────────────────────────────────────────────────────
+# inject_execution_time
+# ────────────────────────────────────────────────────────
+
+class TestInjectExecutionTime:
+    def test_adds_key(self):
+        start_gate_timer()
+        report: dict = {"status": "pass"}
+        result = inject_execution_time(report)
+        assert "execution_time_seconds" in result
+        assert isinstance(result["execution_time_seconds"], float)
+        assert result is report  # mutates in place
+
+    def test_overwrites_existing(self):
+        start_gate_timer()
+        report = {"execution_time_seconds": -1}
+        inject_execution_time(report)
+        assert report["execution_time_seconds"] >= 0
+
+
+# ────────────────────────────────────────────────────────
+# add_timeout_argument
+# ────────────────────────────────────────────────────────
+
+class TestAddTimeoutArgument:
+    def test_adds_timeout_flag(self):
+        import argparse
+        parser = argparse.ArgumentParser()
+        add_timeout_argument(parser)
+        args = parser.parse_args([])
+        assert args.timeout == 0
+
+    def test_custom_timeout(self):
+        import argparse
+        parser = argparse.ArgumentParser()
+        add_timeout_argument(parser)
+        args = parser.parse_args(["--timeout", "30"])
+        assert args.timeout == 30
+
+    def test_negative_timeout(self):
+        import argparse
+        parser = argparse.ArgumentParser()
+        add_timeout_argument(parser)
+        args = parser.parse_args(["--timeout", "-1"])
+        assert args.timeout == -1
+
+
+# ────────────────────────────────────────────────────────
+# try_parse_time
+# ────────────────────────────────────────────────────────
+
+class TestTryParseTime:
+    def test_epoch_numeric(self):
+        result = try_parse_time("1704067200.0")
+        assert result == 1704067200.0
+
+    def test_epoch_int_string(self):
+        result = try_parse_time("1704067200")
+        assert result == 1704067200.0
+
+    def test_iso_date(self):
+        result = try_parse_time("2024-01-01")
+        assert result is not None
+        assert isinstance(result, float)
+
+    def test_iso_datetime(self):
+        result = try_parse_time("2024-01-01 12:00:00")
+        assert result is not None
+
+    def test_iso_with_z(self):
+        result = try_parse_time("2024-01-01T00:00:00Z")
+        assert result is not None
+
+    def test_slash_date(self):
+        result = try_parse_time("2024/01/01")
+        assert result is not None
+
+    def test_us_date_format(self):
+        result = try_parse_time("01/01/2024")
+        assert result is not None
+
+    def test_empty_string(self):
+        assert try_parse_time("") is None
+
+    def test_whitespace(self):
+        assert try_parse_time("   ") is None
+
+    def test_garbage(self):
+        assert try_parse_time("not_a_date") is None
+
+    def test_whitespace_padded(self):
+        result = try_parse_time("  2024-01-01  ")
+        assert result is not None
+
+
+# ────────────────────────────────────────────────────────
+# epoch_to_iso
+# ────────────────────────────────────────────────────────
+
+class TestEpochToIso:
+    def test_none(self):
+        assert epoch_to_iso(None) is None
+
+    def test_epoch_zero(self):
+        result = epoch_to_iso(0.0)
+        assert result == "1970-01-01T00:00:00Z"
+
+    def test_known_timestamp(self):
+        result = epoch_to_iso(1704067200.0)
+        assert result is not None
+        assert "2024-01-01" in result
+        assert result.endswith("Z")
+
+    def test_returns_string(self):
+        result = epoch_to_iso(1000000.0)
+        assert isinstance(result, str)
+        assert "Z" in result
+
+
+# ────────────────────────────────────────────────────────
+# safe_ratio
+# ────────────────────────────────────────────────────────
+
+class TestSafeRatio:
+    def test_normal(self):
+        assert safe_ratio(10, 5) == 2.0
+
+    def test_zero_denominator(self):
+        assert safe_ratio(10, 0) == 0.0
+
+    def test_negative_denominator(self):
+        assert safe_ratio(10, -5) == 0.0
+
+    def test_zero_numerator(self):
+        assert safe_ratio(0, 5) == 0.0
+
+    def test_float_result(self):
+        assert abs(safe_ratio(1, 3) - 1 / 3) < 1e-10
+
+    def test_both_zero(self):
+        assert safe_ratio(0, 0) == 0.0
+
+    def test_large_values(self):
+        assert safe_ratio(1e15, 1e10) == 1e5

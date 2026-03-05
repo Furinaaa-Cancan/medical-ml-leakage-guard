@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 
 # ---------------------------------------------------------------------------
