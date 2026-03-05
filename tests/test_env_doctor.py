@@ -122,3 +122,68 @@ class TestReportStructure:
         assert "warnings" in report
         assert "summary" in report
         assert "cpu_count" in report["summary"]
+
+
+# ── direct main() tests (for coverage) ──────────────────────────────────────
+
+from env_doctor import main as ed_main
+
+
+class TestEnvDoctorMain:
+    def test_basic_pass(self, tmp_path, monkeypatch):
+        report_path = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "env_doctor", "--report", str(report_path),
+        ])
+        rc = ed_main()
+        assert rc == 0
+        assert report_path.exists()
+        data = json.loads(report_path.read_text())
+        assert data["status"] == "pass"
+
+    def test_no_report_flag(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["env_doctor"])
+        rc = ed_main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Status: pass" in out
+
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        report_path = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "env_doctor", "--strict", "--report", str(report_path),
+        ])
+        rc = ed_main()
+        data = json.loads(report_path.read_text())
+        assert data["strict_mode"] is True
+        if data["warning_count"] > 0:
+            codes = [f["code"] for f in data["failures"]]
+            assert "strict_warning_promoted_to_failure" in codes
+            assert rc == 2
+        else:
+            assert rc == 0
+
+    def test_require_optional_missing(self, tmp_path, monkeypatch):
+        report_path = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "env_doctor",
+            "--require-optional-models", "tabpfn",
+            "--report", str(report_path),
+        ])
+        rc = ed_main()
+        data = json.loads(report_path.read_text())
+        opt = data["summary"]["optional_packages"]
+        if not opt.get("tabpfn", {}).get("installed", False):
+            assert rc == 2
+            codes = [f["code"] for f in data["failures"]]
+            assert "optional_backend_missing" in codes
+        else:
+            assert rc == 0
+
+    def test_output_format(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["env_doctor"])
+        ed_main()
+        out = capsys.readouterr().out
+        assert "Status:" in out
+        assert "Failures:" in out
+        assert "Warnings:" in out

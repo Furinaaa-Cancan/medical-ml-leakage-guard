@@ -363,3 +363,103 @@ class TestStrictMode:
         spec_path.write_text(json.dumps(spec))
         report = _run_gate(spec_path, tmp_path / "report.json", strict=True)
         assert report["strict_mode"] is True
+
+
+# ── direct main() tests (for coverage) ──────────────────────────────────────
+
+from reporting_bias_gate import main as rbg_main
+
+
+class TestReportingBiasMain:
+    def _write_spec(self, tmp_path, spec):
+        p = tmp_path / "checklist.json"
+        p.write_text(json.dumps(spec), encoding="utf-8")
+        return p
+
+    def test_full_pass(self, tmp_path, monkeypatch):
+        spec_path = self._write_spec(tmp_path, _make_full_checklist())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path), "--report", str(rpt),
+        ])
+        rc = rbg_main()
+        assert rc == 0
+        data = json.loads(rpt.read_text())
+        assert data["status"] == "pass"
+
+    def test_missing_file_returns_2(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(tmp_path / "nope.json"), "--report", str(rpt),
+        ])
+        rc = rbg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        assert data["status"] == "fail"
+
+    def test_tripod_failure(self, tmp_path, monkeypatch):
+        spec = _make_full_checklist()
+        spec["tripod_ai"]["title_identifies_prediction_model"] = False
+        spec_path = self._write_spec(tmp_path, spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path), "--report", str(rpt),
+        ])
+        rc = rbg_main()
+        assert rc == 2
+
+    def test_stard_applicable_true_all_pass(self, tmp_path, monkeypatch):
+        spec = _make_full_checklist()
+        spec["stard_ai"]["applicable"] = True
+        for k in rbg.STARD_REQUIRED_TRUE:
+            spec["stard_ai"][k] = True
+        spec_path = self._write_spec(tmp_path, spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path), "--report", str(rpt),
+        ])
+        rc = rbg_main()
+        assert rc == 0
+
+    def test_bias_not_low_fails(self, tmp_path, monkeypatch):
+        spec = _make_full_checklist()
+        spec["overall_risk_of_bias"] = "high"
+        spec_path = self._write_spec(tmp_path, spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path), "--report", str(rpt),
+        ])
+        rc = rbg_main()
+        assert rc == 2
+
+    def test_claim_preliminary_fails(self, tmp_path, monkeypatch):
+        spec = _make_full_checklist()
+        spec["claim_level"] = "preliminary"
+        spec_path = self._write_spec(tmp_path, spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path), "--report", str(rpt),
+        ])
+        rc = rbg_main()
+        assert rc == 2
+
+    def test_no_report_flag(self, tmp_path, monkeypatch, capsys):
+        spec_path = self._write_spec(tmp_path, _make_full_checklist())
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path),
+        ])
+        rc = rbg_main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "PASS" in out or "pass" in out.lower()
+
+    def test_strict_mode_direct(self, tmp_path, monkeypatch):
+        spec_path = self._write_spec(tmp_path, _make_full_checklist())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rbg", "--checklist-spec", str(spec_path), "--report", str(rpt), "--strict",
+        ])
+        rc = rbg_main()
+        assert rc == 0
+        data = json.loads(rpt.read_text())
+        assert data["strict_mode"] is True
