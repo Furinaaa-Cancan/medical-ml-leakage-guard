@@ -20,6 +20,7 @@ from compare_runs import (
     _extract_status,
     _load_report,
     compare,
+    main as compare_main,
     to_markdown,
 )
 
@@ -300,3 +301,90 @@ class TestToMarkdown:
         md = to_markdown(result)
         assert "## Resolved Failure Codes" in md
         assert "`split_not_frozen`" in md
+
+
+# ── main() CLI ───────────────────────────────────────────────
+
+
+class TestCompareRunsMain:
+    def test_missing_baseline_returns_1(self, tmp_path, monkeypatch):
+        cand = tmp_path / "cand"
+        cand.mkdir()
+        monkeypatch.setattr("sys.argv", [
+            "compare", "--baseline", str(tmp_path / "nope"), "--candidate", str(cand),
+        ])
+        assert compare_main() == 1
+
+    def test_missing_candidate_returns_1(self, tmp_path, monkeypatch):
+        base = tmp_path / "base"
+        base.mkdir()
+        monkeypatch.setattr("sys.argv", [
+            "compare", "--baseline", str(base), "--candidate", str(tmp_path / "nope"),
+        ])
+        assert compare_main() == 1
+
+    def test_basic_run_prints_markdown(self, tmp_path, monkeypatch, capsys):
+        base = tmp_path / "base"
+        cand = tmp_path / "cand"
+        base.mkdir()
+        cand.mkdir()
+        monkeypatch.setattr("sys.argv", [
+            "compare", "--baseline", str(base), "--candidate", str(cand),
+        ])
+        rc = compare_main()
+        assert rc == 0
+        assert "# Run Comparison Report" in capsys.readouterr().out
+
+    def test_json_output_flag(self, tmp_path, monkeypatch):
+        base = tmp_path / "base"
+        cand = tmp_path / "cand"
+        base.mkdir()
+        cand.mkdir()
+        out = tmp_path / "result.json"
+        monkeypatch.setattr("sys.argv", [
+            "compare", "--baseline", str(base), "--candidate", str(cand),
+            "--output", str(out),
+        ])
+        rc = compare_main()
+        assert rc == 0
+        assert out.exists()
+        data = json.loads(out.read_text())
+        assert data["schema_version"] == "v1.0"
+
+    def test_markdown_output_flag(self, tmp_path, monkeypatch):
+        base = tmp_path / "base"
+        cand = tmp_path / "cand"
+        base.mkdir()
+        cand.mkdir()
+        md_out = tmp_path / "diff.md"
+        monkeypatch.setattr("sys.argv", [
+            "compare", "--baseline", str(base), "--candidate", str(cand),
+            "--markdown", str(md_out),
+        ])
+        rc = compare_main()
+        assert rc == 0
+        assert md_out.exists()
+        assert "# Run Comparison Report" in md_out.read_text()
+
+    def test_full_run_with_reports(self, tmp_path, monkeypatch):
+        base = tmp_path / "base"
+        cand = tmp_path / "cand"
+        base.mkdir()
+        cand.mkdir()
+        (base / "leakage_report.json").write_text(
+            json.dumps({"status": "fail", "issues": [{"code": "patient_overlap", "message": "m"}]}),
+            encoding="utf-8",
+        )
+        (cand / "leakage_report.json").write_text(
+            json.dumps({"status": "pass", "issues": []}), encoding="utf-8",
+        )
+        out = tmp_path / "result.json"
+        monkeypatch.setattr("sys.argv", [
+            "compare", "--baseline", str(base), "--candidate", str(cand),
+            "--output", str(out),
+        ])
+        rc = compare_main()
+        assert rc == 0
+        data = json.loads(out.read_text())
+        assert data["summary"]["gates_changed"] >= 1
+        assert data["summary"]["resolved_failures"] >= 1

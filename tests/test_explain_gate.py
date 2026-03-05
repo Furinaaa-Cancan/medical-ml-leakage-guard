@@ -12,7 +12,9 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from explain_gate import explain_code, explain_report
+import json
+
+from explain_gate import explain_code, explain_report, main as explain_main
 
 
 # ── explain_code ──────────────────────────────────────────────
@@ -201,3 +203,77 @@ class TestExplainReport:
         result = explain_report(report, "en")
         assert result["issue_count"] == 1
         assert "Unknown" in result["explanations"][0]["explanation"]
+
+
+# ── main() CLI ────────────────────────────────────────────────
+
+
+class TestExplainGateMain:
+    def test_missing_report_returns_1(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(tmp_path / "nope.json")])
+        assert explain_main() == 1
+
+    def test_invalid_json_returns_1(self, tmp_path, monkeypatch):
+        bad = tmp_path / "bad.json"
+        bad.write_text("{invalid", encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(bad)])
+        assert explain_main() == 1
+
+    def test_non_dict_json_returns_1(self, tmp_path, monkeypatch):
+        arr = tmp_path / "arr.json"
+        arr.write_text("[1,2]", encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(arr)])
+        assert explain_main() == 1
+
+    def test_pass_report_returns_0(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        rpt.write_text(json.dumps({"status": "pass", "gate": "test", "issues": []}), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(rpt)])
+        assert explain_main() == 0
+
+    def test_fail_report_returns_1(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        rpt.write_text(json.dumps({
+            "status": "fail", "gate": "leakage",
+            "issues": [{"code": "patient_overlap", "message": "overlap"}],
+        }), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(rpt)])
+        assert explain_main() == 1
+
+    def test_json_output_flag(self, tmp_path, monkeypatch, capsys):
+        rpt = tmp_path / "rpt.json"
+        rpt.write_text(json.dumps({
+            "status": "fail", "gate": "test",
+            "issues": [{"code": "leakage", "message": "m"}],
+        }), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(rpt), "--json"])
+        explain_main()
+        output = capsys.readouterr().out
+        parsed = json.loads(output)
+        assert parsed["gate"] == "test"
+        assert parsed["issue_count"] == 1
+
+    def test_zh_lang_flag(self, tmp_path, monkeypatch, capsys):
+        rpt = tmp_path / "rpt.json"
+        rpt.write_text(json.dumps({
+            "status": "fail", "gate": "test",
+            "issues": [{"code": "patient_overlap", "message": "m"}],
+        }), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(rpt), "--lang", "zh", "--json"])
+        explain_main()
+        output = capsys.readouterr().out
+        parsed = json.loads(output)
+        assert "患者" in parsed["explanations"][0]["explanation"]
+
+    def test_text_output_format(self, tmp_path, monkeypatch, capsys):
+        rpt = tmp_path / "rpt.json"
+        rpt.write_text(json.dumps({
+            "status": "fail", "gate": "leakage",
+            "issues": [{"code": "row_overlap", "message": "3 dups"}],
+        }), encoding="utf-8")
+        monkeypatch.setattr("sys.argv", ["explain", "--report", str(rpt)])
+        explain_main()
+        output = capsys.readouterr().out
+        assert "Gate: leakage" in output
+        assert "row_overlap" in output
+        assert "Fix:" in output
