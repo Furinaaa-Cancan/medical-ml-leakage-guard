@@ -8,6 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Evidence Health Check Tool** (`report_health_check.py`)
+  - Scans all 28 gate reports in an evidence directory
+  - Produces completeness percentage, pass rate, per-gate status table
+  - Top failure codes across all gates with counts
+  - Actionable recommendations (missing gates, failing gates, publication-ready)
+  - Supports `--json` for machine-readable output and `--output` for file output
+  - 21 comprehensive unit tests
+
+### Changed
+
+- **Code Quality Cleanup**
+  - Removed 33 unused imports (F401) and 9 unused variables (F841) across 39 files
+  - Fixed F811 duplicate class names in test files
+  - All `ruff check` passes with zero errors
+
+### Tests
+
+- **55 new tests across 8 files**
+  - `test_report_health_check.py`: 21 tests (new tool)
+  - `test_explain_gate.py`: 8 tests for `main()` CLI paths
+  - `test_compare_runs.py`: 6 tests for `main()` CLI paths
+  - `test_env_doctor.py`: 5 direct `main()` tests (replacing subprocess-only coverage)
+  - `test_reporting_bias_gate.py`: 8 direct `main()` tests
+  - `test_split_protocol_gate.py`: 7 direct `main()` tests
+  - `test_gate_framework.py`: extended coverage for `wrap_legacy_report`, `load_gate_report`, `format_issue_line`
+  - `test_gate_utils.py`: `install_gate_timeout` zero/negative/positive tests
+  - `test_visualize_results.py`: trace-not-found warning, calibration ValueError tests
+
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
   - Contributing guide (`CONTRIBUTING.md`) (#72)
