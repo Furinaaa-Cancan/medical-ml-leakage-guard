@@ -207,3 +207,25 @@ class TestMain:
         rc = viz.main()
         assert rc == 0
         assert not (out_dir / "roc_curve.png").exists()
+
+    def test_trace_file_not_found_warns(self, tmp_path, monkeypatch, capsys):
+        report_path = _make_report(tmp_path)
+        out_dir = tmp_path / "plots"
+        monkeypatch.setattr(
+            "sys.argv",
+            ["viz", "--evaluation-report", str(report_path),
+             "--prediction-trace", str(tmp_path / "nonexistent.csv"),
+             "--output-dir", str(out_dir)],
+        )
+        rc = viz.main()
+        assert rc == 0
+        assert "WARN" in capsys.readouterr().out
+
+    def test_calibration_valueerror_skips(self, tmp_path, capsys):
+        y_true = np.array([0, 1])
+        y_score = np.array([0.0, 1.0])
+        viz.plot_calibration(y_true, y_score, tmp_path, dpi=72)
+        out = capsys.readouterr().out
+        has_skip = "SKIP" in out
+        has_file = (tmp_path / "calibration_curve.png").exists()
+        assert has_skip or has_file

@@ -875,3 +875,31 @@ class TestMetricPanel:
         p = np.array([1, 0])
         metrics, _ = metric_panel(y, s, p, beta=2.0)
         assert metrics["brier"] < 0.01
+
+
+# ────────────────────────────────────────────────────────
+# install_gate_timeout
+# ────────────────────────────────────────────────────────
+
+class TestInstallGateTimeout:
+    def test_zero_timeout_is_noop(self):
+        from _gate_utils import install_gate_timeout
+        install_gate_timeout(0, None, "test_gate")
+
+    def test_negative_timeout_is_noop(self):
+        from _gate_utils import install_gate_timeout
+        install_gate_timeout(-1, None, "test_gate")
+
+    def test_positive_timeout_installs_alarm(self):
+        import signal
+        from _gate_utils import install_gate_timeout
+        if not hasattr(signal, "SIGALRM"):
+            pytest.skip("SIGALRM not available on this platform")
+        old_handler = signal.getsignal(signal.SIGALRM)
+        try:
+            install_gate_timeout(9999, None, "test_gate")
+            new_handler = signal.getsignal(signal.SIGALRM)
+            assert new_handler is not old_handler
+            signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, old_handler if callable(old_handler) else signal.SIG_DFL)

@@ -615,3 +615,139 @@ class TestGateBase:
         assert "execution_timestamp_utc" in report
         assert "execution_time_seconds" in report
         assert report["execution_time_seconds"] >= 0
+
+
+# ────────────────────────────────────────────────────────
+# wrap_legacy_report — uncovered paths
+# ────────────────────────────────────────────────────────
+
+class TestWrapLegacyReportExtended:
+    def test_already_envelope_returned_unchanged(self):
+        envelope = {"envelope_version": "2.0.0", "gate_name": "test", "status": "pass"}
+        result = wrap_legacy_report("test_gate", envelope)
+        assert result is envelope
+
+    def test_legacy_with_failures_and_warnings(self):
+        legacy = {
+            "status": "fail",
+            "strict_mode": True,
+            "failures": [
+                {"code": "leak_found", "message": "ID overlap detected", "details": {"count": 3}},
+            ],
+            "warnings": [
+                {"code": "low_prevalence", "message": "Prevalence < 5%", "details": {}},
+            ],
+        }
+        result = wrap_legacy_report("leakage_gate", legacy)
+        assert result["envelope_version"] == REPORT_ENVELOPE_VERSION
+        assert result["gate_name"] == "leakage_gate"
+        assert result["status"] == "fail"
+        assert result["strict_mode"] is True
+        assert result["failure_count"] == 1
+        assert result["warning_count"] == 1
+        assert result["failures"][0]["code"] == "leak_found"
+        assert result["failures"][0]["severity"] == "error"
+        assert result["warnings"][0]["code"] == "low_prevalence"
+        assert result["warnings"][0]["severity"] == "warning"
+
+    def test_legacy_with_remediation_hint(self):
+        register_remediation("test_code_xyz", "Fix by doing XYZ.")
+        legacy = {
+            "status": "fail",
+            "failures": [{"code": "test_code_xyz", "message": "Something wrong"}],
+            "warnings": [{"code": "test_code_xyz", "message": "Also warning"}],
+        }
+        result = wrap_legacy_report("test_gate", legacy)
+        assert result["failures"][0]["remediation"] == "Fix by doing XYZ."
+        assert result["warnings"][0]["remediation"] == "Fix by doing XYZ."
+
+    def test_legacy_preserves_extra_keys(self):
+        legacy = {
+            "status": "pass",
+            "summary": {"metric": 0.9},
+            "quality_score": 95,
+            "recommendations": ["improve X"],
+            "actual_metric": 0.85,
+        }
+        result = wrap_legacy_report("test_gate", legacy)
+        assert result["summary"] == {"metric": 0.9}
+        assert result["quality_score"] == 95
+        assert result["recommendations"] == ["improve X"]
+        assert result["actual_metric"] == 0.85
+
+    def test_legacy_non_dict_items_ignored(self):
+        legacy = {
+            "status": "fail",
+            "failures": ["string_item", 42, {"code": "real_issue", "message": "ok"}],
+            "warnings": [None, {"code": "w1", "message": "warn"}],
+        }
+        result = wrap_legacy_report("test_gate", legacy)
+        assert result["failure_count"] == 1
+        assert result["warning_count"] == 1
+
+    def test_legacy_defaults(self):
+        legacy = {}
+        result = wrap_legacy_report("test_gate", legacy)
+        assert result["status"] == "unknown"
+        assert result["strict_mode"] is False
+        assert result["failure_count"] == 0
+        assert result["warning_count"] == 0
+        assert "execution_timestamp_utc" in result
+
+
+# ────────────────────────────────────────────────────────
+# load_gate_report
+# ────────────────────────────────────────────────────────
+
+class TestLoadGateReport:
+    def test_loads_and_wraps_legacy(self, tmp_path):
+        report_path = tmp_path / "report.json"
+        report_path.write_text(json.dumps({
+            "status": "pass",
+            "failures": [],
+            "warnings": [],
+        }), encoding="utf-8")
+        result = load_gate_report(report_path, "test_gate")
+        assert result["envelope_version"] == REPORT_ENVELOPE_VERSION
+        assert result["gate_name"] == "test_gate"
+        assert result["status"] == "pass"
+
+    def test_loads_envelope_format_unchanged(self, tmp_path):
+        envelope = {
+            "envelope_version": "2.0.0",
+            "gate_name": "already_wrapped",
+            "status": "fail",
+        }
+        report_path = tmp_path / "report.json"
+        report_path.write_text(json.dumps(envelope), encoding="utf-8")
+        result = load_gate_report(report_path, "test_gate")
+        assert result["envelope_version"] == "2.0.0"
+        assert result["gate_name"] == "already_wrapped"
+
+
+# ────────────────────────────────────────────────────────
+# format_issue_line — color and plain output
+# ────────────────────────────────────────────────────────
+
+class TestFormatIssueLine:
+    def test_error_issue_contains_code_and_message(self):
+        issue = GateIssue(code="bad_input", severity=Severity.ERROR, message="File is invalid")
+        line = format_issue_line(issue)
+        assert "bad_input" in line
+        assert "File is invalid" in line
+
+    def test_warning_issue_formatted(self):
+        issue = GateIssue(code="low_n", severity=Severity.WARNING, message="Sample too small")
+        line = format_issue_line(issue)
+        assert "low_n" in line
+        assert "Sample too small" in line
+
+    def test_details_appended(self):
+        issue = GateIssue(
+            code="threshold_exceeded",
+            severity=Severity.ERROR,
+            message="Over limit",
+            details={"value": 0.95, "threshold": 0.5},
+        )
+        line = format_issue_line(issue)
+        assert "threshold_exceeded" in line
