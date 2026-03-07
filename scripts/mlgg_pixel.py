@@ -203,6 +203,12 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_dermatology":{"en": "Dermatology", "zh": "\u76ae\u80a4\u75c5"},
     "ds_dermatology_d":{"en": "UCI Dermatology -- 366 patients, 34 features",
                         "zh": "UCI \u76ae\u80a4\u75c5 -- 366 \u4f8b, 34 \u7279\u5f81"},
+    "ds_pima":       {"en": "Pima Diabetes", "zh": "Pima \u7cd6\u5c3f\u75c5"},
+    "ds_pima_d":     {"en": "Pima Indians -- 768 patients, 8 features",
+                      "zh": "Pima \u5370\u7b2c\u5b89\u4eba -- 768 \u4f8b, 8 \u7279\u5f81"},
+    "ds_mammographic":{"en": "Mammographic Mass", "zh": "\u4e73\u8154\u80bf\u5757"},
+    "ds_mammographic_d":{"en": "UCI Mammographic -- 961 patients, 5 features",
+                         "zh": "UCI \u4e73\u8154\u80bf\u5757 -- 961 \u4f8b, 5 \u7279\u5f81"},
 
     "src_full":      {"en": "Full Publication-Grade Pipeline", "zh": "\u5b8c\u6574\u51fa\u7248\u7ea7\u7ba1\u7ebf"},
     "src_full_d":    {"en": "28-gate strict pipeline with all specs",
@@ -1838,6 +1844,8 @@ PLAY_DOWNLOAD_DATASETS = [
     ("heart", "heart_disease", "ds_heart", "ds_heart_d"),
     ("breast", "breast_cancer", "ds_breast", "ds_breast_d"),
     ("ckd", "chronic_kidney_disease", "ds_kidney", "ds_kidney_d"),
+    ("pima", "pima_diabetes", "ds_pima", "ds_pima_d"),
+    ("mammographic", "mammographic_mass", "ds_mammographic", "ds_mammographic_d"),
 ]
 
 

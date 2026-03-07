@@ -53,6 +53,8 @@ URLS = {
     "spect": "https://archive.ics.uci.edu/ml/machine-learning-databases/spect/SPECT.train",
     "spect_test": "https://archive.ics.uci.edu/ml/machine-learning-databases/spect/SPECT.test",
     "dermatology": "https://archive.ics.uci.edu/ml/machine-learning-databases/dermatology/dermatology.data",
+    "pima": "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
+    "mammographic": "https://archive.ics.uci.edu/ml/machine-learning-databases/mammographic-masses/mammographic_masses.data",
 }
 
 
@@ -430,6 +432,75 @@ def prepare_dermatology(output: Path) -> None:
     print(f"  Rows: {len(df)} | Positive (psoriasis): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
 
 
+def prepare_pima(output: Path) -> None:
+    """Pima Indians Diabetes — 768 patients, 8 features."""
+    print("\n=== Pima Indians Diabetes ===")
+    print("  Source: https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database")
+    print("  Rows: 768 | Features: 8 | Task: predict diabetes onset")
+
+    raw_path = output.parent / ".pima_raw.csv"
+    download_file(URLS["pima"], raw_path)
+
+    columns = [
+        "pregnancies", "glucose", "blood_pressure", "skin_thickness",
+        "insulin", "bmi", "diabetes_pedigree", "age", "y",
+    ]
+    df = pd.read_csv(raw_path, header=None, names=columns)
+
+    # Replace biologically impossible zeros with NaN for certain columns
+    for col in ["glucose", "blood_pressure", "skin_thickness", "insulin", "bmi"]:
+        df.loc[df[col] == 0, col] = np.nan
+
+    df = add_patient_id_and_time(df, seed=48)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (diabetes): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
+
+
+def prepare_mammographic(output: Path) -> None:
+    """UCI Mammographic Mass — ~961 patients, 5 features."""
+    print("\n=== UCI Mammographic Mass ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/Mammographic+Mass")
+    print("  Rows: ~961 | Features: 5 | Task: predict malignancy of mammographic mass")
+
+    raw_path = output.parent / ".mammographic_raw.data"
+    download_file(URLS["mammographic"], raw_path)
+
+    columns = ["bi_rads", "age", "shape", "margin", "density", "severity"]
+    df = pd.read_csv(raw_path, header=None, names=columns, na_values="?")
+
+    # Binary target: severity (0=benign, 1=malignant)
+    df["y"] = df["severity"].astype(float)
+    df = df.drop(columns=["severity"])
+
+    # Convert all to numeric
+    for col in df.columns:
+        if col != "y":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["y"]).reset_index(drop=True)
+    df["y"] = df["y"].astype(int)
+
+    df = add_patient_id_and_time(df, seed=49)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (malignant): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Download and prepare real UCI medical datasets for ml-leakage-guard pipeline.",
@@ -438,8 +509,8 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "all"],
-        help="Which dataset to prepare: heart, breast, ckd, hepatitis, spect, dermatology, or all.",
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "all"],
+        help="Which dataset to prepare: heart, breast, ckd, hepatitis, spect, dermatology, pima, mammographic, or all.",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
     args = parser.parse_args()
@@ -454,6 +525,8 @@ def main() -> int:
         "hepatitis": ("hepatitis.csv", prepare_hepatitis),
         "spect": ("spect_heart.csv", prepare_spect),
         "dermatology": ("dermatology.csv", prepare_dermatology),
+        "pima": ("pima_diabetes.csv", prepare_pima),
+        "mammographic": ("mammographic_mass.csv", prepare_mammographic),
     }
 
     if args.dataset == "all":
