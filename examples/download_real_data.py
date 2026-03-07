@@ -58,6 +58,9 @@ URLS = {
     "mammographic": "https://archive.ics.uci.edu/ml/machine-learning-databases/mammographic-masses/mammographic_masses.data",
     "framingham": "https://raw.githubusercontent.com/GauravPadawe/Framingham-Heart-Study/master/framingham.csv",
     "diabetes130_zip": "https://archive.ics.uci.edu/ml/machine-learning-databases/00296/dataset_diabetes.zip",
+    "thyroid_train": "https://archive.ics.uci.edu/ml/machine-learning-databases/thyroid-disease/ann-train.data",
+    "thyroid_test": "https://archive.ics.uci.edu/ml/machine-learning-databases/thyroid-disease/ann-test.data",
+    "eeg_eye": "https://archive.ics.uci.edu/ml/machine-learning-databases/00264/EEG%20Eye%20State.arff",
 }
 
 
@@ -504,6 +507,94 @@ def prepare_mammographic(output: Path) -> None:
     print(f"  Rows: {len(df)} | Positive (malignant): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
 
 
+def prepare_thyroid(output: Path) -> None:
+    """UCI Thyroid Disease (ANN) — 7,200 patients, 21 features."""
+    print("\n=== UCI Thyroid Disease (ANN) ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/thyroid+disease")
+    print("  Rows: ~7,200 | Features: 21 | Task: predict thyroid dysfunction")
+
+    dfs = []
+    for part, url_key in [("train", "thyroid_train"), ("test", "thyroid_test")]:
+        raw_path = output.parent / f".thyroid_{part}_raw.data"
+        download_file(URLS[url_key], raw_path)
+        df = pd.read_csv(raw_path, sep=r"\s+", header=None)
+        dfs.append(df)
+        if raw_path.exists():
+            raw_path.unlink()
+
+    df = pd.concat(dfs, ignore_index=True)
+    # 22 columns: 21 features + 1 target (last column)
+    # Target: 1=normal, 2=hyperthyroid, 3=hypothyroid → binary: 1=normal(0), 2/3=abnormal(1)
+    target_col_idx = df.shape[1] - 1
+    feature_cols_raw = [f"thyroid_f{i}" for i in range(target_col_idx)]
+    df.columns = feature_cols_raw + ["_target"]
+    # Target: 1=normal, 2=hyperthyroid, 3=hypothyroid
+    # Use hyperthyroid (class 2) as positive class — rare condition (~2.3%)
+    df["y"] = (df["_target"] == 2).astype(int)
+    df = df.drop(columns=["_target"])
+
+    df = add_patient_id_and_time(df, seed=53)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (abnormal): {pos} ({pos/len(df)*100:.1f}%) | Negative (normal): {neg}")
+
+
+def prepare_eeg_eye(output: Path) -> None:
+    """UCI EEG Eye State — 14,980 observations, 14 EEG features."""
+    print("\n=== UCI EEG Eye State ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/EEG+Eye+State")
+    print("  Rows: ~14,980 | Features: 14 | Task: predict eye state (open/closed) from EEG")
+
+    raw_path = output.parent / ".eeg_eye_raw.arff"
+    download_file(URLS["eeg_eye"], raw_path)
+
+    # Parse ARFF
+    columns: List[str] = []
+    data_lines: List[str] = []
+    in_data = False
+    with open(raw_path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if line.lower().startswith("@attribute"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    columns.append(parts[1].strip("'\""))
+            elif line.lower() == "@data":
+                in_data = True
+            elif in_data and line and not line.startswith("%"):
+                data_lines.append(line)
+
+    csv_text = "\n".join(data_lines)
+    df = pd.read_csv(io.StringIO(csv_text), header=None, names=columns)
+
+    # Last column is eyeDetection (0=open, 1=closed)
+    target_col_name = columns[-1]
+    df = df.rename(columns={target_col_name: "y"})
+    df["y"] = df["y"].astype(int)
+
+    # Rename EEG channels to cleaner names
+    eeg_cols = [c for c in df.columns if c != "y"]
+    rename_map = {old: f"eeg_{i+1}" for i, old in enumerate(eeg_cols)}
+    df = df.rename(columns=rename_map)
+
+    df = add_patient_id_and_time(df, seed=54)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (eye closed): {pos} ({pos/len(df)*100:.1f}%) | Negative (eye open): {neg}")
+
+
 def prepare_framingham(output: Path) -> None:
     """Framingham Heart Study — 4,240 patients, 15 clinical features."""
     print("\n=== Framingham Heart Study ===")
@@ -687,7 +778,7 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "framingham", "diabetes130", "all"],
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "thyroid", "eeg_eye", "framingham", "diabetes130", "all"],
         help="Dataset to prepare. framingham=4240 rows, diabetes130=10K subsample of 101K real hospital records.",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
@@ -705,6 +796,8 @@ def main() -> int:
         "dermatology": ("dermatology.csv", prepare_dermatology),
         "pima": ("pima_diabetes.csv", prepare_pima),
         "mammographic": ("mammographic_mass.csv", prepare_mammographic),
+        "thyroid": ("thyroid_disease.csv", prepare_thyroid),
+        "eeg_eye": ("eeg_eye_state.csv", prepare_eeg_eye),
         "framingham": ("framingham_heart.csv", prepare_framingham),
         "diabetes130": ("diabetes130_readmission.csv", lambda o: prepare_diabetes130(o, max_rows=10000)),
     }
