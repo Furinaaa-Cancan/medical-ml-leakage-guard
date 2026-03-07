@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **4 New Model Families** (all sklearn built-in, no extra dependencies)
+  - K-Nearest Neighbors (KNN) — 20 hyperparameter configs
+  - Gaussian Naive Bayes — 5 configs
+  - Decision Tree — 45 configs
+  - MLP Neural Network — 24 configs, early stopping
+  - Updated balanced preset (10 families) and comprehensive preset (16 families)
+  - Total model pool: 20 families (was 16)
+
+- **8 Real Medical Datasets** (auto-download in play mode)
+  - Heart Disease (UCI, 297 rows), Breast Cancer (UCI, 569), Pima Diabetes (768)
+  - Mammographic Mass (UCI, 961), Framingham Heart Study (4,240)
+  - Thyroid Disease (UCI, 7,200), EEG Eye State (UCI, 14,980)
+  - Diabetes 130 US Hospitals (UCI, 10,000 subsample of 101K)
+
+- **Feature Count Safety Warnings** in play mode feature selection
+  - Extreme warning (features >= rows): blocks selection
+  - High warning (EPV < 5): shows overfitting risk estimate
+
+- **5 More Friendly Error Patterns** for play mode UX
+  - candidate_pool_too_small, MemoryError, ConvergenceWarning, ValueError, timeout
+
 - **Remediation Plan Generator** (`remediation_plan.py`)
   - Scans all gate reports in an evidence directory, collects failures and warnings
   - Groups by root cause category (data, leakage, protocol, model, robustness, attestation, publication)
@@ -85,7 +106,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **430 new tests across 30 files**
+- **448 new tests across 30 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -121,6 +142,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_tuning_leakage_gate.py`: 10 direct `main()` tests (pass, missing/corrupt spec, test usage, unsupported search, invalid scope, seed not controlled, no valid split, cv group mismatch, strict)
   - `test_init_project.py`: 6 direct `main()` tests (basic init, custom fields, preserve, auto run_id, dirs, all templates)
   - `test_publication_gate.py`: 5 direct `main()` tests (attestation missing summary/policy/witness/role, manifest missing files)
+  - `test_evaluation_quality_gate.py`: +8 more tests (CI matrix enrichment/missing/failed, insufficient resamples, baseline delta, CI bounds invalid, metric outside CI, loss metric)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
