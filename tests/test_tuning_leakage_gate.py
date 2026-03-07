@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import tuning_leakage_gate as tlg
 from tuning_leakage_gate import (
     contains_test_token,
     require_bool,
@@ -406,3 +407,167 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         warn_codes = [w["code"] for w in report["warnings"]]
         assert "nested_cv_overconfigured" in warn_codes
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        spec_path = _write_json(tmp_path / "spec.json", _good_spec())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--id-col", "patient_id",
+            "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainDirectMissingSpec:
+    def test_missing(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(tmp_path / "nope.json"),
+            "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_tuning_spec" in codes
+
+
+class TestMainDirectCorruptSpec:
+    def test_corrupt(self, tmp_path, monkeypatch):
+        p = tmp_path / "spec.json"
+        p.write_text("{bad", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(p), "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_tuning_spec" in codes
+
+
+class TestMainDirectTestUsage:
+    def test_explicit_test_usage(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["test_used_for_model_selection"] = True
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "explicit_test_usage" in codes
+
+
+class TestMainDirectUnsupportedSearch:
+    def test_bad_search_method(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["search_method"] = "ad_hoc_custom"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "unsupported_search_method" in codes
+
+
+class TestMainDirectInvalidScope:
+    def test_bad_preprocessing_scope(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["preprocessing_fit_scope"] = "all_data"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_scope" in codes
+
+
+class TestMainDirectSeedNotControlled:
+    def test_seed_not_controlled(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["random_seed_controlled"] = False
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "seed_not_controlled" in codes
+
+
+class TestMainDirectNoValidSplit:
+    def test_no_valid_split(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "valid_model_selection_without_valid_split" in codes
+
+
+class TestMainDirectCvGroupColMismatch:
+    def test_group_col_mismatch(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--id-col", "subject_id",
+            "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "cv_group_col_mismatch" in codes
+
+
+class TestMainDirectStrict:
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["model_selection_data"] = "cv_inner"
+        spec["cv"]["nested"] = True
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt), "--strict",
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        assert out["strict_mode"] is True
