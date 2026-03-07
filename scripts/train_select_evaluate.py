@@ -69,7 +69,9 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
-from sklearn.neighbors import NearestNeighbors
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier, NearestNeighbors
+from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -1723,6 +1725,35 @@ def _family_grid(family: str) -> List[Dict[str, Any]]:
                 ["scale", "auto", 0.01, 0.001],
             )
         ]
+    if family == "knn":
+        return [
+            {"n_neighbors": k, "weights": w, "metric": m}
+            for k, w, m in product(
+                [3, 5, 7, 11, 15],
+                ["uniform", "distance"],
+                ["euclidean", "manhattan"],
+            )
+        ]
+    if family == "gaussian_nb":
+        return [{"var_smoothing": vs} for vs in [1e-9, 1e-8, 1e-7, 1e-6, 1e-5]]
+    if family == "decision_tree":
+        return [
+            {"max_depth": md, "min_samples_split": mss, "min_samples_leaf": msl}
+            for md, mss, msl in product(
+                [3, 5, 7, 10, None],
+                [10, 20, 40],
+                [5, 10, 20],
+            )
+        ]
+    if family == "mlp":
+        return [
+            {"hidden_layer_sizes": hls, "alpha": alpha, "learning_rate_init": lr}
+            for hls, alpha, lr in product(
+                [(64,), (128,), (64, 32), (128, 64)],
+                [0.001, 0.01, 0.1],
+                [0.001, 0.01],
+            )
+        ]
     if family == "tabpfn":
         return [{"N_ensemble_configurations": 16}]
     raise ValueError(f"Unsupported family: {family}")
@@ -1738,19 +1769,23 @@ def _family_base_complexity(family: str) -> int:
         Integer complexity rank (lower = simpler).
     """
     order = {
-        "logistic_l1": 1,
-        "logistic_l2": 2,
-        "logistic_elasticnet": 3,
-        "svm_linear": 4,
-        "svm_rbf": 5,
-        "adaboost": 6,
-        "random_forest_balanced": 7,
-        "extra_trees_balanced": 8,
-        "hist_gradient_boosting_l2": 9,
-        "xgboost": 10,
-        "catboost": 11,
-        "lightgbm": 12,
-        "tabpfn": 13,
+        "gaussian_nb": 1,
+        "logistic_l1": 2,
+        "logistic_l2": 3,
+        "logistic_elasticnet": 4,
+        "knn": 5,
+        "decision_tree": 6,
+        "svm_linear": 7,
+        "svm_rbf": 8,
+        "adaboost": 9,
+        "random_forest_balanced": 10,
+        "extra_trees_balanced": 11,
+        "hist_gradient_boosting_l2": 12,
+        "mlp": 13,
+        "xgboost": 14,
+        "catboost": 15,
+        "lightgbm": 16,
+        "tabpfn": 17,
     }
     return int(order.get(family, 99))
 
@@ -1777,6 +1812,10 @@ def _family_friendly_name(family: str) -> str:
         "lightgbm": "lightgbm",
         "svm_linear": "svm",
         "svm_rbf": "svm",
+        "knn": "k_nearest_neighbors",
+        "gaussian_nb": "gaussian_naive_bayes",
+        "decision_tree": "decision_tree",
+        "mlp": "multilayer_perceptron",
         "tabpfn": "tabpfn",
     }
     return names.get(family, family)
@@ -2222,6 +2261,70 @@ def _build_estimator_for_family(
                         class_weight=class_weight,
                         random_state=seed,
                         max_iter=10000,
+                    ),
+                ),
+            ]
+        )
+    if family == "knn":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    KNeighborsClassifier(
+                        n_neighbors=int(params["n_neighbors"]),
+                        weights=str(params.get("weights", "uniform")),
+                        metric=str(params.get("metric", "euclidean")),
+                        n_jobs=n_jobs,
+                    ),
+                ),
+            ]
+        )
+    if family == "gaussian_nb":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    GaussianNB(
+                        var_smoothing=float(params.get("var_smoothing", 1e-9)),
+                    ),
+                ),
+            ]
+        )
+    if family == "decision_tree":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                (
+                    "clf",
+                    DecisionTreeClassifier(
+                        max_depth=params.get("max_depth"),
+                        min_samples_split=int(params.get("min_samples_split", 10)),
+                        min_samples_leaf=int(params.get("min_samples_leaf", 5)),
+                        class_weight=class_weight,
+                        random_state=seed,
+                    ),
+                ),
+            ]
+        )
+    if family == "mlp":
+        return Pipeline(
+            steps=[
+                ("imputer", imputer),
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    MLPClassifier(
+                        hidden_layer_sizes=params.get("hidden_layer_sizes", (64,)),
+                        alpha=float(params.get("alpha", 0.001)),
+                        learning_rate_init=float(params.get("learning_rate_init", 0.001)),
+                        max_iter=2000,
+                        early_stopping=True,
+                        validation_fraction=0.15,
+                        random_state=seed,
                     ),
                 ),
             ]
