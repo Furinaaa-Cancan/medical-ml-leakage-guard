@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import evaluation_quality_gate as eqg
 from evaluation_quality_gate import (
     canonical_metric_token,
     extract_baseline_metrics,
@@ -418,3 +419,147 @@ class TestCLI:
         assert result.returncode == 0
         report = json.loads((tmp_path / "report.json").read_text())
         assert report["summary"]["higher_is_better"] is False
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainDirectMissingEval:
+    def test_missing(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(tmp_path / "nope.json"),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_evaluation_report" in codes
+
+
+class TestMainDirectCorruptEval:
+    def test_corrupt(self, tmp_path, monkeypatch):
+        p = tmp_path / "eval.json"
+        p.write_text("{bad", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(p),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_evaluation_report" in codes
+
+
+class TestMainDirectMetricNotFound:
+    def test_not_found(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        del ev_data["metrics"]["roc_auc"]
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "primary_metric_not_found" in codes
+
+
+class TestMainDirectMetricMismatch:
+    def test_mismatch(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--primary-metric", "0.99",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "primary_metric_mismatch" in codes
+
+
+class TestMainDirectCIWidth:
+    def test_ci_too_wide(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        ev_data["metrics_ci"]["roc_auc"]["ci_95"] = [0.50, 0.95]
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--max-ci-width", "0.10",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "ci_width_exceeds_threshold" in codes
+
+
+class TestMainDirectMissingBaseline:
+    def test_no_baselines(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        del ev_data["baselines"]
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_baseline_metrics" in codes
+
+
+class TestMainDirectNonFinite:
+    def test_non_finite_in_artifact(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        ev_data["extra"] = float("inf")
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "non_finite_values_detected" in codes
+
+
+class TestMainDirectStrict:
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt), "--strict",
+        ])
+        rc = eqg.main()
+        out = json.loads(rpt.read_text())
+        assert out["strict_mode"] is True
