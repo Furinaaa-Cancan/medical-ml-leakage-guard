@@ -221,13 +221,6 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_diabetes130":{"en": "Diabetes 130 Hospitals", "zh": "\u7cd6\u5c3f\u75c5 130 \u533b\u9662"},
     "ds_diabetes130_d":{"en": "UCI 130 US Hospitals -- 10,000 patients, 17 features (real)",
                         "zh": "UCI 130 \u7f8e\u56fd\u533b\u9662 -- 10,000 \u4f8b, 17 \u7279\u5f81\uff08\u771f\u5b9e\u6570\u636e\uff09"},
-    "ds_synth5k":    {"en": "Synthetic 5K", "zh": "\u5408\u6210 5K"},
-    "ds_synth5k_d":  {"en": "Synthetic -- 5,000 patients, 15 features (no download needed)",
-                      "zh": "\u5408\u6210\u6570\u636e -- 5,000 \u4f8b, 15 \u7279\u5f81\uff08\u65e0\u9700\u4e0b\u8f7d\uff09"},
-    "ds_synth10k":   {"en": "Synthetic 10K", "zh": "\u5408\u6210 10K"},
-    "ds_synth10k_d": {"en": "Synthetic -- 10,000 patients, 15 features (no download needed)",
-                      "zh": "\u5408\u6210\u6570\u636e -- 10,000 \u4f8b, 15 \u7279\u5f81\uff08\u65e0\u9700\u4e0b\u8f7d\uff09"},
-
     "src_full":      {"en": "Full Publication-Grade Pipeline", "zh": "\u5b8c\u6574\u51fa\u7248\u7ea7\u7ba1\u7ebf"},
     "src_full_d":    {"en": "28-gate strict pipeline with all specs",
                       "zh": "28 \u5173 gate \u4e25\u683c\u7ba1\u7ebf\uff0c\u5305\u542b\u6240\u6709\u914d\u7f6e"},
