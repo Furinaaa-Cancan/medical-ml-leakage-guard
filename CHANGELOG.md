@@ -16,6 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Supports `--json`, `--markdown`, and plain text output with `--output` file option
   - 25 comprehensive unit tests
 
+- **Policy Generator** (`policy_generator.py`)
+  - Scans evidence reports and generates a recommended `performance_policy.json`
+  - Extracts observed metrics from evaluation, robustness, calibration, seed, and external reports
+  - Derives thresholds with configurable margin (default 15% headroom)
+  - Built-in presets: `lenient`, `standard`, `strict`
+  - Supports JSON and human-readable text output with `--output` file option
+  - 41 comprehensive unit tests (99% coverage)
+
 - **Threshold Sensitivity Analyzer** (`threshold_sensitivity.py`)
   - Scans gate reports and analyzes how close each metric sits to its pass/fail threshold
   - Identifies fragile gates (within configurable margin %)
@@ -56,7 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **187 new tests across 16 files**
+- **255 new tests across 18 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -74,6 +82,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_prediction_replay_gate.py`: 12 direct `main()` tests (pass, missing files, invalid JSON, columns, binary, scores, replay mismatch, strict)
   - `test_external_validation_gate.py`: 14 direct `main()` tests (pass, missing files, invalid JSON, cohorts, metrics, transport drop, strict, binary, scores)
   - `test_threshold_sensitivity.py`: 47 tests (new tool — helpers, extraction, classification, simulation, formatting, CLI)
+  - `test_schema_preflight.py`: 19 direct `main()` tests (pass, missing target, non-binary, null pids, single class, auto-mapping, strict, mapping-out, split and single-file modes)
+  - `test_export_latex.py`: 8 direct `main()` tests (eval-only, custom decimals, missing eval, model selection, external, CI matrix, all reports)
+  - `test_policy_generator.py`: 41 tests (new tool — helpers, extractors, derivation, presets, formatting, CLI)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
