@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import calibration_dca_gate as cdg
 from calibration_dca_gate import (
     build_threshold_grid,
     expected_calibration_error,
@@ -387,3 +388,125 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         codes = [f["code"] for f in report["failures"]]
         assert "calibration_insufficient_events" in codes
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectPass:
+    def test_pass_or_calibration_issue(self, tmp_path, monkeypatch):
+        setup = _make_full_setup(tmp_path, n=200)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "cdg",
+            "--prediction-trace", str(setup["trace"]),
+            "--evaluation-report", str(setup["eval"]),
+            "--external-validation-report", str(setup["ext"]),
+            "--report", str(rpt),
+        ])
+        rc = cdg.main()
+        assert rc in (0, 2)
+        out = json.loads(rpt.read_text())
+        assert "status" in out
+        assert "summary" in out
+
+
+class TestMainDirectMissingTrace:
+    def test_missing_trace_file(self, tmp_path, monkeypatch):
+        eval_path = _make_eval_report(tmp_path)
+        ext_path = _make_ext_report(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "cdg",
+            "--prediction-trace", str(tmp_path / "nope.csv"),
+            "--evaluation-report", str(eval_path),
+            "--external-validation-report", str(ext_path),
+            "--report", str(rpt),
+        ])
+        rc = cdg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        fail_codes = [f["code"] for f in out["failures"]]
+        assert "calibration_insufficient_events" in fail_codes
+
+
+class TestMainDirectMissingColumns:
+    def test_trace_missing_columns(self, tmp_path, monkeypatch):
+        trace_path = tmp_path / "trace.csv"
+        pd.DataFrame({"col_a": [1], "col_b": [2]}).to_csv(trace_path, index=False)
+        eval_path = _make_eval_report(tmp_path)
+        ext_path = _make_ext_report(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "cdg",
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--external-validation-report", str(ext_path),
+            "--report", str(rpt),
+        ])
+        rc = cdg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        fail_codes = [f["code"] for f in out["failures"]]
+        assert "calibration_insufficient_events" in fail_codes
+
+
+class TestMainDirectNonBinaryYTrue:
+    def test_non_binary_y_true_via_main(self, tmp_path, monkeypatch):
+        trace_path = tmp_path / "trace.csv"
+        pd.DataFrame({
+            "scope": ["test"] * 5,
+            "cohort_id": ["internal_test"] * 5,
+            "cohort_type": ["internal"] * 5,
+            "y_true": [0, 1, 2, 0, 1],
+            "y_score": [0.1, 0.9, 0.5, 0.2, 0.8],
+            "y_pred": [0, 1, 1, 0, 1],
+            "selected_threshold": [0.5] * 5,
+        }).to_csv(trace_path, index=False)
+        eval_path = _make_eval_report(tmp_path)
+        ext_path = _make_ext_report(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "cdg",
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--external-validation-report", str(ext_path),
+            "--report", str(rpt),
+        ])
+        rc = cdg.main()
+        assert rc == 2
+
+
+class TestMainDirectInsufficientRows:
+    def test_too_few_rows_via_main(self, tmp_path, monkeypatch):
+        setup = _make_full_setup(tmp_path, n=5)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "cdg",
+            "--prediction-trace", str(setup["trace"]),
+            "--evaluation-report", str(setup["eval"]),
+            "--external-validation-report", str(setup["ext"]),
+            "--report", str(rpt),
+        ])
+        rc = cdg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        fail_codes = [f["code"] for f in out["failures"]]
+        assert "calibration_insufficient_events" in fail_codes
+
+
+class TestMainDirectCorruptEvalJSON:
+    def test_corrupt_eval_json_via_main(self, tmp_path, monkeypatch):
+        trace_path = _make_trace(tmp_path, n=200)
+        eval_path = tmp_path / "evaluation_report.json"
+        eval_path.write_text("{bad", encoding="utf-8")
+        ext_path = _make_ext_report(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "cdg",
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--external-validation-report", str(ext_path),
+            "--report", str(rpt),
+        ])
+        rc = cdg.main()
+        assert rc == 2
