@@ -533,13 +533,13 @@ def main() -> None:
     """Start the local web UI server."""
     print("ML Leakage Guard Web UI (legacy local prototype)")
     print("Supported interactive entrypoint: python3 scripts/mlgg.py play")
-    print(f"Open http://127.0.0.1:8501 in your browser.")
-    print(f"Press Ctrl+C to stop.\n")
+    print("Open http://127.0.0.1:8501 in your browser.")
+    print("Press Ctrl+C to stop.\n")
     try:
         app.run(host="127.0.0.1", port=8501, debug=False, threaded=True)
     except OSError as exc:
         if "Address already in use" in str(exc):
-            print(f"Port 8501 is already in use. Try: lsof -i :8501", file=sys.stderr)
+            print("Port 8501 is already in use. Try: lsof -i :8501", file=sys.stderr)
         raise SystemExit(1)
 
 

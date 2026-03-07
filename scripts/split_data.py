@@ -906,7 +906,7 @@ def main() -> int:
     valid_summary = split_summary(valid_df, args.target_col, time_col, args.patient_id_col)
     test_summary = split_summary(test_df, args.target_col, time_col, args.patient_id_col)
 
-    print(f"\n[INFO] Split complete:")
+    print("\n[INFO] Split complete:")
     print(f"  Train: {train_path} ({train_summary['rows']} rows, {train_summary['patients']} patients, pos_rate={train_summary['positive_rate']:.3f})")
     print(f"  Valid: {valid_path} ({valid_summary['rows']} rows, {valid_summary['patients']} patients, pos_rate={valid_summary['positive_rate']:.3f})")
     print(f"  Test:  {test_path} ({test_summary['rows']} rows, {test_summary['patients']} patients, pos_rate={test_summary['positive_rate']:.3f})")
@@ -969,7 +969,7 @@ def main() -> int:
     write_json(report_path, report)
     print(f"  Report: {report_path}")
 
-    print(f"\nStatus: pass")
+    print("\nStatus: pass")
     return 0
 
 

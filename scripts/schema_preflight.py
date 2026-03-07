@@ -141,7 +141,7 @@ def run_single_file_preflight(
     try:
         df = load_split(csv_path)
     except Exception as exc:
-        add_issue(failures, "input_csv_read_failed", f"Unable to read input CSV.", {"error": str(exc), "path": csv_path})
+        add_issue(failures, "input_csv_read_failed", "Unable to read input CSV.", {"error": str(exc), "path": csv_path})
         return finish(args, failures, warnings, {}, None)
 
     columns = list(df.columns)

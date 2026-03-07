@@ -235,7 +235,7 @@ def main() -> int:
         return 1
 
     if not isinstance(report, dict):
-        print(f"Report is not a JSON object.", file=sys.stderr)
+        print("Report is not a JSON object.", file=sys.stderr)
         return 1
 
     result = explain_report(report, args.lang)

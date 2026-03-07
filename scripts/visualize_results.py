@@ -234,7 +234,7 @@ def main() -> int:
         print(f"Invalid JSON in evaluation report: {exc}", file=sys.stderr)
         return 1
     if not isinstance(report, dict):
-        print(f"Evaluation report is not a JSON object.", file=sys.stderr)
+        print("Evaluation report is not a JSON object.", file=sys.stderr)
         return 1
 
     out = Path(args.output_dir).expanduser().resolve()
@@ -267,7 +267,7 @@ def main() -> int:
                 y_score = y_score[mask]
                 print(f"Loaded prediction trace: {len(y_true)} rows")
             else:
-                print(f"  [WARN] Could not identify y_true/y_score columns in trace.")
+                print("  [WARN] Could not identify y_true/y_score columns in trace.")
         else:
             print(f"  [WARN] Prediction trace not found: {trace_path}")
 

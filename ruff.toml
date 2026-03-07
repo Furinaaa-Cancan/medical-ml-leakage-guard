@@ -10,9 +10,5 @@ ignore = [
     "E401",  # multiple imports on one line — minor style
     "E402",  # module import not at top — conditional imports in existing code
     "E741",  # ambiguous variable name — common in ML code (l, I, O)
-    "F401",  # unused import — gate scripts import for _gate_utils compatibility
-    "F841",  # unused variable — some intentional in existing code
-    "F541",  # f-string missing placeholders — some intentional
-    "F821",  # undefined name — sys/etc imported via _gate_utils at runtime
     "W605",  # invalid escape sequence — handled by raw strings
 ]

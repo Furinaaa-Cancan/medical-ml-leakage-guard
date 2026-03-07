@@ -375,7 +375,7 @@ def prompt_ignore_cols(
     default_set = set(s.strip() for s in default.split(",") if s.strip())
     feature_cols = [c for c in columns if c not in default_set and c != target_col]
 
-    print(f"\n  Columns to IGNORE (non-feature, comma-separated)")
+    print("\n  Columns to IGNORE (non-feature, comma-separated)")
     print(f"  Current ignore list: {default}")
     print(f"  Resulting feature columns ({len(feature_cols)}):")
 

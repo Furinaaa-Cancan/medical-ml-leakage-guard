@@ -2407,7 +2407,7 @@ def main() -> int:
             print(f"  - {name}")
         return 1
     else:
-        print(f"\033[32mAll tests passed.\033[0m")
+        print("\033[32mAll tests passed.\033[0m")
         return 0
 
 

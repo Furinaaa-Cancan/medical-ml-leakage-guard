@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import List
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
