@@ -467,3 +467,46 @@ class TestPublicationGateMain:
         monkeypatch.setattr("sys.argv", argv)
         rc = pub_main()
         assert rc == 0
+
+    def test_attestation_missing_summary(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        _write_json(paths["execution_attestation_report"], {"status": "pass", "failure_count": 0})
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_missing_policy(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["key_assurance"] = {}
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_witness_quorum_missing(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        del ea["summary"]["witness_quorum"]
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_role_distinctness_missing(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        del ea["summary"]["authority_role_distinctness"]
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_manifest_missing_files(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        m = _good_manifest()
+        m["files"] = []
+        _write_json(paths["manifest"], m)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
