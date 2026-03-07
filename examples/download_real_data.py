@@ -687,7 +687,7 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "framingham", "diabetes130", "synth5k", "synth10k", "all"],
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "framingham", "diabetes130", "all"],
         help="Dataset to prepare. framingham=4240 rows, diabetes130=10K subsample of 101K real hospital records.",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
@@ -707,8 +707,6 @@ def main() -> int:
         "mammographic": ("mammographic_mass.csv", prepare_mammographic),
         "framingham": ("framingham_heart.csv", prepare_framingham),
         "diabetes130": ("diabetes130_readmission.csv", lambda o: prepare_diabetes130(o, max_rows=10000)),
-        "synth5k": ("synth_medical_5k.csv", lambda o: prepare_synth_large(o, n_rows=5000)),
-        "synth10k": ("synth_medical_10k.csv", lambda o: prepare_synth_large(o, n_rows=10000)),
     }
 
     if args.dataset == "all":

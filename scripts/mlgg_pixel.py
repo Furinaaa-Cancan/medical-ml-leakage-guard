@@ -1860,8 +1860,6 @@ PLAY_DOWNLOAD_DATASETS = [
     ("mammographic", "mammographic_mass", "ds_mammographic", "ds_mammographic_d"),
     ("framingham", "framingham_heart", "ds_framingham", "ds_framingham_d"),
     ("diabetes130", "diabetes130_readmission", "ds_diabetes130", "ds_diabetes130_d"),
-    ("synth5k", "synth_medical_5k", "ds_synth5k", "ds_synth5k_d"),
-    ("synth10k", "synth_medical_10k", "ds_synth10k", "ds_synth10k_d"),
 ]
 
 
