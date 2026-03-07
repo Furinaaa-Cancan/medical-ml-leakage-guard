@@ -563,3 +563,144 @@ class TestMainDirectStrict:
         rc = eqg.main()
         out = json.loads(rpt.read_text())
         assert out["strict_mode"] is True
+
+
+class TestMainDirectWithCIMatrix:
+    def test_ci_matrix_enrichment(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        del ev_data["metrics_ci"]["roc_auc"]["ci_95"]
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        ci = _write_json(tmp_path / "ci.json", {
+            "status": "pass",
+            "split_metrics_ci": {
+                "test": {"metrics": {"roc_auc": {"ci_95": [0.80, 0.90], "n_resamples": 500}}}
+            }
+        })
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--ci-matrix-report", str(ci),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        out = json.loads(rpt.read_text())
+        assert out["summary"]["ci_lower"] == 0.80
+
+    def test_ci_matrix_missing_file(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--ci-matrix-report", str(tmp_path / "nope.json"),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_ci_matrix_report" in codes
+
+    def test_ci_matrix_not_pass(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        ci = _write_json(tmp_path / "ci.json", {"status": "fail"})
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--ci-matrix-report", str(ci),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "ci_matrix_not_passed" in codes
+
+
+class TestMainDirectInsufficientResamples:
+    def test_low_resamples(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        ev_data["metrics_ci"]["roc_auc"]["n_resamples"] = 50
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--min-resamples", "200",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "insufficient_ci_resamples" in codes
+
+
+class TestMainDirectBaselineInsufficient:
+    def test_baseline_delta_too_small(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        ev_data["baselines"]["prevalence_model"]["metrics"]["roc_auc"] = 0.84
+        ev_data["baselines"]["random_forest"]["metrics"]["roc_auc"] = 0.84
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--min-baseline-delta", "0.05",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "baseline_improvement_insufficient" in codes
+
+
+class TestMainDirectCIBoundsInvalid:
+    def test_ci_lower_greater_than_upper(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        ev_data["metrics_ci"]["roc_auc"]["ci_95"] = [0.95, 0.80]
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_primary_metric_ci_bounds" in codes
+
+
+class TestMainDirectPrimaryMetricOutsideCI:
+    def test_metric_outside_ci(self, tmp_path, monkeypatch):
+        ev_data = _good_eval_report()
+        ev_data["metrics"]["roc_auc"] = 0.95
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "primary_metric_outside_ci" in codes
+
+
+class TestMainDirectLossMetric:
+    def test_lower_is_better(self, tmp_path, monkeypatch):
+        ev_data = {
+            "metrics": {"log_loss": 0.30},
+            "metrics_ci": {"log_loss": {"ci_95": [0.25, 0.35], "method": "bootstrap", "n_resamples": 1000}},
+            "baselines": {"prevalence": {"metrics": {"log_loss": 0.60}}},
+        }
+        ev = _write_json(tmp_path / "eval.json", ev_data)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "log_loss", "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["summary"]["higher_is_better"] is False
