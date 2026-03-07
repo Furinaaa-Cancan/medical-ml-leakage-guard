@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import manifest_lock as ml
 from manifest_lock import (
     compare_manifest,
     csv_summary,
@@ -383,3 +384,149 @@ class TestCLI:
         assert "sha256" in entry
         assert "size_bytes" in entry
         assert "mtime_utc" in entry
+
+
+# ────────────────────────────────────────────────────────
+# Direct main() tests
+# ────────────────────────────────────────────────────────
+
+class TestMainSingleFile:
+    def test_pass(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(f), "--output", str(out)])
+        rc = ml.main()
+        assert rc == 0
+        m = json.loads(out.read_text())
+        assert m["status"] == "pass"
+        assert len(m["files"]) == 1
+
+
+class TestMainMultipleFiles:
+    def test_two_files(self, tmp_path, monkeypatch):
+        f1 = tmp_path / "a.txt"
+        f2 = tmp_path / "b.txt"
+        f1.write_text("aaa", encoding="utf-8")
+        f2.write_text("bbb", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(f1), str(f2), "--output", str(out)])
+        rc = ml.main()
+        assert rc == 0
+        m = json.loads(out.read_text())
+        assert len(m["files"]) == 2
+
+
+class TestMainCsvSummary:
+    def test_csv_gets_summary(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.csv"
+        f.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(f), "--output", str(out)])
+        rc = ml.main()
+        assert rc == 0
+        m = json.loads(out.read_text())
+        assert "csv_summary" in m["files"][0]
+        assert m["files"][0]["csv_summary"]["rows"] == 2
+
+
+class TestMainMissingInput:
+    def test_nonexistent(self, tmp_path, monkeypatch):
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(tmp_path / "missing.txt"), "--output", str(out)])
+        rc = ml.main()
+        assert rc == 2
+        m = json.loads(out.read_text())
+        assert m["status"] == "fail"
+
+
+class TestMainDirInput:
+    def test_directory_input(self, tmp_path, monkeypatch):
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(tmp_path), "--output", str(out)])
+        rc = ml.main()
+        assert rc == 2
+        m = json.loads(out.read_text())
+        assert m["status"] == "fail"
+
+
+class TestMainMeta:
+    def test_meta_key_value(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(out),
+            "--meta", "study=test_study", "--meta", "version=1.0",
+        ])
+        rc = ml.main()
+        assert rc == 0
+        m = json.loads(out.read_text())
+        assert m["meta"]["study"] == "test_study"
+
+
+class TestMainInvalidMeta:
+    def test_invalid_meta(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(out),
+            "--meta", "invalid_no_equals",
+        ])
+        rc = ml.main()
+        assert rc == 2
+
+
+class TestMainCompareMatch:
+    def test_baseline_match(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        # Generate baseline first
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(f), "--output", str(baseline)])
+        ml.main()
+        # Compare against baseline
+        current = tmp_path / "current.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(current),
+            "--compare-with", str(baseline),
+        ])
+        rc = ml.main()
+        assert rc == 0
+        m = json.loads(current.read_text())
+        assert m["comparison"]["matched"] is True
+
+
+class TestMainCompareMismatch:
+    def test_baseline_mismatch(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.txt"
+        f.write_text("original", encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        monkeypatch.setattr("sys.argv", ["ml", "--inputs", str(f), "--output", str(baseline)])
+        ml.main()
+        f.write_text("modified", encoding="utf-8")
+        current = tmp_path / "current.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(current),
+            "--compare-with", str(baseline),
+        ])
+        rc = ml.main()
+        assert rc == 2
+        m = json.loads(current.read_text())
+        assert m["comparison"]["matched"] is False
+
+
+class TestMainMissingBaseline:
+    def test_missing_baseline(self, tmp_path, monkeypatch):
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(out),
+            "--compare-with", str(tmp_path / "nonexistent.json"),
+        ])
+        rc = ml.main()
+        assert rc == 2
+        m = json.loads(out.read_text())
+        assert m["status"] == "fail"

@@ -189,3 +189,143 @@ class TestStrictMode:
     def test_strict_flag(self, tmp_path):
         report = _run_gate(tmp_path, strict=True)
         assert report["strict_mode"] is True
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report()))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainOverfitFail:
+    def test_train_valid_gap(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report(train_prauc=0.95, valid_prauc=0.80)))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "overfit_gap_exceeds_threshold" in codes
+
+
+class TestMainBrierGap:
+    def test_brier_direction(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report(valid_brier=0.10, test_brier=0.15)))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "overfit_gap_exceeds_threshold" in codes
+
+
+class TestMainWarning:
+    def test_gap_warning(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report(train_prauc=0.90, valid_prauc=0.84)))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        out = json.loads(rpt.read_text())
+        warn_codes = [w["code"] for w in out["warnings"]]
+        assert "overfit_gap_warning" in warn_codes
+
+
+class TestMainStrictWarning:
+    def test_strict_fails_on_warning(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report(train_prauc=0.90, valid_prauc=0.84)))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt), "--strict",
+        ])
+        rc = ggg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "fail"
+
+
+class TestMainMissingSplitMetrics:
+    def test_no_split_metrics(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"no_split_metrics": True}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_split_metrics" in codes
+
+
+class TestMainInvalidEval:
+    def test_missing_eval_file(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(tmp_path / "nope.json"), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_evaluation_report" in codes
+
+
+class TestMainWithPolicy:
+    def test_policy_override(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report()))
+        pp = tmp_path / "policy.json"
+        pp.write_text(json.dumps({"gap_thresholds": {"train_valid": {"pr_auc": {"warn": 0.01, "fail": 0.02}}}}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev),
+            "--performance-policy", str(pp),
+            "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        out = json.loads(rpt.read_text())
+        # With tighter thresholds, a small gap may become a failure
+        assert "status" in out
+
+
+class TestMainMissingMetricInSplit:
+    def test_missing_metric(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({
+            "split_metrics": {
+                "train": {"metrics": {}},
+                "valid": {"metrics": {"pr_auc": 0.84}},
+                "test": {"metrics": {"pr_auc": 0.82}},
+            }
+        }))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_required_metric" in codes

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import permutation_significance_gate as psg
 from permutation_significance_gate import (
     load_null_metrics,
     parse_finite_float,
@@ -229,3 +230,144 @@ class TestCLI:
         assert "alpha" in report["summary"]
         assert "failures" in report
         assert "warnings" in report
+
+
+# ────────────────────────────────────────────────────────
+# Direct main() tests
+# ────────────────────────────────────────────────────────
+
+class TestMainSignificant:
+    def test_pass(self, tmp_path, monkeypatch):
+        null_path = _write_null_list(tmp_path / "null.json", [0.50 + i * 0.001 for i in range(200)])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+        ])
+        rc = psg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+        assert out["summary"]["p_value_one_sided"] < 0.01
+
+
+class TestMainNotSignificant:
+    def test_fail(self, tmp_path, monkeypatch):
+        null_path = _write_null_list(tmp_path / "null.json", [0.50 + i * 0.001 for i in range(200)])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.51",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "permutation_not_significant" in codes
+
+
+class TestMainMissingNullFile:
+    def test_missing(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(tmp_path / "nope.json"), "--report", str(rpt),
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_null_metrics_file" in codes
+
+
+class TestMainEmptyNull:
+    def test_empty(self, tmp_path, monkeypatch):
+        null_path = tmp_path / "null.json"
+        null_path.write_text("[]", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "empty_null_distribution" in codes
+
+
+class TestMainLowPermCount:
+    def test_warning(self, tmp_path, monkeypatch):
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--min-permutations", "100",
+        ])
+        rc = psg.main()
+        out = json.loads(rpt.read_text())
+        warn_codes = [w["code"] for w in out["warnings"]]
+        assert "low_permutation_count" in warn_codes
+
+
+class TestMainInsufficientDelta:
+    def test_delta_fail(self, tmp_path, monkeypatch):
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 200)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.51",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--min-delta", "0.10",
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "insufficient_effect_delta" in codes
+
+
+class TestMainLowerIsBetter:
+    def test_lower_is_better(self, tmp_path, monkeypatch):
+        null_path = _write_null_list(tmp_path / "null.json", [0.50 + i * 0.001 for i in range(200)])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "log_loss", "--actual", "0.10",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--lower-is-better",
+        ])
+        rc = psg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["summary"]["higher_is_better"] is False
+
+
+class TestMainInvalidNullFile:
+    def test_invalid_content(self, tmp_path, monkeypatch):
+        null_path = tmp_path / "null.json"
+        null_path.write_text("[true, false]", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_null_metrics_file" in codes
+
+
+class TestMainStrictWarning:
+    def test_strict_fails_on_warning(self, tmp_path, monkeypatch):
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--min-permutations", "100", "--strict",
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "fail"
