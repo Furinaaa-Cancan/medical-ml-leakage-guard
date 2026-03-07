@@ -3809,6 +3809,20 @@ def step_confirm(state: Dict) -> Any:
             "",
             f"{_p(t('c_output'))}{preview_state['out_dir']}/",
         ])
+        # Training time estimate
+        n_rows_est = int(state_n_rows(preview_state) or 0)
+        n_cand = int(cand_summary.get("candidate_count", 0))
+        if n_rows_est > 0 and n_cand > 0:
+            # Rough estimate: ~0.5s per candidate per 1000 rows + bootstrap overhead
+            base_seconds = max(30, int(n_cand * n_rows_est * 0.0005) + 60)
+            if base_seconds < 120:
+                est_label = "<2 min" if LANG == "en" else "<2 分钟"
+            elif base_seconds < 600:
+                est_label = f"~{base_seconds // 60} min" if LANG == "en" else f"~{base_seconds // 60} 分钟"
+            else:
+                est_label = f"~{base_seconds // 60} min" if LANG == "en" else f"~{base_seconds // 60} 分钟"
+            time_hint_label = "Est. time" if LANG == "en" else "预计时间"
+            lines.append(f"{_p(time_hint_label)}{est_label}")
         box(t("s_confirm"), lines, color="C")
 
     print()
