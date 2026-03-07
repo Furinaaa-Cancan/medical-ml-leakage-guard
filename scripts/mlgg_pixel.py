@@ -3832,36 +3832,56 @@ def step_confirm(state: Dict) -> Any:
 
 _ERROR_PATTERNS = [
     ("network error", {
-        "en": "Dataset download failed due to network/DNS. In play mode, use built-in stable datasets: heart, breast, ckd.",
-        "zh": "\u6570\u636e\u96c6\u4e0b\u8f7d\u5931\u8d25\uff08\u7f51\u7edc/DNS \u95ee\u9898\uff09\u3002play \u6a21\u5f0f\u8bf7\u4f18\u5148\u4f7f\u7528\u7a33\u5b9a\u5185\u7f6e\u6570\u636e\u96c6\uff1aheart\u3001breast\u3001ckd\u3002",
+        "en": "Dataset download failed due to network/DNS. In play mode, use built-in stable datasets: heart, breast, pima.",
+        "zh": "\u6570\u636e\u96c6\u4e0b\u8f7d\u5931\u8d25\uff08\u7f51\u7edc/DNS \u95ee\u9898\uff09\u3002play \u6a21\u5f0f\u8bf7\u4f18\u5148\u4f7f\u7528\u7a33\u5b9a\u5185\u7f6e\u6570\u636e\u96c6\uff1aheart\u3001breast\u3001pima\u3002",
     }),
     ("nodename nor servname", {
-        "en": "DNS lookup failed. Check network, or choose built-in stable datasets (heart/breast/ckd).",
-        "zh": "DNS \u89e3\u6790\u5931\u8d25\u3002\u8bf7\u68c0\u67e5\u7f51\u7edc\uff0c\u6216\u6539\u7528\u7a33\u5b9a\u5185\u7f6e\u6570\u636e\u96c6\uff08heart/breast/ckd\uff09\u3002",
+        "en": "DNS lookup failed. Check network, or choose built-in stable datasets (heart/breast/pima).",
+        "zh": "DNS \u89e3\u6790\u5931\u8d25\u3002\u8bf7\u68c0\u67e5\u7f51\u7edc\uff0c\u6216\u6539\u7528\u7a33\u5b9a\u5185\u7f6e\u6570\u636e\u96c6\uff08heart/breast/pima\uff09\u3002",
     }),
     ("not enough positive", {
         "en": "Not enough positive (y=1) samples in one or more splits. Try a larger dataset or adjust ratios.",
-        "zh": "一个或多个分割中正样本（y=1）不足。请尝试更大的数据集或调整比例。",
+        "zh": "\u4e00\u4e2a\u6216\u591a\u4e2a\u5206\u5272\u4e2d\u6b63\u6837\u672c\uff08y=1\uff09\u4e0d\u8db3\u3002\u8bf7\u5c1d\u8bd5\u66f4\u5927\u7684\u6570\u636e\u96c6\u6216\u8c03\u6574\u6bd4\u4f8b\u3002",
     }),
     ("not enough negative", {
         "en": "Not enough negative (y=0) samples in one or more splits. Check class balance.",
-        "zh": "一个或多个分割中负样本（y=0）不足。请检查类别平衡。",
+        "zh": "\u4e00\u4e2a\u6216\u591a\u4e2a\u5206\u5272\u4e2d\u8d1f\u6837\u672c\uff08y=0\uff09\u4e0d\u8db3\u3002\u8bf7\u68c0\u67e5\u7c7b\u522b\u5e73\u8861\u3002",
     }),
     ("FileNotFoundError", {
         "en": "A required file was not found. Check input paths and previous steps.",
-        "zh": "未找到必需的文件。请检查输入路径和前面的步骤。",
+        "zh": "\u672a\u627e\u5230\u5fc5\u9700\u7684\u6587\u4ef6\u3002\u8bf7\u68c0\u67e5\u8f93\u5165\u8def\u5f84\u548c\u524d\u9762\u7684\u6b65\u9aa4\u3002",
     }),
     ("column", {
         "en": "A required column was not found in the CSV. Verify column names match your data.",
-        "zh": "CSV 中未找到必需的列。请确认列名与数据匹配。",
+        "zh": "CSV \u4e2d\u672a\u627e\u5230\u5fc5\u9700\u7684\u5217\u3002\u8bf7\u786e\u8ba4\u5217\u540d\u4e0e\u6570\u636e\u5339\u914d\u3002",
     }),
     ("PermissionError", {
         "en": "Permission denied writing output files. Check directory permissions.",
-        "zh": "写入输出文件时权限被拒绝。请检查目录权限。",
+        "zh": "\u5199\u5165\u8f93\u51fa\u6587\u4ef6\u65f6\u6743\u9650\u88ab\u62d2\u7edd\u3002\u8bf7\u68c0\u67e5\u76ee\u5f55\u6743\u9650\u3002",
     }),
     ("ModuleNotFoundError", {
         "en": "A required Python package is missing. Run: pip install -r requirements.txt",
-        "zh": "缺少必需的 Python 包。请运行：pip install -r requirements.txt",
+        "zh": "\u7f3a\u5c11\u5fc5\u9700\u7684 Python \u5305\u3002\u8bf7\u8fd0\u884c\uff1apip install -r requirements.txt",
+    }),
+    ("candidate_pool_too_small", {
+        "en": "Need at least 3 model candidates. Add more model families or increase --max-trials-per-family.",
+        "zh": "\u81f3\u5c11\u9700\u8981 3 \u4e2a\u6a21\u578b\u5019\u9009\u3002\u8bf7\u589e\u52a0\u6a21\u578b\u5bb6\u65cf\u6216\u63d0\u9ad8\u6bcf\u6a21\u578b\u5c1d\u8bd5\u6b21\u6570\u3002",
+    }),
+    ("MemoryError", {
+        "en": "Out of memory. Try fewer models, smaller dataset, or reduce --max-trials-per-family.",
+        "zh": "\u5185\u5b58\u4e0d\u8db3\u3002\u8bf7\u51cf\u5c11\u6a21\u578b\u6570\u3001\u7f29\u5c0f\u6570\u636e\u96c6\u6216\u51cf\u5c11\u6bcf\u6a21\u578b\u5c1d\u8bd5\u6b21\u6570\u3002",
+    }),
+    ("ConvergenceWarning", {
+        "en": "Some models did not converge. This is usually harmless — results may still be valid.",
+        "zh": "\u90e8\u5206\u6a21\u578b\u672a\u6536\u655b\u3002\u901a\u5e38\u65e0\u5bb3\uff0c\u7ed3\u679c\u53ef\u80fd\u4ecd\u7136\u6709\u6548\u3002",
+    }),
+    ("ValueError", {
+        "en": "Invalid value encountered during training. Check your data for unexpected formats or NaN values.",
+        "zh": "\u8bad\u7ec3\u4e2d\u9047\u5230\u65e0\u6548\u503c\u3002\u8bf7\u68c0\u67e5\u6570\u636e\u683c\u5f0f\u6216 NaN \u503c\u3002",
+    }),
+    ("timeout", {
+        "en": "Training timed out. For large datasets (>5000 rows), use fewer models or reduce trials.",
+        "zh": "\u8bad\u7ec3\u8d85\u65f6\u3002\u5bf9\u4e8e\u5927\u6570\u636e\u96c6\uff08>5000\u884c\uff09\uff0c\u8bf7\u51cf\u5c11\u6a21\u578b\u6570\u6216\u964d\u4f4e\u5c1d\u8bd5\u6b21\u6570\u3002",
     }),
 ]
 
