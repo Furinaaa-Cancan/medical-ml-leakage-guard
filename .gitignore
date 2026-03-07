@@ -16,4 +16,6 @@ experiments/authority-e2e/*.auto.json
 
 evidence/
 output/
+build/
+dist/
 .coverage

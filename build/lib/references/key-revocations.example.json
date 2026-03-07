@@ -1,9 +1,0 @@
-{
-  "schema_version": "1.0",
-  "revoked_key_ids": [
-    "attestation-key-2025q4-compromised"
-  ],
-  "revoked_public_key_fingerprints_sha256": [
-    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-  ]
-}
