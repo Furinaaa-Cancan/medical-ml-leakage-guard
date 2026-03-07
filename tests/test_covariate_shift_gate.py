@@ -595,3 +595,130 @@ class TestThresholdValidation:
         report = _run_gate(tmp_path, extra_args=["--numeric-bins", "1"])
         codes = [f["code"] for f in report["failures"]]
         assert "invalid_numeric_bins" in codes
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        _make_split_csvs(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "train.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--ignore-cols", "patient_id,event_time",
+            "--report", str(rpt),
+        ])
+        rc = csg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainDirectMissingTrain:
+    def test_missing_train(self, tmp_path, monkeypatch):
+        (tmp_path / "test.csv").write_text("y,a\n1,10\n0,20\n")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "nope.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--report", str(rpt),
+        ])
+        rc = csg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "feature_type_discovery_failed" in codes
+
+
+class TestMainDirectEmptySplit:
+    def test_empty_test(self, tmp_path, monkeypatch):
+        header = "patient_id,event_time,y,feat_a"
+        (tmp_path / "train.csv").write_text(header + "\nP001,2023-01-01,1,10\nP002,2023-02-01,0,20\n")
+        (tmp_path / "test.csv").write_text(header + "\n")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "train.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--ignore-cols", "patient_id,event_time",
+            "--report", str(rpt),
+        ])
+        rc = csg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "empty_split" in codes
+
+
+class TestMainDirectHighShift:
+    def test_high_jsd(self, tmp_path, monkeypatch):
+        header = "patient_id,event_time,y,feat_a,feat_b"
+        train_rows = [f"P{i:03d},2023-01-01,{'10'[i%2]},{i},{i}" for i in range(1, 51)]
+        test_rows = [f"P{i:03d},2024-01-01,{'10'[i%2]},{i+1000},{i+1000}" for i in range(51, 71)]
+        (tmp_path / "train.csv").write_text(header + "\n" + "\n".join(train_rows) + "\n")
+        (tmp_path / "test.csv").write_text(header + "\n" + "\n".join(test_rows) + "\n")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "train.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--ignore-cols", "patient_id,event_time",
+            "--report", str(rpt),
+        ])
+        rc = csg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert any(c in codes for c in ["top_feature_shift_too_high", "too_many_high_shift_features"])
+
+
+class TestMainDirectInvalidThreshold:
+    def test_negative_threshold(self, tmp_path, monkeypatch):
+        _make_split_csvs(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "train.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--ignore-cols", "patient_id,event_time",
+            "--high-shift-jsd", "-0.1",
+            "--report", str(rpt),
+        ])
+        rc = csg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_threshold_range" in codes
+
+
+class TestMainDirectStrict:
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        _make_split_csvs(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "train.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--ignore-cols", "patient_id,event_time",
+            "--report", str(rpt), "--strict",
+        ])
+        rc = csg.main()
+        out = json.loads(rpt.read_text())
+        assert out["strict_mode"] is True
+
+
+class TestMainDirectWithValid:
+    def test_valid_split(self, tmp_path, monkeypatch):
+        valid_rows = [f"P{i:03d},2023-07-{(i%28)+1:02d},{'10'[i%2]},{30+(i%20)},{120+(i%20)}" for i in range(51, 61)]
+        _make_split_csvs(tmp_path, valid_rows=valid_rows)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "csg", "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--target-col", "y", "--ignore-cols", "patient_id,event_time",
+            "--report", str(rpt),
+        ])
+        rc = csg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        pairs = [p["pair"] for p in out["summary"]["pairs"]]
+        assert "train_vs_valid" in pairs
+        assert "train_vs_test" in pairs
