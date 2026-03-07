@@ -488,3 +488,92 @@ class TestMainWithPolicy:
         out = json.loads(rpt.read_text())
         codes = [f["code"] for f in out["failures"]]
         assert "robustness_pr_auc_drop_exceeds_threshold" in codes
+
+
+class TestMainEmptyBucketRows:
+    def test_empty_slices(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["time_slices"]["slices"] = []
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", ["rg", "--robustness-report", str(rr), "--report", str(rpt)])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_missing_bucket_rows" in codes
+
+
+class TestMainInvalidRow:
+    def test_non_dict_row(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["time_slices"]["slices"] = ["not_a_dict", _make_slice_row(0.80), _make_slice_row(0.81), _make_slice_row(0.82)]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", ["rg", "--robustness-report", str(rr), "--report", str(rpt)])
+        rc = rg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_invalid_bucket_row" in codes
+
+    def test_missing_n(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["time_slices"]["slices"] = [
+            {"positive_count": 10, "metrics": {"pr_auc": 0.80}},
+            _make_slice_row(0.81), _make_slice_row(0.82), _make_slice_row(0.83),
+        ]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", ["rg", "--robustness-report", str(rr), "--report", str(rpt)])
+        rc = rg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_invalid_bucket_row" in codes
+
+    def test_missing_metrics(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["time_slices"]["slices"] = [
+            {"n": 50, "positive_count": 10},
+            _make_slice_row(0.81), _make_slice_row(0.82), _make_slice_row(0.83),
+        ]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", ["rg", "--robustness-report", str(rr), "--report", str(rpt)])
+        rc = rg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_invalid_bucket_row" in codes
+
+    def test_non_finite_pr_auc(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["time_slices"]["slices"] = [
+            {"n": 50, "positive_count": 10, "metrics": {"pr_auc": float("nan")}},
+            _make_slice_row(0.81), _make_slice_row(0.82), _make_slice_row(0.83),
+        ]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", ["rg", "--robustness-report", str(rr), "--report", str(rpt)])
+        rc = rg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_non_finite_metric" in codes
+
+    def test_pr_auc_out_of_range(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["time_slices"]["slices"] = [
+            {"n": 50, "positive_count": 10, "metrics": {"pr_auc": 1.5}},
+            _make_slice_row(0.81), _make_slice_row(0.82), _make_slice_row(0.83),
+        ]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", ["rg", "--robustness-report", str(rr), "--report", str(rpt)])
+        rc = rg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_metric_out_of_range" in codes
