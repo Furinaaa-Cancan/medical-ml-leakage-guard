@@ -16,6 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Supports `--json`, `--markdown`, and plain text output with `--output` file option
   - 25 comprehensive unit tests
 
+- **Evidence Comparator** (`evidence_comparator.py`)
+  - Compares two evidence directories (baseline vs current) side-by-side
+  - Shows improved, regressed, unchanged, new, and removed gates
+  - Highlights new and resolved failure codes, failure/warning count deltas
+  - Supports JSON and human-readable text output with `--output` option
+  - 30 comprehensive unit tests (96% coverage)
+
 - **Gate Coverage Matrix** (`gate_coverage_matrix.py`)
   - Scans evidence directory against the full gate registry to produce a coverage matrix
   - Shows which gates have been executed, their status, and identifies missing gates
@@ -78,7 +85,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **363 new tests across 27 files**
+- **409 new tests across 30 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -108,6 +115,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_seed_stability_gate.py`: 11 direct `main()` tests (pass, missing, wrong primary, selection data, insufficient seeds, duplicate, threshold, summary mismatch, corrupt JSON, strict)
   - `test_calibration_dca_gate.py`: 6 direct `main()` tests (pass, missing trace, missing columns, non-binary, insufficient rows, corrupt eval JSON)
   - `test_gate_coverage_matrix.py`: 23 tests (new tool — helpers, registry, scanning, summary, formatting, CLI)
+  - `test_evidence_comparator.py`: 30 tests (new tool — helpers, scanning, comparison, summary, formatting, CLI)
+  - `test_evaluation_quality_gate.py`: 9 direct `main()` tests (pass, missing, corrupt, not found, mismatch, CI width, missing baseline, non-finite, strict)
+  - `test_covariate_shift_gate.py`: 7 direct `main()` tests (pass, missing train, empty split, high shift, invalid threshold, strict, with valid)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
