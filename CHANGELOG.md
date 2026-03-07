@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Remediation Plan Generator** (`remediation_plan.py`)
+  - Scans all gate reports in an evidence directory, collects failures and warnings
+  - Groups by root cause category (data, leakage, protocol, model, robustness, attestation, publication)
+  - Orders actions by pipeline dependency and severity (CRITICAL → INFO)
+  - Deduplicates repeated codes, shows occurrence counts
+  - Supports `--json`, `--markdown`, and plain text output with `--output` file option
+  - 25 comprehensive unit tests
+
 - **Evidence Health Check Tool** (`report_health_check.py`)
   - Scans all 28 gate reports in an evidence directory
   - Produces completeness percentage, pass rate, per-gate status table
@@ -29,9 +37,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Fixed F811 duplicate class names in test files
   - All `ruff check` passes with zero errors
 
+- **Tightened ruff.toml Configuration**
+  - Removed F401, F841, F541, F821 from global ignore list
+  - Fixed 11 f-strings without placeholders (F541)
+  - Added missing `typing` imports in `mlgg.py` and `test_play_smoke.py` (F821)
+  - Per-line `# noqa: F821` for intentional lazy numpy/pandas type annotations in `_gate_utils.py`
+
+- **Housekeeping**
+  - Added `build/` and `dist/` to `.gitignore`, removed tracked build artifacts
+
 ### Tests
 
-- **55 new tests across 8 files**
+- **101 new tests across 12 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -41,6 +58,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_gate_framework.py`: extended coverage for `wrap_legacy_report`, `load_gate_report`, `format_issue_line`
   - `test_gate_utils.py`: `install_gate_timeout` zero/negative/positive tests
   - `test_visualize_results.py`: trace-not-found warning, calibration ValueError tests
+  - `test_leakage_gate.py`: 8 direct `main()` tests (pass, row/id/temporal overlap, suspicious features, strict, io error)
+  - `test_publication_gate.py`: 7 direct `main()` tests (pass, component fail, manifest, attestation, metric, strict)
+  - `test_self_critique_gate.py`: 6 direct `main()` tests (pass, component fail, manifest, strict, low score)
+  - `test_remediation_plan.py`: 25 tests (new tool)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
