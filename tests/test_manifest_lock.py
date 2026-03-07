@@ -530,3 +530,41 @@ class TestMainMissingBaseline:
         assert rc == 2
         m = json.loads(out.read_text())
         assert m["status"] == "fail"
+
+
+class TestMainBaselineNotDict:
+    def test_baseline_not_dict(self, tmp_path, monkeypatch):
+        """Baseline JSON root is a list, not a dict → fail."""
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("[1,2,3]", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(out),
+            "--compare-with", str(baseline),
+        ])
+        rc = ml.main()
+        assert rc == 2
+        m = json.loads(out.read_text())
+        assert m["status"] == "fail"
+        assert any("Failed to read baseline" in e for e in m["errors"])
+
+
+class TestMainBaselineCorrupt:
+    def test_corrupt_baseline(self, tmp_path, monkeypatch):
+        """Baseline file is not valid JSON → fail."""
+        f = tmp_path / "data.txt"
+        f.write_text("hello", encoding="utf-8")
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("{corrupt", encoding="utf-8")
+        out = tmp_path / "manifest.json"
+        monkeypatch.setattr("sys.argv", [
+            "ml", "--inputs", str(f), "--output", str(out),
+            "--compare-with", str(baseline),
+        ])
+        rc = ml.main()
+        assert rc == 2
+        m = json.loads(out.read_text())
+        assert m["status"] == "fail"
+        assert any("Failed to read baseline" in e for e in m["errors"])

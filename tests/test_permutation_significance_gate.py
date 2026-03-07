@@ -371,3 +371,70 @@ class TestMainStrictWarning:
         assert rc == 2
         out = json.loads(rpt.read_text())
         assert out["status"] == "fail"
+
+
+class TestMainInvalidActual:
+    def test_nan_actual(self, tmp_path, monkeypatch):
+        """Non-finite actual → invalid_actual_metric."""
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "nan",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_actual_metric" in codes
+
+
+class TestMainInvalidAlpha:
+    def test_alpha_out_of_range(self, tmp_path, monkeypatch):
+        """Alpha > 1 → invalid_alpha."""
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--alpha", "1.5",
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_alpha" in codes
+
+
+class TestMainInvalidMinDelta:
+    def test_negative_delta(self, tmp_path, monkeypatch):
+        """Negative min-delta → invalid_min_delta."""
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--min-delta", "-0.1",
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_min_delta" in codes
+
+
+class TestMainInvalidMinPermutations:
+    def test_zero_permutations(self, tmp_path, monkeypatch):
+        """min-permutations=0 → invalid_min_permutations."""
+        null_path = _write_null_list(tmp_path / "null.json", [0.50] * 10)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "psg", "--metric-name", "roc_auc", "--actual", "0.85",
+            "--null-metrics-file", str(null_path), "--report", str(rpt),
+            "--min-permutations", "0",
+        ])
+        rc = psg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_min_permutations" in codes

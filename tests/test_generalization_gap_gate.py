@@ -329,3 +329,66 @@ class TestMainMissingMetricInSplit:
         out = json.loads(rpt.read_text())
         codes = [f["code"] for f in out["failures"]]
         assert "missing_required_metric" in codes
+
+
+class TestMainInvalidPolicy:
+    def test_corrupt_policy_file(self, tmp_path, monkeypatch):
+        """Policy file is not valid JSON → invalid_performance_policy."""
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report()))
+        pp = tmp_path / "policy.json"
+        pp.write_text("{bad", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev),
+            "--performance-policy", str(pp),
+            "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_performance_policy" in codes
+
+
+class TestMainMissingSplitBlock:
+    def test_missing_valid_block(self, tmp_path, monkeypatch):
+        """split_metrics exists but 'valid' block is missing."""
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({
+            "split_metrics": {
+                "train": {"metrics": {"pr_auc": 0.86}},
+                "test": {"metrics": {"pr_auc": 0.82}},
+            }
+        }))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev), "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_split_metrics" in codes
+
+
+class TestMainInvalidGapThreshold:
+    def test_warn_greater_than_fail(self, tmp_path, monkeypatch):
+        """Policy with warn > fail → invalid_gap_threshold."""
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps(_make_eval_report()))
+        pp = tmp_path / "policy.json"
+        pp.write_text(json.dumps({
+            "gap_thresholds": {
+                "train_valid": {"pr_auc": {"warn": 0.10, "fail": 0.02}}
+            }
+        }))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ggg", "--evaluation-report", str(ev),
+            "--performance-policy", str(pp),
+            "--report", str(rpt),
+        ])
+        rc = ggg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_gap_threshold" in codes
