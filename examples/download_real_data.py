@@ -33,6 +33,7 @@ import io
 import sys
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
@@ -55,6 +56,8 @@ URLS = {
     "dermatology": "https://archive.ics.uci.edu/ml/machine-learning-databases/dermatology/dermatology.data",
     "pima": "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
     "mammographic": "https://archive.ics.uci.edu/ml/machine-learning-databases/mammographic-masses/mammographic_masses.data",
+    "framingham": "https://raw.githubusercontent.com/GauravPadawe/Framingham-Heart-Study/master/framingham.csv",
+    "diabetes130_zip": "https://archive.ics.uci.edu/ml/machine-learning-databases/00296/dataset_diabetes.zip",
 }
 
 
@@ -501,6 +504,114 @@ def prepare_mammographic(output: Path) -> None:
     print(f"  Rows: {len(df)} | Positive (malignant): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
 
 
+def prepare_framingham(output: Path) -> None:
+    """Framingham Heart Study — 4,240 patients, 15 clinical features."""
+    print("\n=== Framingham Heart Study ===")
+    print("  Source: https://www.framinghamheartstudy.org/")
+    print("  Rows: ~4,240 | Features: 15 | Task: predict 10-year coronary heart disease")
+
+    raw_path = output.parent / ".framingham_raw.csv"
+    download_file(URLS["framingham"], raw_path)
+
+    df = pd.read_csv(raw_path)
+
+    # Rename target
+    df = df.rename(columns={"TenYearCHD": "y"})
+
+    # Convert all to numeric
+    for col in df.columns:
+        if col != "y":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = add_patient_id_and_time(df, seed=51)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (CHD): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
+
+
+def prepare_diabetes130(output: Path, max_rows: int = 10000) -> None:
+    """UCI Diabetes 130-US Hospitals — up to 101,766 patients, 20+ features.
+
+    Downloads ZIP from UCI, extracts diabetic_data.csv, binarizes readmission target,
+    and optionally subsamples to max_rows for manageable play-mode training times.
+    """
+    n_label = f"{max_rows:,}" if max_rows > 0 else "all (~101K)"
+    print(f"\n=== UCI Diabetes 130-US Hospitals (subsample: {n_label} rows) ===")
+    print("  Source: https://archive.ics.uci.edu/ml/datasets/diabetes+130-us+hospitals")
+    print(f"  Features: ~20 numeric/encoded | Task: predict hospital readmission <30 days")
+
+    zip_path = output.parent / ".diabetes130_raw.zip"
+    download_file(URLS["diabetes130_zip"], zip_path)
+
+    with zipfile.ZipFile(zip_path) as z:
+        with z.open("dataset_diabetes/diabetic_data.csv") as f:
+            df = pd.read_csv(f)
+
+    # Binary target: readmitted <30 days = 1, else = 0
+    df["y"] = (df["readmitted"] == "<30").astype(int)
+
+    # Select useful numeric/categorical columns
+    keep_cols = [
+        "y", "time_in_hospital", "num_lab_procedures", "num_procedures",
+        "num_medications", "number_outpatient", "number_emergency",
+        "number_inpatient", "number_diagnoses",
+    ]
+    # Encode age bracket as numeric midpoint
+    age_map = {
+        "[0-10)": 5, "[10-20)": 15, "[20-30)": 25, "[30-40)": 35,
+        "[40-50)": 45, "[50-60)": 55, "[60-70)": 65, "[70-80)": 75,
+        "[80-90)": 85, "[90-100)": 95,
+    }
+    df["age_midpoint"] = df["age"].map(age_map)
+    # Encode gender
+    df["is_female"] = (df["gender"] == "Female").astype(int)
+    # Encode race as dummies for top categories
+    df["race_caucasian"] = (df["race"] == "Caucasian").astype(int)
+    df["race_african_american"] = (df["race"] == "AfricanAmerican").astype(int)
+    # A1C result
+    df["A1Cresult_high"] = (df["A1Cresult"].isin([">7", ">8"])).astype(int)
+    # Insulin change
+    df["insulin_yes"] = (df["insulin"].isin(["Up", "Down", "Steady"])).astype(int)
+    # Diabetic med changed
+    df["change_yes"] = (df["change"] == "Ch").astype(int)
+    # Discharge disposition (home=1)
+    df["discharged_home"] = (df["discharge_disposition_id"] == 1).astype(int)
+
+    extra_cols = [
+        "age_midpoint", "is_female", "race_caucasian", "race_african_american",
+        "A1Cresult_high", "insulin_yes", "change_yes", "discharged_home",
+    ]
+    final_cols = keep_cols + extra_cols
+    df = df[[c for c in final_cols if c in df.columns]].copy()
+
+    # Drop rows with all-NaN features
+    feature_cols_check = [c for c in df.columns if c != "y"]
+    df = df.dropna(subset=feature_cols_check, how="all").reset_index(drop=True)
+
+    # Subsample if requested
+    if max_rows > 0 and len(df) > max_rows:
+        df = df.sample(n=max_rows, random_state=52).reset_index(drop=True)
+
+    df = add_patient_id_and_time(df, seed=52)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if zip_path.exists():
+        zip_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (readmit <30d): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
+
+
 def prepare_synth_large(output: Path, n_rows: int = 5000) -> None:
     """Synthetic large medical dataset — configurable row count, 15 features."""
     print(f"\n=== Synthetic Large Medical Dataset ({n_rows} rows) ===")
@@ -576,8 +687,8 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "synth5k", "synth10k", "all"],
-        help="Dataset to prepare. synth5k/synth10k = synthetic large datasets (5000/10000 rows).",
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "framingham", "diabetes130", "synth5k", "synth10k", "all"],
+        help="Dataset to prepare. framingham=4240 rows, diabetes130=10K subsample of 101K real hospital records.",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
     args = parser.parse_args()
@@ -594,6 +705,8 @@ def main() -> int:
         "dermatology": ("dermatology.csv", prepare_dermatology),
         "pima": ("pima_diabetes.csv", prepare_pima),
         "mammographic": ("mammographic_mass.csv", prepare_mammographic),
+        "framingham": ("framingham_heart.csv", prepare_framingham),
+        "diabetes130": ("diabetes130_readmission.csv", lambda o: prepare_diabetes130(o, max_rows=10000)),
         "synth5k": ("synth_medical_5k.csv", lambda o: prepare_synth_large(o, n_rows=5000)),
         "synth10k": ("synth_medical_10k.csv", lambda o: prepare_synth_large(o, n_rows=10000)),
     }
