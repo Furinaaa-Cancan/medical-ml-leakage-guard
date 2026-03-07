@@ -12,6 +12,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import export_latex as el
 from export_latex import (
     _escape,
     _fmt,
@@ -259,3 +260,166 @@ class TestTableCiMatrix:
         tex = table_ci_matrix(report, 3)
         assert "roc" in tex
         assert "[0.850, 0.950]" in tex
+
+
+# ── Direct main() tests ─────────────────────────────────────────
+
+import json
+
+
+def _write_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+class TestMainBasic:
+    def test_eval_only(self, tmp_path, monkeypatch):
+        eval_rpt = {
+            "splits": {
+                "test": {"roc_auc": 0.9, "pr_auc": 0.85, "brier": 0.1, "accuracy": 0.88}
+            }
+        }
+        ev = tmp_path / "eval.json"
+        _write_json(ev, eval_rpt)
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(ev), "--output", str(out),
+        ])
+        rc = el.main()
+        assert rc == 0
+        assert out.exists()
+        tex = out.read_text()
+        assert "\\begin{table}" in tex
+        assert "0.900" in tex
+
+    def test_custom_decimal_places(self, tmp_path, monkeypatch):
+        eval_rpt = {"splits": {"test": {"roc_auc": 0.876543}}}
+        ev = tmp_path / "eval.json"
+        _write_json(ev, eval_rpt)
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(ev), "--output", str(out),
+            "--decimal-places", "5",
+        ])
+        rc = el.main()
+        assert rc == 0
+        tex = out.read_text()
+        assert "0.87654" in tex
+
+
+class TestMainMissingEval:
+    def test_missing_eval_report(self, tmp_path, monkeypatch):
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(tmp_path / "nope.json"),
+            "--output", str(out),
+        ])
+        rc = el.main()
+        assert rc == 1
+        assert not out.exists()
+
+
+class TestMainWithModelSelection:
+    def test_model_selection_included(self, tmp_path, monkeypatch):
+        eval_rpt = {"splits": {"test": {"roc_auc": 0.9}}}
+        ms_rpt = {
+            "candidates": [
+                {"family": "logistic", "cv_score": 0.82, "complexity_rank": 1, "selected": True},
+                {"family": "xgboost", "cv_score": 0.85, "complexity_rank": 3, "selected": False},
+            ]
+        }
+        ev = tmp_path / "eval.json"
+        ms = tmp_path / "ms.json"
+        _write_json(ev, eval_rpt)
+        _write_json(ms, ms_rpt)
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(ev),
+            "--model-selection-report", str(ms),
+            "--output", str(out),
+        ])
+        rc = el.main()
+        assert rc == 0
+        tex = out.read_text()
+        assert "logistic" in tex
+        assert "\\checkmark" in tex
+
+
+class TestMainWithExternal:
+    def test_external_included(self, tmp_path, monkeypatch):
+        eval_rpt = {"splits": {"test": {"roc_auc": 0.9}}}
+        ext_rpt = {
+            "cohorts": [
+                {"name": "hospital_A", "roc_auc": 0.87, "pr_auc": 0.80, "brier": 0.15}
+            ]
+        }
+        ev = tmp_path / "eval.json"
+        ext = tmp_path / "ext.json"
+        _write_json(ev, eval_rpt)
+        _write_json(ext, ext_rpt)
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(ev),
+            "--external-report", str(ext),
+            "--output", str(out),
+        ])
+        rc = el.main()
+        assert rc == 0
+        tex = out.read_text()
+        assert "hospital" in tex
+
+
+class TestMainWithCI:
+    def test_ci_matrix_included(self, tmp_path, monkeypatch):
+        eval_rpt = {"splits": {"test": {"roc_auc": 0.9}}}
+        ci_rpt = {
+            "ci_matrix": [
+                {"metric": "pr_auc", "split": "test", "point_estimate": 0.85,
+                 "ci_lower": 0.78, "ci_upper": 0.91}
+            ]
+        }
+        ev = tmp_path / "eval.json"
+        ci = tmp_path / "ci.json"
+        _write_json(ev, eval_rpt)
+        _write_json(ci, ci_rpt)
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(ev),
+            "--ci-matrix-report", str(ci),
+            "--output", str(out),
+        ])
+        rc = el.main()
+        assert rc == 0
+        tex = out.read_text()
+        assert "[0.780, 0.910]" in tex
+
+
+class TestMainAllReports:
+    def test_all_reports(self, tmp_path, monkeypatch):
+        eval_rpt = {"splits": {"test": {"roc_auc": 0.9, "pr_auc": 0.85}}}
+        ms_rpt = {"candidates": [{"family": "lr", "cv_score": 0.8, "selected": True}]}
+        ext_rpt = {"cohorts": [{"name": "ext1", "roc_auc": 0.87}]}
+        ci_rpt = {"ci_matrix": [{"metric": "roc_auc", "split": "test",
+                                  "point_estimate": 0.9, "ci_lower": 0.85, "ci_upper": 0.95}]}
+        ev = tmp_path / "eval.json"
+        ms = tmp_path / "ms.json"
+        ext = tmp_path / "ext.json"
+        ci = tmp_path / "ci.json"
+        _write_json(ev, eval_rpt)
+        _write_json(ms, ms_rpt)
+        _write_json(ext, ext_rpt)
+        _write_json(ci, ci_rpt)
+        out = tmp_path / "tables.tex"
+        monkeypatch.setattr("sys.argv", [
+            "el", "--evaluation-report", str(ev),
+            "--model-selection-report", str(ms),
+            "--external-report", str(ext),
+            "--ci-matrix-report", str(ci),
+            "--output", str(out),
+        ])
+        rc = el.main()
+        assert rc == 0
+        tex = out.read_text()
+        assert "tab:performance" in tex
+        assert "tab:model_selection" in tex
+        assert "tab:external" in tex
+        assert "tab:ci" in tex

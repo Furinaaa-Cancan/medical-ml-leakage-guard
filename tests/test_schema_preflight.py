@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import schema_preflight as sp
 from schema_preflight import (
     TARGET_ALIASES,
     PATIENT_ID_ALIASES,
@@ -569,3 +570,274 @@ class TestCLISingleFileMode:
         report = json.loads((tmp_path / "report.json").read_text())
         codes = [f["code"] for f in report["failures"]]
         assert "input_csv_read_failed" in codes
+
+
+# ────────────────────────────────────────────────────────
+# Direct main() tests — split mode
+# ────────────────────────────────────────────────────────
+
+class TestMainSplitPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainSplitMissingTarget:
+    def test_missing_target_col(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, missing_target_col=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "required_column_missing" in codes
+
+
+class TestMainSplitNonBinary:
+    def test_non_binary_target(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, non_binary_target=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "target_not_binary" in codes
+
+
+class TestMainSplitNullPids:
+    def test_null_patient_ids(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, nan_pid=3)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "patient_id_nulls_detected" in codes
+
+
+class TestMainSplitSingleClass:
+    def test_single_class_warning(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, single_class=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        out = json.loads(rpt.read_text())
+        warn_codes = [w["code"] for w in out["warnings"]]
+        assert "target_single_class_split" in warn_codes
+
+
+class TestMainSplitAutoMapping:
+    def test_auto_mapping_warning(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, target_col="label", pid_col="subject_id", time_col="timestamp")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        out = json.loads(rpt.read_text())
+        warn_codes = [w["code"] for w in out["warnings"]]
+        assert "column_auto_mapped" in warn_codes
+
+
+class TestMainSplitStrict:
+    def test_strict_rejects_auto_mapping(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, target_col="label", pid_col="subject_id", time_col="timestamp")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt), "--strict",
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "strict_auto_mapping_not_allowed" in codes
+
+
+class TestMainSplitMappingOut:
+    def test_mapping_output(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        mapping = tmp_path / "mapping.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+            "--mapping-out", str(mapping),
+        ])
+        rc = sp.main()
+        assert rc == 0
+        assert mapping.exists()
+        m = json.loads(mapping.read_text())
+        assert "target_col" in m
+
+
+class TestMainSplitDifferentCols:
+    def test_different_columns(self, tmp_path, monkeypatch):
+        splits = _make_split_csvs(tmp_path, different_columns=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc in (0, 2)
+
+
+# ────────────────────────────────────────────────────────
+# Direct main() tests — single file mode
+# ────────────────────────────────────────────────────────
+
+class TestMainSinglePass:
+    def test_pass(self, tmp_path, monkeypatch):
+        csv_path = _make_single_csv(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(csv_path), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+        assert out["summary"]["mode"] == "single_file"
+
+
+class TestMainSingleNonBinary:
+    def test_non_binary(self, tmp_path, monkeypatch):
+        csv_path = _make_single_csv(tmp_path, non_binary=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(csv_path), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "target_not_binary" in codes
+
+
+class TestMainSingleNullPids:
+    def test_null_pids(self, tmp_path, monkeypatch):
+        csv_path = _make_single_csv(tmp_path, nan_pid=5)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(csv_path), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "patient_id_nulls_detected" in codes
+
+
+class TestMainSingleInsufficientPatients:
+    def test_too_few_patients(self, tmp_path, monkeypatch):
+        csv_path = _make_single_csv(tmp_path, n_rows=3)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(csv_path), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "insufficient_patients" in codes
+
+
+class TestMainSingleMissingCols:
+    def test_missing_required_column(self, tmp_path, monkeypatch):
+        p = tmp_path / "no_cols.csv"
+        pd.DataFrame({"col_a": [1, 2], "col_b": [3, 4], "col_c": ["2024-01-01"] * 2}).to_csv(p, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(p), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "required_column_missing" in codes
+
+
+class TestMainSingleEmpty:
+    def test_empty_csv(self, tmp_path, monkeypatch):
+        p = tmp_path / "empty.csv"
+        p.write_text("a,b\n", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(p), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "input_csv_read_failed" in codes
+
+
+class TestMainSingleStrict:
+    def test_strict_auto_mapping(self, tmp_path, monkeypatch):
+        csv_path = _make_single_csv(tmp_path, target_col="label", pid_col="subject_id", time_col="timestamp")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(csv_path), "--report", str(rpt),
+            "--strict", "--target-col", "y", "--patient-id-col", "patient_id", "--time-col", "event_time",
+        ])
+        rc = sp.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "strict_auto_mapping_not_allowed" in codes
+
+
+class TestMainSingleSingleClass:
+    def test_single_class_warning(self, tmp_path, monkeypatch):
+        csv_path = _make_single_csv(tmp_path, single_class=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "sp", "--input-csv", str(csv_path), "--report", str(rpt),
+        ])
+        rc = sp.main()
+        out = json.loads(rpt.read_text())
+        warn_codes = [w["code"] for w in out["warnings"]]
+        assert "target_single_class" in warn_codes
