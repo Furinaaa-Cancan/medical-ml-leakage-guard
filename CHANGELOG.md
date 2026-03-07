@@ -16,6 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Supports `--json`, `--markdown`, and plain text output with `--output` file option
   - 25 comprehensive unit tests
 
+- **Gate Timeline Analyzer** (`gate_timeline.py`)
+  - Reads gate reports from an evidence directory, extracts execution timestamps and durations
+  - Identifies bottleneck gates (slowest by duration)
+  - Computes wall-clock span, total/average/min/max durations, status counts
+  - Supports JSON and human-readable text output with `--output` and `--top N` options
+  - 47 comprehensive unit tests (99% coverage)
+
 - **Policy Generator** (`policy_generator.py`)
   - Scans evidence reports and generates a recommended `performance_policy.json`
   - Extracts observed metrics from evaluation, robustness, calibration, seed, and external reports
@@ -64,7 +71,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **255 new tests across 18 files**
+- **302 new tests across 22 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -85,6 +92,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_schema_preflight.py`: 19 direct `main()` tests (pass, missing target, non-binary, null pids, single class, auto-mapping, strict, mapping-out, split and single-file modes)
   - `test_export_latex.py`: 8 direct `main()` tests (eval-only, custom decimals, missing eval, model selection, external, CI matrix, all reports)
   - `test_policy_generator.py`: 41 tests (new tool — helpers, extractors, derivation, presets, formatting, CLI)
+  - `test_manifest_lock.py`: 13 direct `main()` tests (pass, multi-file, CSV, missing input, dir, meta, invalid meta, baseline match/mismatch/missing/not-dict/corrupt)
+  - `test_generalization_gap_gate.py`: 13 direct `main()` tests (pass, overfit, brier, warning, strict, missing splits, invalid eval/policy, missing metric, invalid threshold)
+  - `test_permutation_significance_gate.py`: 14 direct `main()` tests (pass, not significant, missing/empty/invalid null, low perm, delta, lower-is-better, strict, invalid actual/alpha/delta/min-perm)
+  - `test_gate_timeline.py`: 47 tests (new tool — helpers, extraction, scanning, sorting, summary, bottlenecks, formatting, CLI)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
