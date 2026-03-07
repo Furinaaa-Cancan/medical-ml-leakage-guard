@@ -16,6 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Supports `--json`, `--markdown`, and plain text output with `--output` file option
   - 25 comprehensive unit tests
 
+- **Gate Coverage Matrix** (`gate_coverage_matrix.py`)
+  - Scans evidence directory against the full gate registry to produce a coverage matrix
+  - Shows which gates have been executed, their status, and identifies missing gates
+  - Per-layer breakdown with pass/fail counts and coverage percentage
+  - Supports JSON and human-readable text output with `--output` option
+  - 23 comprehensive unit tests (97% coverage)
+
 - **Gate Timeline Analyzer** (`gate_timeline.py`)
   - Reads gate reports from an evidence directory, extracts execution timestamps and durations
   - Identifies bottleneck gates (slowest by duration)
@@ -71,7 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **340 new tests across 26 files**
+- **363 new tests across 27 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -100,6 +107,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_metric_consistency_gate.py`: 10 direct `main()` tests (pass, mismatch, missing, not found, no expected, strict, split mismatch, path mismatch, corrupt JSON)
   - `test_seed_stability_gate.py`: 11 direct `main()` tests (pass, missing, wrong primary, selection data, insufficient seeds, duplicate, threshold, summary mismatch, corrupt JSON, strict)
   - `test_calibration_dca_gate.py`: 6 direct `main()` tests (pass, missing trace, missing columns, non-binary, insufficient rows, corrupt eval JSON)
+  - `test_gate_coverage_matrix.py`: 23 tests (new tool — helpers, registry, scanning, summary, formatting, CLI)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
