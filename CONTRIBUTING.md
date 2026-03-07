@@ -106,7 +106,13 @@ test: add split_data.py smoke tests for all 3 strategies
 ### Running Tests
 
 ```bash
-# All smoke tests
+# Pytest unit tests (2800+ tests, ~8 min)
+python3 -m pytest tests/ -q --tb=short
+
+# Pytest with coverage report
+python3 -m pytest tests/ -q --tb=no --cov=scripts --cov-report=term-missing
+
+# Smoke tests (quick integration checks)
 python3 scripts/test_gate_smoke.py
 python3 scripts/test_onboarding_smoke.py
 python3 scripts/test_split_smoke.py

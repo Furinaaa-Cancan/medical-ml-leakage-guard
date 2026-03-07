@@ -468,6 +468,70 @@ python3 scripts/mlgg_pixel.py [--lang {en,zh}] [--dry-run]
 
 ---
 
+## Analysis & Utility Tools
+
+### `policy_generator.py`
+
+**Purpose:** Generate a recommended `performance_policy.json` from evidence reports.
+
+```
+python3 scripts/policy_generator.py --evidence-dir <dir> [--margin 0.15] [--preset {lenient,standard,strict}] [--text] [--output <path>]
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `--evidence-dir` | str | ✅ | — | Path to evidence directory |
+| `--margin` | float | | `0.15` | Headroom margin fraction |
+| `--preset` | choice | | — | Named preset (`lenient`/`standard`/`strict`), overrides `--margin` |
+| `--text` | flag | | `false` | Output human-readable text instead of JSON |
+| `--output` | str | | — | Write output to file (default: stdout) |
+
+### `gate_timeline.py`
+
+**Purpose:** Analyze gate execution timeline from an evidence directory.
+
+```
+python3 scripts/gate_timeline.py --evidence-dir <dir> [--json] [--top 5] [--output <path>]
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `--evidence-dir` | str | ✅ | — | Path to evidence directory |
+| `--json` | flag | | `false` | Output JSON instead of text |
+| `--top` | int | | `5` | Number of bottleneck gates to show |
+| `--output` | str | | — | Write output to file (default: stdout) |
+
+### `gate_coverage_matrix.py`
+
+**Purpose:** Generate a gate coverage matrix from an evidence directory against the full gate registry.
+
+```
+python3 scripts/gate_coverage_matrix.py --evidence-dir <dir> [--json] [--output <path>]
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `--evidence-dir` | str | ✅ | — | Path to evidence directory |
+| `--json` | flag | | `false` | Output JSON instead of text |
+| `--output` | str | | — | Write output to file (default: stdout) |
+
+### `evidence_comparator.py`
+
+**Purpose:** Compare two evidence directories (baseline vs current) and show gate-level diffs.
+
+```
+python3 scripts/evidence_comparator.py --baseline <dir> --current <dir> [--json] [--output <path>]
+```
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `--baseline` | str | ✅ | — | Path to baseline evidence directory |
+| `--current` | str | ✅ | — | Path to current evidence directory |
+| `--json` | flag | | `false` | Output JSON instead of text |
+| `--output` | str | | — | Write output to file (default: stdout) |
+
+---
+
 ## Notes
 
 - All gates exit **0** on pass and **2** on fail (fail-closed design).
