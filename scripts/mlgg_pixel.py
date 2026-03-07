@@ -242,6 +242,10 @@ _T: Dict[str, Dict[str, str]] = {
     "feature_time_hint": {"en": "time-like column (usually not a predictor)", "zh": "\u65f6\u95f4\u7c7b\u5217\uff08\u901a\u5e38\u4e0d\u4f5c\u4e3a\u9884\u6d4b\u7279\u5f81\uff09"},
     "feature_choose_at_least_one": {"en": "Please select at least one predictor feature.",
                                     "zh": "\u8bf7\u81f3\u5c11\u9009\u62e9 1 \u4e2a\u9884\u6d4b\u7279\u5f81\u3002"},
+    "feature_count_high_warn": {"en": "Warning: {n} features selected — with only {rows} rows, this may cause overfitting (EPV={epv:.1f}). Consider selecting fewer features or using strict screening mode.",
+                                "zh": "\u8b66\u544a\uff1a\u5df2\u9009 {n} \u4e2a\u7279\u5f81 \u2014 \u4ec5 {rows} \u884c\u6570\u636e\uff0c\u53ef\u80fd\u5bfc\u81f4\u8fc7\u62df\u5408\uff08EPV={epv:.1f}\uff09\u3002\u5efa\u8bae\u51cf\u5c11\u7279\u5f81\u6216\u4f7f\u7528\u4e25\u683c\u7b5b\u9009\u6a21\u5f0f\u3002"},
+    "feature_count_extreme_warn": {"en": "Warning: {n} features selected exceeds row count ({rows}). Model training will almost certainly fail or produce meaningless results. Please reduce feature count.",
+                                   "zh": "\u8b66\u544a\uff1a\u5df2\u9009 {n} \u4e2a\u7279\u5f81\u8d85\u8fc7\u884c\u6570\uff08{rows}\uff09\u3002\u6a21\u578b\u8bad\u7ec3\u51e0\u4e4e\u5fc5\u7136\u5931\u8d25\u6216\u4ea7\u751f\u65e0\u610f\u4e49\u7ed3\u679c\u3002\u8bf7\u51cf\u5c11\u7279\u5f81\u6570\u91cf\u3002"},
     "feature_selected_n": {"en": "{n} feature(s) selected", "zh": "\u5df2\u9009\u62e9 {n} \u4e2a\u7279\u5f81"},
     "feature_auto_all": {"en": "auto (all eligible columns)", "zh": "\u81ea\u52a8\uff08\u6240\u6709\u53ef\u7528\u5217\uff09"},
     "feat_num": {"en": "num", "zh": "\u6570\u503c"},
@@ -2806,6 +2810,17 @@ def step_config(state: Dict) -> Any:
             if not selected_features:
                 _notice(t("feature_choose_at_least_one"))
                 continue
+            # ── Feature count safety warnings ──
+            n_feat = len(selected_features)
+            n_rows_est = int(state_n_rows(state) or 0)
+            if n_rows_est > 0 and n_feat >= n_rows_est:
+                _notice(t("feature_count_extreme_warn", n=n_feat, rows=n_rows_est))
+                continue
+            if n_rows_est > 0 and n_feat > 0:
+                # EPV = events per variable (rough estimate: prevalence ~0.3-0.5)
+                epv_est = (n_rows_est * 0.3) / max(n_feat, 1)
+                if epv_est < 5.0:
+                    _notice(t("feature_count_high_warn", n=n_feat, rows=n_rows_est, epv=epv_est))
             break
 
     # ── Feature screening mode selection ──
