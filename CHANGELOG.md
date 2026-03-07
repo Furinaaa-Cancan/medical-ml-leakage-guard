@@ -16,6 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Supports `--json`, `--markdown`, and plain text output with `--output` file option
   - 25 comprehensive unit tests
 
+- **Threshold Sensitivity Analyzer** (`threshold_sensitivity.py`)
+  - Scans gate reports and analyzes how close each metric sits to its pass/fail threshold
+  - Identifies fragile gates (within configurable margin %)
+  - Simulates stricter (0.8x) and relaxed (1.2x) policy scenarios
+  - Shows new failures and resolved failures under each simulation
+  - Supports `--json`, `--markdown`, and plain text output with `--output` file option
+  - 47 comprehensive unit tests (94% coverage)
+
 - **Evidence Health Check Tool** (`report_health_check.py`)
   - Scans all 28 gate reports in an evidence directory
   - Produces completeness percentage, pass rate, per-gate status table
@@ -48,7 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **140 new tests across 15 files**
+- **187 new tests across 16 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -65,6 +73,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_robustness_gate.py`: 13 direct `main()` tests (pass, missing file, invalid JSON, metric mismatch, buckets, drops, ranges, summary, strict, policy)
   - `test_prediction_replay_gate.py`: 12 direct `main()` tests (pass, missing files, invalid JSON, columns, binary, scores, replay mismatch, strict)
   - `test_external_validation_gate.py`: 14 direct `main()` tests (pass, missing files, invalid JSON, cohorts, metrics, transport drop, strict, binary, scores)
+  - `test_threshold_sensitivity.py`: 47 tests (new tool — helpers, extraction, classification, simulation, formatting, CLI)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)
