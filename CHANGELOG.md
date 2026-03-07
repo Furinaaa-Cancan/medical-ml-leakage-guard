@@ -48,7 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- **101 new tests across 12 files**
+- **140 new tests across 15 files**
   - `test_report_health_check.py`: 21 tests (new tool)
   - `test_explain_gate.py`: 8 tests for `main()` CLI paths
   - `test_compare_runs.py`: 6 tests for `main()` CLI paths
@@ -62,6 +62,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `test_publication_gate.py`: 7 direct `main()` tests (pass, component fail, manifest, attestation, metric, strict)
   - `test_self_critique_gate.py`: 6 direct `main()` tests (pass, component fail, manifest, strict, low score)
   - `test_remediation_plan.py`: 25 tests (new tool)
+  - `test_robustness_gate.py`: 13 direct `main()` tests (pass, missing file, invalid JSON, metric mismatch, buckets, drops, ranges, summary, strict, policy)
+  - `test_prediction_replay_gate.py`: 12 direct `main()` tests (pass, missing files, invalid JSON, columns, binary, scores, replay mismatch, strict)
+  - `test_external_validation_gate.py`: 14 direct `main()` tests (pass, missing files, invalid JSON, cohorts, metrics, transport drop, strict, binary, scores)
 
 - **Documentation**
   - System architecture document with Mermaid flowchart (`references/Architecture.md`) (#71)

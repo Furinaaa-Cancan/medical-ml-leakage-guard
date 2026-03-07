@@ -271,3 +271,221 @@ class TestStrictMode:
     def test_strict_flag(self, tmp_path):
         report = _run_gate(tmp_path, strict=True)
         assert report["strict_mode"] is True
+
+
+# ── Direct main() tests ────────────────────────────────────────────────────
+
+def _write_json(path, data):
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+class TestMainPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+        assert out["failure_count"] == 0
+        assert "splits" in out["summary"]
+
+
+class TestMainMissingFiles:
+    def test_missing_eval_report(self, tmp_path, monkeypatch):
+        trace_path = tmp_path / "trace.csv"
+        pd.DataFrame({"scope": ["test"], "y_true": [1]}).to_csv(trace_path, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(tmp_path / "nope.json"),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_missing" in codes
+
+    def test_missing_trace(self, tmp_path, monkeypatch):
+        eval_path = tmp_path / "eval.json"
+        _write_json(eval_path, {})
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(tmp_path / "nope.csv"),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_missing" in codes
+
+
+class TestMainInvalidJSON:
+    def test_invalid_eval_json(self, tmp_path, monkeypatch):
+        bad = tmp_path / "bad.json"
+        bad.write_text("{bad", encoding="utf-8")
+        trace_path = tmp_path / "trace.csv"
+        pd.DataFrame({"scope": ["test"], "y_true": [1]}).to_csv(trace_path, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(bad),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_schema_invalid" in codes
+
+
+class TestMainMissingColumns:
+    def test_missing_trace_columns(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        df = pd.read_csv(trace_path).drop(columns=["y_score"])
+        trace2 = tmp_path / "trace2.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace2),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_schema_invalid" in codes
+
+
+class TestMainNonBinary:
+    def test_non_binary_y_true(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        df = pd.read_csv(trace_path)
+        df.loc[0, "y_true"] = 2
+        trace2 = tmp_path / "trace2.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace2),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_schema_invalid" in codes
+
+
+class TestMainScoreOutOfRange:
+    def test_score_out_of_range(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        df = pd.read_csv(trace_path)
+        df.loc[0, "y_score"] = 1.5
+        trace2 = tmp_path / "trace2.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace2),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_score_out_of_range" in codes
+
+
+class TestMainMetricMismatch:
+    def test_metric_mismatch(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        ev = json.loads(eval_path.read_text())
+        ev["split_metrics"]["test"]["metrics"]["roc_auc"] = 0.999
+        ev["metrics"]["roc_auc"] = 0.999
+        _write_json(eval_path, ev)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_metric_replay_mismatch" in codes
+
+
+class TestMainMissingSplitMetrics:
+    def test_no_split_metrics(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        ev = json.loads(eval_path.read_text())
+        del ev["split_metrics"]
+        _write_json(eval_path, ev)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_schema_invalid" in codes
+
+
+class TestMainStrict:
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt), "--strict",
+        ])
+        rc = prg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["strict_mode"] is True
+
+
+class TestMainNoReport:
+    def test_no_report_flag(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace_path),
+        ])
+        rc = prg.main()
+        assert rc == 0
+
+
+class TestMainNonFiniteScore:
+    def test_nan_y_score(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        df = pd.read_csv(trace_path)
+        df.loc[0, "y_score"] = float("nan")
+        trace2 = tmp_path / "trace2.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace2),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_non_finite" in codes

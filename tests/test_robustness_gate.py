@@ -272,3 +272,219 @@ class TestStrictMode:
         rob = _make_robustness_report(overall_pr_auc=0.82, slice_pr_aucs=[0.71, 0.80, 0.81])
         report = _run_gate(tmp_path, robustness=rob, strict=True)
         assert report["status"] == "fail"
+
+
+# ── Direct main() tests ────────────────────────────────────────────────────
+
+def _write_json(path, data):
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+class TestMainPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+        assert out["failure_count"] == 0
+
+
+class TestMainMissingFile:
+    def test_missing_robustness_report(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(tmp_path / "nope.json"),
+            "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_robustness_report" in codes
+
+
+class TestMainInvalidJSON:
+    def test_invalid_json(self, tmp_path, monkeypatch):
+        bad = tmp_path / "bad.json"
+        bad.write_text("{bad", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(bad), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_robustness_report" in codes
+
+
+class TestMainPrimaryMetricMismatch:
+    def test_wrong_metric(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["primary_metric"] = "roc_auc"
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_primary_metric_mismatch" in codes
+
+
+class TestMainMissingOverall:
+    def test_no_overall_metrics(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        del rob["overall_test_metrics"]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_missing_overall_metric" in codes
+
+
+class TestMainBucketMissing:
+    def test_missing_time_slices(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        del rob["time_slices"]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_missing_bucket" in codes
+
+
+class TestMainDropFail:
+    def test_pr_auc_drop_exceeds_threshold(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report(overall_pr_auc=0.85, slice_pr_aucs=[0.65, 0.80, 0.82])
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_pr_auc_drop_exceeds_threshold" in codes
+
+
+class TestMainRangeFail:
+    def test_pr_auc_range_exceeds_threshold(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report(overall_pr_auc=0.85, slice_pr_aucs=[0.60, 0.85])
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_pr_auc_range_exceeds_threshold" in codes
+
+
+class TestMainSummaryMismatch:
+    def test_summary_mismatch(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rob["summary"]["time_slices"]["pr_auc_min"] = 0.50
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_summary_mismatch" in codes
+
+    def test_missing_summary(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        del rob["summary"]
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_summary_missing" in codes
+
+
+class TestMainStrict:
+    def test_strict_promotes_warnings(self, tmp_path, monkeypatch):
+        # drop=0.11 is between warn=0.10 and fail=0.14 → warning → strict fails
+        rob = _make_robustness_report(overall_pr_auc=0.82, slice_pr_aucs=[0.71, 0.80, 0.81])
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr), "--report", str(rpt), "--strict",
+        ])
+        rc = rg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "fail"
+        assert out["strict_mode"] is True
+
+
+class TestMainNoReport:
+    def test_no_report_flag(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr),
+        ])
+        rc = rg.main()
+        assert rc == 0
+
+
+class TestMainWithPolicy:
+    def test_custom_policy_thresholds(self, tmp_path, monkeypatch):
+        rob = _make_robustness_report()
+        rr = tmp_path / "rob.json"
+        _write_json(rr, rob)
+        policy = {"robustness_thresholds": {"time_slices": {"pr_auc_drop_fail": 0.01}}}
+        pp = tmp_path / "policy.json"
+        _write_json(pp, policy)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "rg", "--robustness-report", str(rr),
+            "--performance-policy", str(pp),
+            "--report", str(rpt),
+        ])
+        rc = rg.main()
+        assert rc == 2  # drop exceeds tight threshold
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "robustness_pr_auc_drop_exceeds_threshold" in codes
