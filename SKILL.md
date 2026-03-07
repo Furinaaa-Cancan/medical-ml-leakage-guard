@@ -416,8 +416,25 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/render_user_summary.py`: user-facing markdown/json summary from strict evidence artifacts.
 - `scripts/run_productized_workflow.py`: full UX wrapper (doctor -> preflight -> strict pipeline -> user summary).
 - `scripts/mlgg_interactive.py`: terminal interactive wizard for core commands (`init/workflow/train/authority`) with command preview, confirm-before-run, and profile save/load.
+- `scripts/mlgg_pixel.py`: pixel-art interactive CLI wizard (`mlgg.py play`) for guided pipeline setup and execution with bilingual (en/zh) support, dataset-size-aware defaults, small-sample strict mode, and play-mode quick-readiness card.
 - `scripts/_gate_utils.py`: shared utility functions (`add_issue`, `load_json`, `write_json`, `to_float`) for gate scripts.
+- `scripts/policy_generator.py`: generate recommended `performance_policy.json` from evidence reports with configurable margin and presets.
+- `scripts/gate_timeline.py`: analyze gate execution timeline, identify bottleneck gates, compute wall-clock span.
+- `scripts/gate_coverage_matrix.py`: scan evidence directory against full gate registry to produce coverage matrix.
+- `scripts/evidence_comparator.py`: compare two evidence directories side-by-side showing improved/regressed/new/removed gates.
+- `scripts/evidence_digest.py`: generate compact one-page summary from evidence directory.
+- `scripts/report_health_check.py`: scan all gate reports for completeness and pass rate.
+- `scripts/remediation_plan.py`: generate prioritized remediation plan from gate failures.
+- `scripts/threshold_sensitivity.py`: analyze how close metrics sit to pass/fail thresholds.
+- `scripts/compare_runs.py`: compare two pipeline runs side-by-side.
+- `scripts/export_latex.py`: generate LaTeX tables from evaluation/CI/model-selection reports.
+- `scripts/explain_gate.py`: explain a single gate result in human-readable form.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
+
+### tests/
+- `tests/`: 2800+ pytest unit tests covering all gate scripts and analysis tools.
+  - Direct `main()` tests for 20+ gate scripts (bypass subprocess for in-process coverage).
+  - Run: `python3 -m pytest tests/ -q --tb=short` (~8 min for full suite).
 
 ### references/
 - `references/Beginner-Quickstart.md`: bilingual novice quickstart (minimal loop + publication-grade loop).
