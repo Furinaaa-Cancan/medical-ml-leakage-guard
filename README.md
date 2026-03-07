@@ -25,9 +25,13 @@ source .venv/bin/activate    # macOS/Linux
 # 3. Install dependencies
 python3 -m pip install -r requirements.txt
 
+# Optional: install stable console scripts from package metadata
+python3 -m pip install -e .
+
 # 4. Verify installation
 python3 scripts/mlgg.py --help
 python3 scripts/mlgg.py doctor
+mlgg --help
 
 # 5. Run the full demo (one command, ~3-8 min)
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
@@ -44,6 +48,9 @@ python3 scripts/mlgg.py play
 Important:
 - `play` is a quick train/evaluate launcher for interactive exploration.
 - The “Quick Readiness (play mode)” card is **not** the 28-gate publication verdict.
+- Stable installed console scripts are `mlgg` and `mlgg-pixel`.
+- The browser wizard is currently a repository-local legacy prototype:
+  `python3 -m pip install ".[web]" && python3 scripts/mlgg_web.py`
 - In column/model menus, press `/` to search, `Enter` to finish search mode, and `c` to clear the filter.
 - For custom CSV, Step 4 now supports explicit selection of `Patient ID`, `Target`, and `Feature columns` (unselected features are automatically excluded from training).
 - Built-in model families in `play` now include: `logistic_l1/l2/elasticnet`, `random_forest`, `extra_trees`, `hist_gradient_boosting`, `adaboost`, `svm_linear`, `svm_rbf`, plus ensemble families `soft_voting/weighted_voting/stacking` (and optional `xgboost/catboost/lightgbm/tabpfn`).
@@ -173,6 +180,12 @@ Install optional model backends:
 
 ```bash
 python3 -m pip install -r requirements-optional.txt
+```
+
+Install the legacy browser prototype only when needed:
+
+```bash
+python3 -m pip install ".[web]"
 ```
 
 Check runtime environment:
@@ -614,9 +627,13 @@ source .venv/bin/activate    # macOS/Linux
 # 3. 安装依赖
 python3 -m pip install -r requirements.txt
 
+# 可选：按包元数据安装稳定 CLI 入口
+python3 -m pip install -e .
+
 # 4. 验证安装
 python3 scripts/mlgg.py --help
 python3 scripts/mlgg.py doctor
+mlgg --help
 
 # 5. 一键跑完整 demo（约 3-8 分钟）
 python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
@@ -633,6 +650,9 @@ python3 scripts/mlgg.py play
 重要说明：
 - `play` 是交互式快速训练/评估入口，适合探索与教学。
 - 输出中的“快速就绪检查（play 模式）”**不是** 28 关发布门结论。
+- 当前稳定公开的已安装 CLI 入口是 `mlgg` 与 `mlgg-pixel`。
+- 浏览器向导目前仍是仓库内的遗留/实验原型，如需使用：
+  `python3 -m pip install ".[web]" && python3 scripts/mlgg_web.py`
 - 在列/模型选择菜单中，按 `/` 进入搜索，`Enter` 结束搜索，`c` 清空过滤。
 - 对于自有 CSV，Step 4 现已支持显式选择 `患者ID`、`结局变量`、`特征列`（未选特征会自动排除，不参与训练）。
 - `play` 内置模型族已扩展为：`logistic_l1/l2/elasticnet`、`random_forest`、`extra_trees`、`hist_gradient_boosting`、`adaboost`、`svm_linear`、`svm_rbf`，并支持集成模型 `soft_voting/weighted_voting/stacking`（可选后端仍为 `xgboost/catboost/lightgbm/tabpfn`）。
@@ -762,6 +782,12 @@ python3 -m pip install -r requirements.txt
 
 ```bash
 python3 -m pip install -r requirements-optional.txt
+```
+
+如需使用遗留浏览器原型，再单独安装：
+
+```bash
+python3 -m pip install ".[web]"
 ```
 
 环境体检：

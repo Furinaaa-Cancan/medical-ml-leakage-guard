@@ -151,6 +151,14 @@ _T: Dict[str, Dict[str, str]] = {
                         "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a1-{MAX_TRIALS_INPUT}\u3002"},
     "msg_trials_strict_cap":{"en": "Strict small-sample mode caps this value at {cap}.",
                              "zh": "\u5c0f\u6837\u672c\u4e25\u683c\u6a21\u5f0f\u4e0b\uff0c\u6b64\u503c\u6700\u5927\u4e3a {cap}\u3002"},
+    "candidate_count_ok":{"en": "~{n} base candidates across {families} family(ies)",
+                          "zh": "\u7ea6 {n} \u4e2a\u57fa\u7840\u5019\u9009\uff0c\u6765\u81ea {families} \u4e2a\u6a21\u578b\u5bb6\u65cf"},
+    "candidate_count_low":{"en": "~{n} base candidates across {families} family(ies) (need at least 3)",
+                           "zh": "\u7ea6 {n} \u4e2a\u57fa\u7840\u5019\u9009\uff0c\u6765\u81ea {families} \u4e2a\u6a21\u578b\u5bb6\u65cf\uff08\u81f3\u5c11\u9700 3 \u4e2a\uff09"},
+    "candidate_pool_small_tuning":{"en": "Current setup yields only ~{n} base candidates. Increase trials/Optuna trials or add more base model families before training.",
+                                   "zh": "\u5f53\u524d\u914d\u7f6e\u53ea\u4f1a\u751f\u6210\u7ea6 {n} \u4e2a\u57fa\u7840\u5019\u9009\u3002\u8bf7\u589e\u52a0\u8bd5\u9a8c\u6b21\u6570/Optuna \u8bd5\u9a8c\u6b21\u6570\uff0c\u6216\u518d\u589e\u52a0\u57fa\u7840\u6a21\u578b\u5bb6\u65cf\u3002"},
+    "candidate_pool_small_run":{"en": "Training was not started because the current setup yields only ~{n} base candidates (<3). Increase trials/Optuna trials or add more base model families.",
+                                "zh": "\u672a\u542f\u52a8\u8bad\u7ec3\uff0c\u56e0\u4e3a\u5f53\u524d\u914d\u7f6e\u53ea\u4f1a\u751f\u6210\u7ea6 {n} \u4e2a\u57fa\u7840\u5019\u9009\uff08<3\uff09\u3002\u8bf7\u589e\u52a0\u8bd5\u9a8c\u6b21\u6570/Optuna \u8bd5\u9a8c\u6b21\u6570\uff0c\u6216\u518d\u589e\u52a0\u57fa\u7840\u6a21\u578b\u5bb6\u65cf\u3002"},
     "msg_optuna_trials_range":{"en": f"Value out of range. Allowed: 1-{MAX_OPTUNA_TRIALS_INPUT}.",
                                "zh": f"\u6570\u503c\u8d85\u51fa\u8303\u56f4\uff0c\u53ef\u7528\u533a\u95f4\uff1a1-{MAX_OPTUNA_TRIALS_INPUT}\u3002"},
     "msg_njobs_range":{"en": f"Value out of range. Allowed: -1 or 1-{MAX_NJOBS_INPUT}.",
@@ -376,6 +384,7 @@ _T: Dict[str, Dict[str, str]] = {
     "c_strat":       {"en": "Strategy:", "zh": "\u7b56\u7565\uff1a"},
     "c_ratio":       {"en": "Ratio:", "zh": "\u6bd4\u4f8b\uff1a"},
     "c_models":      {"en": "Models:", "zh": "\u6a21\u578b\uff1a"},
+    "c_candidates":  {"en": "Candidates:", "zh": "\u5019\u9009\uff1a"},
     "c_models_effective": {"en": "Effective models:", "zh": "\u5b9e\u9645\u8bad\u7ec3\u6a21\u578b\uff1a"},
     "c_tuning":      {"en": "Tuning:", "zh": "\u8c03\u4f18\uff1a"},
     "c_tuning_effective": {"en": "Effective tuning:", "zh": "\u5b9e\u9645\u8c03\u4f18\uff1a"},
@@ -454,8 +463,8 @@ _T: Dict[str, Dict[str, str]] = {
     "x_download":    {"en": "Downloading {ds}...", "zh": "\u6b63\u5728\u4e0b\u8f7d {ds}..."},
     "x_split":       {"en": "Splitting with safety checks...",
                       "zh": "\u6b63\u5728\u5b89\u5168\u5206\u5272..."},
-    "x_train":       {"en": "Training {n} model(s)...",
-                      "zh": "\u6b63\u5728\u8bad\u7ec3 {n} \u4e2a\u6a21\u578b..."},
+    "x_train":       {"en": "Training {families} model family(ies) (~{candidates} candidates)...",
+                      "zh": "\u6b63\u5728\u8bad\u7ec3 {families} \u4e2a\u6a21\u578b\u5bb6\u65cf\uff08\u7ea6 {candidates} \u4e2a\u5019\u9009\uff09..."},
     "x_pipeline":    {"en": "Running full pipeline...",
                       "zh": "\u6b63\u5728\u8fd0\u884c\u5b8c\u6574\u7ba1\u7ebf..."},
     "x_pipeline_full": {"en": "Running 28-gate publication pipeline...",
@@ -1788,6 +1797,21 @@ MODEL_PROFILE_PRESETS = {
 STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS = 500
 STRICT_SMALL_SAMPLE_MAX_TRIALS_CAP = 8
 STRICT_SMALL_SAMPLE_MODEL_POOL = ["logistic_l1", "logistic_l2", "logistic_elasticnet"]
+BASE_FAMILY_GRID_SIZES = {
+    "logistic_l1": 5,
+    "logistic_l2": 5,
+    "logistic_elasticnet": 13,
+    "random_forest_balanced": 108,
+    "extra_trees_balanced": 108,
+    "hist_gradient_boosting_l2": 288,
+    "adaboost": 32,
+    "xgboost": 432,
+    "catboost": 162,
+    "lightgbm": 432,
+    "svm_linear": 6,
+    "svm_rbf": 16,
+    "tabpfn": 1,
+}
 PLAY_DOWNLOAD_DATASETS = [
     ("heart", "heart_disease", "ds_heart", "ds_heart_d"),
     ("breast", "breast_cancer", "ds_breast", "ds_breast_d"),
@@ -1834,6 +1858,59 @@ def recommended_max_trials(state: Dict[str, Any]) -> int:
     if tier == "large":
         return 30
     return 12
+
+
+def estimated_base_candidate_count(state: Dict[str, Any]) -> int:
+    """Estimate how many non-ensemble candidate configs will be built."""
+    families = [
+        token for token in model_pool_tokens_from_state(state)
+        if token not in ENSEMBLE_MODEL_FAMILIES
+    ]
+    if not families:
+        families = [
+            MODEL_POOL[idx][0]
+            for idx in DEFAULT_MODELS
+            if 0 <= idx < len(MODEL_POOL) and MODEL_POOL[idx][0] not in ENSEMBLE_MODEL_FAMILIES
+        ]
+    if not families:
+        return 0
+    search = str(state.get("hyperparam_search", "fixed_grid")).strip().lower()
+    if search == "optuna":
+        optuna_trials = int(state.get("optuna_trials", max(20, recommended_max_trials(state))) or 1)
+        total = 0
+        for family in families:
+            if family == "tabpfn":
+                total += 1
+            else:
+                total += max(1, int(optuna_trials) // 5)
+        return int(total)
+    max_trials = int(state.get("max_trials", recommended_max_trials(state)) or 1)
+    total = 0
+    for family in families:
+        grid_size = int(BASE_FAMILY_GRID_SIZES.get(family, 1))
+        total += min(grid_size, max(1, max_trials))
+    return int(total)
+
+
+def candidate_pool_summary(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Return estimated candidate sufficiency for current play configuration."""
+    base_families = [
+        token for token in model_pool_tokens_from_state(state)
+        if token not in ENSEMBLE_MODEL_FAMILIES
+    ]
+    if not base_families:
+        base_families = [
+            MODEL_POOL[idx][0]
+            for idx in DEFAULT_MODELS
+            if 0 <= idx < len(MODEL_POOL) and MODEL_POOL[idx][0] not in ENSEMBLE_MODEL_FAMILIES
+        ]
+    count = int(estimated_base_candidate_count(state))
+    family_count = int(len(base_families))
+    return {
+        "candidate_count": count,
+        "family_count": family_count,
+        "ok": bool(count >= 3),
+    }
 
 
 def state_n_rows(state: Dict[str, Any]) -> int:
@@ -2327,6 +2404,13 @@ def apply_strict_small_sample_profile(state: Dict[str, Any]) -> Dict[str, Any]:
     if new_pool != state.get("model_pool"):
         state["model_pool"] = new_pool
         applied.append("model_pool_linear_only")
+
+    if bool(state.get("include_optional_models", False)):
+        state["include_optional_models"] = False
+        applied.append("disable_optional_models")
+
+    if str(state.get("_model_profile", "")).strip().lower() != "conservative":
+        state["_model_profile"] = "conservative"
 
     # 2) Cap search complexity.
     if str(state.get("hyperparam_search", "")).strip().lower() == "optuna":
@@ -3218,6 +3302,11 @@ def step_tuning(state: Dict) -> Any:
                 print(
                     f"  {DIM}{rec_text}{RST}"
                 )
+            cand_summary = candidate_pool_summary(state)
+            cand_key = "candidate_count_ok" if cand_summary["ok"] else "candidate_count_low"
+            print(
+                f"  {DIM}{t(cand_key, n=str(cand_summary['candidate_count']), families=str(cand_summary['family_count']))}{RST}"
+            )
             tier = dataset_size_tier(state)
             if tier == "small":
                 base_presets = [1, 5, 8]
@@ -3247,6 +3336,12 @@ def step_tuning(state: Dict) -> Any:
                 continue
             if choice < len(presets):
                 state["max_trials"] = int(presets[choice])
+                cand_summary = candidate_pool_summary(state)
+                if not cand_summary["ok"]:
+                    _notice(t("candidate_pool_small_tuning", n=str(cand_summary["candidate_count"])))
+                    if state["hyperparam_search"] == "optuna":
+                        sub = 1
+                    continue
                 sub = 3
                 continue
 
@@ -3269,6 +3364,12 @@ def step_tuning(state: Dict) -> Any:
                 _notice(t("msg_trials_strict_cap", cap=str(strict_trial_cap)))
                 continue
             state["max_trials"] = parsed
+            cand_summary = candidate_pool_summary(state)
+            if not cand_summary["ok"]:
+                _notice(t("candidate_pool_small_tuning", n=str(cand_summary["candidate_count"])))
+                if state["hyperparam_search"] == "optuna":
+                    sub = 1
+                continue
             sub = 3
 
         elif sub == 3:
@@ -3581,11 +3682,14 @@ def step_confirm(state: Dict) -> Any:
         trials_str = str(preview_state.get('max_trials', 20))
         if preview_state.get('hyperparam_search') == 'optuna':
             trials_str += f" (optuna={preview_state.get('optuna_trials', 50)})"
+        cand_summary = candidate_pool_summary(preview_state)
+        cand_key = "candidate_count_ok" if cand_summary["ok"] else "candidate_count_low"
+        cand_str = t(cand_key, n=str(cand_summary["candidate_count"]), families=str(cand_summary["family_count"]))
 
         all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_scale'), t('c_time'),
                       t('c_strat'), t('c_ratio'), t('c_validation'),
                       t('c_imbalance'), t('c_models'), t('c_tuning'),
-                      t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
+                      t('c_trials'), t('c_candidates'), t('c_calib'), t('c_device'), t('c_output')]
         col_w = max(_wlen(l) for l in all_labels) + 2
         def _p(label: str) -> str:
             return label + " " * max(col_w - _wlen(label), 1)
@@ -3608,12 +3712,14 @@ def step_confirm(state: Dict) -> Any:
             if applied_codes:
                 code_map_zh = {
                     "model_pool_linear_only": "\u6a21\u578b\u6c60\u6536\u7d27\u4e3a\u7ebf\u6027",
+                    "disable_optional_models": "\u53ef\u9009\u540e\u7aef\u81ea\u52a8\u5173\u95ed",
                     "disable_optuna": "Optuna \u5df2\u964d\u7ea7",
                     "cap_max_trials": "\u5c1d\u8bd5\u6b21\u6570\u5df2\u9650\u5236",
                     "calibration_to_power": "\u6821\u51c6\u5df2\u8c03\u6574\u4e3a power",
                 }
                 code_map_en = {
                     "model_pool_linear_only": "model pool -> linear-only",
+                    "disable_optional_models": "optional backends disabled",
                     "disable_optuna": "optuna disabled",
                     "cap_max_trials": "tries/model capped",
                     "calibration_to_power": "calibration -> power",
@@ -3642,6 +3748,7 @@ def step_confirm(state: Dict) -> Any:
             f"{_p(t('c_models'))}{models_str}",
             f"{_p(t('c_tuning'))}{preview_state.get('hyperparam_search', '?')}",
             f"{_p(t('c_trials'))}{trials_str}",
+            f"{_p(t('c_candidates'))}{cand_str}",
             f"{_p(t('c_calib'))}{preview_state.get('calibration', '?')}",
             f"{_p(t('c_device'))}{preview_state.get('device', '?')}",
             "",
@@ -3734,50 +3841,71 @@ def step_run(state: Dict) -> Any:
     # ── Dry-run: print config summary + commands, save history ──
     if state.get("_dry_run"):
         import shlex as _shlex
+        preview_state, strict_preview = execution_preview_state(state)
         # Config summary box
-        dk = state.get("dataset_key", "custom")
+        dk = preview_state.get("dataset_key", "custom")
         if dk != "demo":
-            fname = Path(state.get("csv_path", "")).name or "?"
-            ratio_str = f"{int(state.get('train_ratio',0.6)*100)}/{int(state.get('valid_ratio',0.2)*100)}/{int(state.get('test_ratio',0.2)*100)}"
-            models_str = ", ".join(state.get("_model_labels", ["?"]))
-            vm = state.get('validation_method', 'holdout')
-            valid_str = f"CV {state.get('cv_folds', 5)}-fold" if vm == 'cv' else t('valid_holdout')
-            imb_tokens = state.get("imbalance_strategies")
+            fname = Path(preview_state.get("csv_path", "")).name or "?"
+            ratio_str = f"{int(preview_state.get('train_ratio',0.6)*100)}/{int(preview_state.get('valid_ratio',0.2)*100)}/{int(preview_state.get('test_ratio',0.2)*100)}"
+            models_str = ", ".join(preview_state.get("_model_labels", ["?"]))
+            vm = preview_state.get('validation_method', 'holdout')
+            valid_str = f"CV {preview_state.get('cv_folds', 5)}-fold" if vm == 'cv' else t('valid_holdout')
+            imb_tokens = preview_state.get("imbalance_strategies")
             if not isinstance(imb_tokens, list) or not imb_tokens:
-                imb_tokens = [str(state.get("imbalance_strategy", "auto"))]
-            imb_metric = str(state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
+                imb_tokens = [str(preview_state.get("imbalance_strategy", "auto"))]
+            imb_metric = str(preview_state.get("imbalance_selection_metric", "pr_auc")).strip().lower()
             imb_str = ",".join(str(x) for x in imb_tokens)
             if len(imb_tokens) > 1:
                 imb_str = f"{imb_str} (select_by={imb_metric})"
-            trials_str = str(state.get('max_trials', 20))
-            if state.get('hyperparam_search') == 'optuna':
-                trials_str += f" (optuna={state.get('optuna_trials', 50)})"
-            all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_time'),
+            trials_str = str(preview_state.get('max_trials', 20))
+            if preview_state.get('hyperparam_search') == 'optuna':
+                trials_str += f" (optuna={preview_state.get('optuna_trials', 50)})"
+            cand_summary = candidate_pool_summary(preview_state)
+            cand_key = "candidate_count_ok" if cand_summary["ok"] else "candidate_count_low"
+            cand_str = t(cand_key, n=str(cand_summary["candidate_count"]), families=str(cand_summary["family_count"]))
+            all_labels = [t('c_file'), t('c_pid'), t('c_target'), t('c_features'), t('c_scale'), t('c_time'),
                           t('c_strat'), t('c_ratio'), t('c_validation'),
                           t('c_imbalance'), t('c_models'), t('c_tuning'),
-                          t('c_trials'), t('c_calib'), t('c_device'), t('c_output')]
+                          t('c_trials'), t('c_candidates'), t('c_calib'), t('c_device'), t('c_output')]
             col_w = max(_wlen(l) for l in all_labels) + 2
             def _p(label: str) -> str:
                 return label + " " * max(col_w - _wlen(label), 1)
             summary_lines = [
                 f"{_p(t('c_file'))}{fname}",
-                f"{_p(t('c_pid'))}{state.get('pid', '?')}",
-                f"{_p(t('c_target'))}{state.get('target', '?')}",
-                f"{_p(t('c_features'))}{selected_feature_summary(state)}",
-                f"{_p(t('c_time'))}{state.get('time') or t('c_none')}",
-                f"{_p(t('c_strat'))}{state.get('strategy', '?')}",
+                f"{_p(t('c_pid'))}{preview_state.get('pid', '?')}",
+                f"{_p(t('c_target'))}{preview_state.get('target', '?')}",
+                f"{_p(t('c_features'))}{selected_feature_summary(preview_state)}",
+                f"{_p(t('c_scale'))}{dataset_size_tier_label(preview_state)} (n={int(state_n_rows(preview_state) or 0)})",
+                f"{_p(t('c_time'))}{preview_state.get('time') or t('c_none')}",
+                f"{_p(t('c_strat'))}{preview_state.get('strategy', '?')}",
                 f"{_p(t('c_ratio'))}{ratio_str}",
                 f"{_p(t('c_validation'))}{valid_str}",
+            ]
+            if strict_preview.get("active"):
+                mode_label = "小样本严格模式" if LANG == "zh" else "Strict small-sample mode"
+                summary_lines.append(f"{_p(mode_label)}ON")
+            elif bool(state.get("_strict_small_sample", False)):
+                mode_label = "小样本严格模式" if LANG == "zh" else "Strict small-sample mode"
+                max_rows = int(state.get("_strict_small_sample_max_rows", STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS) or STRICT_SMALL_SAMPLE_DEFAULT_MAX_ROWS)
+                n_rows = int(state_n_rows(preview_state) or 0)
+                off_note = (
+                    f"OFF (n={n_rows} > 阈值<={max_rows})"
+                    if LANG == "zh"
+                    else f"OFF (n={n_rows} > threshold<={max_rows})"
+                ) if n_rows > 0 else ("OFF (行数未知)" if LANG == "zh" else "OFF (row-count unavailable)")
+                summary_lines.append(f"{_p(mode_label)}{off_note}")
+            summary_lines.extend([
                 "",
                 f"{_p(t('c_imbalance'))}{imb_str}",
                 f"{_p(t('c_models'))}{models_str}",
-                f"{_p(t('c_tuning'))}{state.get('hyperparam_search', '?')}",
+                f"{_p(t('c_tuning'))}{preview_state.get('hyperparam_search', '?')}",
                 f"{_p(t('c_trials'))}{trials_str}",
-                f"{_p(t('c_calib'))}{state.get('calibration', '?')}",
-                f"{_p(t('c_device'))}{state.get('device', '?')}",
+                f"{_p(t('c_candidates'))}{cand_str}",
+                f"{_p(t('c_calib'))}{preview_state.get('calibration', '?')}",
+                f"{_p(t('c_device'))}{preview_state.get('device', '?')}",
                 "",
-                f"{_p(t('c_output'))}{state['out_dir']}/",
-            ]
+                f"{_p(t('c_output'))}{preview_state['out_dir']}/",
+            ])
             box(t("s_confirm"), summary_lines, color="C")
             print()
 
@@ -3922,6 +4050,7 @@ def step_run(state: Dict) -> Any:
         pool_now = [token.strip() for token in str(state.get("model_pool", "")).split(",") if token.strip()]
         label_map = {name: t(label_key) for name, label_key in MODEL_POOL}
         state["_model_labels"] = [label_map.get(name, name) for name in pool_now]
+        normalize_optional_backend_state(state)
 
     # Resolve runtime dependencies before split/train to fail early.
     if not ensure_runtime_dependencies(state):
@@ -3943,6 +4072,11 @@ def step_run(state: Dict) -> Any:
             if backend_prune.get("fallback_used"):
                 print(f"  {s('C', 'No usable model remained; auto-fallback to logistic_l2.')}")
         print()
+
+    cand_summary = candidate_pool_summary(state)
+    if not cand_summary["ok"]:
+        print(f"  {s('R', t('candidate_pool_small_run', n=str(cand_summary['candidate_count'])))}")
+        return FAIL
 
     # ── Phase 2: Split ──
     _clear(); step_header(11, TOTAL_STEPS, t("s_run")); _progress()
@@ -3996,7 +4130,11 @@ def step_run(state: Dict) -> Any:
 
     # ── Phase 3: Train ──
     model_count = len([x for x in str(state.get("model_pool", "")).split(",") if x.strip()])
-    train_label = t("x_train", n=model_count)
+    train_label = t(
+        "x_train",
+        families=str(model_count),
+        candidates=str(cand_summary["candidate_count"]),
+    )
 
     evidence_dir = str(Path(state["out_dir"]) / "evidence")
     models_dir = str(Path(state["out_dir"]) / "models")

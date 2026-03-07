@@ -1,0 +1,16 @@
+{
+  "features": {
+    "age": {
+      "ancestors": ["demographics_age"]
+    },
+    "crp_24h_mean": {
+      "ancestors": ["lab_crp_value"]
+    },
+    "risk_score_v2": {
+      "ancestors": ["vitals_hr", "vitals_rr", "lab_lactate"]
+    },
+    "suspected_infection_proxy": {
+      "ancestors": ["suspected_infection_flag"]
+    }
+  }
+}

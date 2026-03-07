@@ -429,6 +429,13 @@ class TestParseModelPoolConfig:
         assert "logistic_l1" in config["model_pool"]
         assert "logistic_l2" in config["model_pool"]
 
+    def test_cli_override_honors_explicit_selection_without_hidden_baseline(self):
+        config = tse.parse_model_pool_config({}, self._make_args(model_pool="random_forest_balanced"))
+        assert config["requested_models"] == ["random_forest_balanced"]
+        assert config["model_pool"] == ["random_forest_balanced"]
+        assert config["required_models"] == []
+        assert config["auto_added_required_models"] == []
+
     def test_include_optional(self):
         config = tse.parse_model_pool_config({}, self._make_args(include_optional_models=True))
         pool = config["model_pool"]
@@ -450,8 +457,24 @@ class TestParseModelPoolConfig:
     def test_policy_override(self):
         policy = {"model_pool": {"models": ["logistic_l1"], "max_trials_per_family": 3}}
         config = tse.parse_model_pool_config(policy, self._make_args())
+        assert config["requested_models"] == ["logistic_l1"]
         assert "logistic_l1" in config["model_pool"]
+        assert "logistic_l2" not in config["model_pool"]
+        assert config["required_models"] == []
         assert config["max_trials_per_family"] == 3
+
+    def test_policy_required_models_are_auto_added_explicitly(self):
+        policy = {
+            "model_pool": {
+                "models": ["random_forest_balanced"],
+                "required_models": ["logistic_l2"],
+            }
+        }
+        config = tse.parse_model_pool_config(policy, self._make_args())
+        assert config["requested_models"] == ["random_forest_balanced"]
+        assert config["model_pool"] == ["random_forest_balanced", "logistic_l2"]
+        assert config["required_models"] == ["logistic_l2"]
+        assert config["auto_added_required_models"] == ["logistic_l2"]
 
 
 # ── build candidates ─────────────────────────────────────────────────────────

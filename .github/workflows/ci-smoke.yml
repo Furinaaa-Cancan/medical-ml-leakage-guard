@@ -30,6 +30,32 @@ jobs:
           python3 -m pip install -r requirements.txt
           python3 -m pip install coverage
 
+      - name: Installed package smoke
+        run: |
+          python3 -m venv /tmp/mlgg_pkgcheck
+          /tmp/mlgg_pkgcheck/bin/python -m pip install --upgrade pip
+          /tmp/mlgg_pkgcheck/bin/python -m pip install .
+          /tmp/mlgg_pkgcheck/bin/python - <<'PY'
+          import importlib.metadata as md
+          import scipy
+
+          names = {
+              ep.name
+              for ep in md.entry_points(group="console_scripts")
+              if ep.name.startswith("mlgg")
+          }
+          required = {"mlgg", "mlgg-pixel"}
+          missing = sorted(required - names)
+          unexpected = sorted({"mlgg-web"} & names)
+          if missing or unexpected:
+              raise SystemExit(
+                  f"unexpected installed entrypoints: missing={missing} unexpected={unexpected} all={sorted(names)}"
+              )
+          print("installed entrypoints:", sorted(names))
+          print("scipy:", scipy.__version__)
+          PY
+          /tmp/mlgg_pkgcheck/bin/mlgg --help >/dev/null
+
       - name: Lint (ruff)
         run: |
           python3 -m pip install ruff

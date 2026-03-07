@@ -1,0 +1,13 @@
+{
+  "split_strategy": "grouped_temporal_holdout",
+  "split_reference": "protocol-v1-locked-2026-02-24",
+  "id_col": "patient_id",
+  "index_time_col": "event_time",
+  "frozen_before_modeling": true,
+  "requires_group_disjoint": true,
+  "requires_temporal_order": true,
+  "allow_patient_overlap": false,
+  "allow_time_overlap": false,
+  "split_seed_locked": true,
+  "notes": "Patient-level disjoint, out-of-time holdout; split assignment frozen before tuning."
+}

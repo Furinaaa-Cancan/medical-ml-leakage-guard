@@ -1,0 +1,197 @@
+{
+  "model_id": "xgb_sepsis_v3",
+  "split": "test",
+  "primary_metric": "pr_auc",
+  "metrics": {
+    "accuracy": 0.8158995816,
+    "precision": 0.4736842105,
+    "ppv": 0.4736842105,
+    "npv": 0.947826087,
+    "sensitivity": 0.7777777778,
+    "specificity": 0.8236775819,
+    "f1": 0.5887850467,
+    "f2_beta": 0.6892778993,
+    "roc_auc": 0.79,
+    "pr_auc": 0.44,
+    "brier": 0.12
+  },
+  "split_metrics": {
+    "train": {
+      "metrics": {
+        "accuracy": 0.8638888889,
+        "precision": 0.5617977528,
+        "ppv": 0.5617977528,
+        "npv": 0.963099631,
+        "sensitivity": 0.8333333333,
+        "specificity": 0.87,
+        "f1": 0.6711409396,
+        "f2_beta": 0.7598784195,
+        "roc_auc": 0.86,
+        "pr_auc": 0.58,
+        "brier": 0.10
+      },
+      "confusion_matrix": {
+        "tp": 250,
+        "fp": 195,
+        "tn": 1305,
+        "fn": 50
+      }
+    },
+    "valid": {
+      "metrics": {
+        "accuracy": 0.8245614035,
+        "precision": 0.50,
+        "ppv": 0.50,
+        "npv": 0.9512195122,
+        "sensitivity": 0.80,
+        "specificity": 0.829787234,
+        "f1": 0.6153846154,
+        "f2_beta": 0.7142857143,
+        "roc_auc": 0.81,
+        "pr_auc": 0.49,
+        "brier": 0.11
+      },
+      "confusion_matrix": {
+        "tp": 96,
+        "fp": 96,
+        "tn": 468,
+        "fn": 24
+      }
+    },
+    "test": {
+      "metrics": {
+        "accuracy": 0.8158995816,
+        "precision": 0.4736842105,
+        "ppv": 0.4736842105,
+        "npv": 0.947826087,
+        "sensitivity": 0.7777777778,
+        "specificity": 0.8236775819,
+        "f1": 0.5887850467,
+        "f2_beta": 0.6892778993,
+        "roc_auc": 0.79,
+        "pr_auc": 0.44,
+        "brier": 0.12
+      },
+      "confusion_matrix": {
+        "tp": 63,
+        "fp": 70,
+        "tn": 327,
+        "fn": 18
+      }
+    }
+  },
+  "threshold_selection": {
+    "selection_split": "valid",
+    "strategy": "maximize_fbeta_under_floors",
+    "beta": 2.0,
+    "selected_threshold": 0.37,
+    "constraints": {
+      "sensitivity_min": 0.85,
+      "npv_min": 0.9,
+      "specificity_min": 0.4,
+      "ppv_min": 0.55
+    },
+    "constraints_satisfied_selection_split": true,
+    "constraints_satisfied_guard_split": false,
+    "constraints_satisfied_overall": false,
+    "constraints_satisfied": false
+  },
+  "uncertainty": {
+    "metrics": {
+      "pr_auc": {
+        "method": "bootstrap",
+        "n_resamples": 1000,
+        "ci_95": [
+          0.39,
+          0.50
+        ]
+      }
+    }
+  },
+  "baselines": {
+    "prevalence_model": {
+      "metrics": {
+        "roc_auc": 0.5,
+        "pr_auc": 0.19,
+        "brier": 0.18
+      }
+    },
+    "logistic_regression_baseline": {
+      "metrics": {
+        "roc_auc": 0.74,
+        "pr_auc": 0.39,
+        "brier": 0.14
+      }
+    }
+  },
+  "feature_engineering": {
+    "provenance": {
+      "mode": "strict",
+      "stage0_candidate_count": 52,
+      "stage1_filtered_count": 42,
+      "selected_feature_count": 42,
+      "feature_group_spec": "../configs/feature_group_spec.json",
+      "feature_engineering_report": "../evidence/feature_engineering_report.json",
+      "selected_features": [
+        "age",
+        "sex",
+        "heart_rate",
+        "resp_rate",
+        "spo2"
+      ]
+    }
+  },
+  "distribution_summary": {
+    "split_count": 4,
+    "schema_version": "v4.0"
+  },
+  "ci_matrix_ref": "../evidence/ci_matrix_report.json",
+  "transport_ci_ref": "transport_drop_ci",
+  "metadata": {
+    "feature_count": 42,
+    "features": [
+      "age",
+      "sex",
+      "heart_rate",
+      "resp_rate",
+      "spo2"
+    ],
+    "beta": 2.0,
+    "selection_data": "cv_inner",
+    "threshold_selection_split": "valid",
+    "evaluation_model_fit_split": "train",
+    "prediction_trace_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "external_validation_report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "external_cohort_count": 2,
+    "feature_engineering_report_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "distribution_report_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "ci_matrix_report_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "data_fingerprints": {
+      "train": {
+        "path": "../data/train.csv",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "row_count": 1800
+      },
+      "valid": {
+        "path": "../data/valid.csv",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "row_count": 684
+      },
+      "test": {
+        "path": "../data/test.csv",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "row_count": 478
+      }
+    },
+    "imputation": {
+      "policy_strategy": "mice_with_scale_guard",
+      "executed_strategy": "mice",
+      "fit_scope": "train_only",
+      "scale_guard": {
+        "checked": true,
+        "triggered": false,
+        "fallback_strategy": null
+      }
+    }
+  }
+}

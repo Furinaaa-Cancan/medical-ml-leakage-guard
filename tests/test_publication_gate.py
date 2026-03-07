@@ -386,3 +386,84 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         codes = [f["code"] for f in report["failures"]]
         assert "component_not_strict" in codes
+
+
+# ── direct main() tests (for coverage) ──────────────────────────────────────
+
+from publication_gate import main as pub_main
+
+
+def _build_argv(tmp_path, paths, strict=False):
+    """Build sys.argv for direct main() call."""
+    argv = ["pub"]
+    for arg_name, comp_name in zip(COMPONENT_ARGS, COMPONENT_NAMES):
+        argv.extend([arg_name, str(paths[comp_name])])
+    argv.extend(["--report", str(tmp_path / "rpt.json")])
+    if strict:
+        argv.append("--strict")
+    return argv
+
+
+class TestPublicationGateMain:
+    def test_all_pass(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 0
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        assert data["status"] == "pass"
+        assert data["summary"]["quality_score"] == 100.0
+
+    def test_component_fail(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        _write_json(paths["leakage_report"], {"status": "fail", "strict_mode": True, "failure_count": 1})
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_manifest_comparison_mismatch(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        m = _good_manifest()
+        m["comparison"] = {"matched": False}
+        _write_json(paths["manifest"], m)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "manifest_comparison_mismatch" in codes
+
+    def test_attestation_policy_disabled(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["key_assurance"]["policy"]["require_revocation_list"] = False
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_metric_missing_actual(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        mr = _good_metric_report()
+        mr["actual_metric"] = None
+        _write_json(paths["metric_report"], mr)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths, strict=True))
+        rc = pub_main()
+        assert rc == 0
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        assert data["strict_mode"] is True
+
+    def test_no_report_flag(self, tmp_path, monkeypatch, capsys):
+        paths = _make_all_artifacts(tmp_path)
+        argv = ["pub"]
+        for arg_name, comp_name in zip(COMPONENT_ARGS, COMPONENT_NAMES):
+            argv.extend([arg_name, str(paths[comp_name])])
+        monkeypatch.setattr("sys.argv", argv)
+        rc = pub_main()
+        assert rc == 0

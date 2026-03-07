@@ -488,3 +488,129 @@ class TestCLI:
         report = json.loads((tmp_path / "report.json").read_text())
         temporal_codes = [f for f in report["failures"] if f["code"] == "temporal_overlap"]
         assert len(temporal_codes) >= 2  # train>valid and train>test at minimum
+
+
+# ── direct main() tests (for coverage) ──────────────────────────────────────
+
+from leakage_gate import main as leak_main
+
+
+class TestLeakageGateMain:
+    def test_clean_pass(self, tmp_path, monkeypatch):
+        splits = _make_clean_splits(tmp_path, with_time=True)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+            "--id-cols", "patient_id",
+            "--time-col", "event_time",
+            "--target-col", "y",
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 0
+        data = json.loads(rpt.read_text())
+        assert data["status"] == "pass"
+
+    def test_row_overlap_fails(self, tmp_path, monkeypatch):
+        train = tmp_path / "train.csv"
+        test = tmp_path / "test.csv"
+        _write_csv(train, ["pid", "y"], [["A", "1"], ["B", "0"]])
+        _write_csv(test, ["pid", "y"], [["A", "1"], ["C", "0"]])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(train), "--test", str(test),
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "row_overlap" in codes
+
+    def test_id_overlap_fails(self, tmp_path, monkeypatch):
+        train = tmp_path / "train.csv"
+        test = tmp_path / "test.csv"
+        _write_csv(train, ["pid", "age", "y"], [["A", "30", "1"], ["B", "40", "0"]])
+        _write_csv(test, ["pid", "age", "y"], [["A", "30", "0"], ["C", "50", "1"]])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(train), "--test", str(test),
+            "--id-cols", "pid",
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "id_overlap" in codes
+
+    def test_temporal_overlap_fails(self, tmp_path, monkeypatch):
+        train = tmp_path / "train.csv"
+        test = tmp_path / "test.csv"
+        _write_csv(train, ["pid", "t", "y"], [["A", "2025-01-01", "1"], ["B", "2025-06-01", "0"]])
+        _write_csv(test, ["pid", "t", "y"], [["C", "2024-01-01", "1"], ["D", "2024-06-01", "0"]])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(train), "--test", str(test),
+            "--time-col", "t",
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "temporal_overlap" in codes
+
+    def test_suspicious_features_warning(self, tmp_path, monkeypatch):
+        train = tmp_path / "train.csv"
+        test = tmp_path / "test.csv"
+        _write_csv(train, ["pid", "outcome_flag", "y"], [["A", "10", "1"], ["B", "20", "0"]])
+        _write_csv(test, ["pid", "outcome_flag", "y"], [["C", "30", "1"], ["D", "40", "0"]])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(train), "--test", str(test),
+            "--target-col", "y",
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 0  # warnings only
+        data = json.loads(rpt.read_text())
+        codes = [w["code"] for w in data["warnings"]]
+        assert "suspicious_feature_names" in codes
+
+    def test_strict_mode_warnings_fail(self, tmp_path, monkeypatch):
+        train = tmp_path / "train.csv"
+        test = tmp_path / "test.csv"
+        _write_csv(train, ["pid", "outcome_flag", "y"], [["A", "10", "1"], ["B", "20", "0"]])
+        _write_csv(test, ["pid", "outcome_flag", "y"], [["C", "30", "1"], ["D", "40", "0"]])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(train), "--test", str(test),
+            "--target-col", "y", "--strict",
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 2  # strict promotes warnings
+
+    def test_file_not_found_returns_2(self, tmp_path, monkeypatch):
+        train = tmp_path / "train.csv"
+        _write_csv(train, ["a", "b"], [["1", "2"]])
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(train), "--test", str(tmp_path / "nope.csv"),
+            "--report", str(rpt),
+        ])
+        rc = leak_main()
+        assert rc == 2
+
+    def test_no_report_flag(self, tmp_path, monkeypatch, capsys):
+        splits = _make_clean_splits(tmp_path, with_time=False)
+        monkeypatch.setattr("sys.argv", [
+            "lg", "--train", str(splits["train"]),
+            "--valid", str(splits["valid"]),
+            "--test", str(splits["test"]),
+        ])
+        rc = leak_main()
+        assert rc == 0

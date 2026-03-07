@@ -1,0 +1,35 @@
+{
+  "schema_version": "v4.0",
+  "distribution_matrix": [
+    {
+      "split": "valid",
+      "feature_count": 42,
+      "top_feature_jsd": 0.17,
+      "mean_feature_jsd": 0.06,
+      "max_missing_ratio_delta": 0.08,
+      "prevalence_delta": 0.03
+    },
+    {
+      "split": "test",
+      "feature_count": 42,
+      "top_feature_jsd": 0.19,
+      "mean_feature_jsd": 0.07,
+      "max_missing_ratio_delta": 0.09,
+      "prevalence_delta": 0.04
+    },
+    {
+      "split": "external:site-b",
+      "feature_count": 42,
+      "top_feature_jsd": 0.24,
+      "mean_feature_jsd": 0.10,
+      "max_missing_ratio_delta": 0.11,
+      "prevalence_delta": 0.06
+    }
+  ],
+  "metadata": {
+    "train_rows": 1800,
+    "valid_rows": 684,
+    "test_rows": 478,
+    "external_cohort_count": 2
+  }
+}

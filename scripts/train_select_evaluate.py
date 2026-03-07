@@ -582,6 +582,7 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
     cli_model_pool_provided = bool(cli_models)
     policy_model_pool_provided = bool(policy_models)
     selected_tokens = cli_models or policy_models or list(default_models)
+    explicit_model_pool_provided = bool(cli_model_pool_provided or policy_model_pool_provided)
     include_optional = bool(args.include_optional_models or policy_include_optional)
     if include_optional:
         # Fail-safe append: only add optional families that are actually available
@@ -596,15 +597,16 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
         }
         selected_tokens.extend([name for name, is_available in optional_candidates.items() if is_available])
 
-    normalized: List[str] = []
+    requested_normalized: List[str] = []
     for token in selected_tokens:
         name = canonical_model_name(token)
         if name not in SUPPORTED_MODEL_FAMILIES:
             raise SystemExit(f"Unsupported model family in model-pool: {token}")
-        if name not in normalized:
-            normalized.append(name)
+        if name not in requested_normalized:
+            requested_normalized.append(name)
 
-    required_tokens = policy_required_models or ["logistic_l2"]
+    normalized = list(requested_normalized)
+    required_tokens = policy_required_models or ([] if explicit_model_pool_provided else ["logistic_l2"])
     auto_added_required: List[str] = []
     for token in required_tokens:
         name = canonical_model_name(token)
@@ -635,6 +637,7 @@ def parse_model_pool_config(policy: Dict[str, Any], args: argparse.Namespace) ->
         n_jobs = 1
 
     return {
+        "requested_models": list(requested_normalized),
         "model_pool": normalized,
         "required_models": [canonical_model_name(t) for t in required_tokens],
         "auto_added_required_models": auto_added_required,
@@ -2259,6 +2262,7 @@ def build_candidates(
         SystemExit: If optuna is requested but not installed.
     """
     requested_pool = [str(x) for x in model_pool_config.get("model_pool", []) if str(x).strip()]
+    explicit_requested_pool = [str(x) for x in model_pool_config.get("requested_models", []) if str(x).strip()]
     max_trials = int(model_pool_config.get("max_trials_per_family", 1))
     search_strategy = str(model_pool_config.get("search_strategy", "random_subsample")).strip().lower()
     n_jobs = int(model_pool_config.get("n_jobs", -1))
@@ -2389,7 +2393,8 @@ def build_candidates(
             )
 
     metadata = {
-        "requested_model_pool": requested_pool,
+        "requested_model_pool": explicit_requested_pool or requested_pool,
+        "effective_model_pool": requested_pool,
         "unavailable_models": unavailable,
         "family_search_space": family_search_space,
         "n_jobs": int(n_jobs),
@@ -5394,6 +5399,7 @@ def main() -> int:
             "imbalance_strategy_candidates": list(imbalance_candidates),
             "imbalance_selection_metric": selected_imbalance_metric,
             "imbalance_probe": strategy_probe_rows,
+            "requested_model_pool": list(model_pool_config.get("requested_models", [])),
             "model_pool": list(model_pool_config.get("model_pool", [])),
             "required_models": list(model_pool_config.get("required_models", [])),
             "auto_added_required_models": list(model_pool_config.get("auto_added_required_models", [])),
@@ -5740,7 +5746,10 @@ def main() -> int:
             "selection_data": selection_data,
             "threshold_selection_split": threshold_selection_split,
             "model_pool": {
-                "requested": list(model_pool_config.get("model_pool", [])),
+                "requested": list(model_pool_config.get("requested_models", [])),
+                "effective": list(model_pool_config.get("model_pool", [])),
+                "required_models": list(model_pool_config.get("required_models", [])),
+                "auto_added_required_models": list(model_pool_config.get("auto_added_required_models", [])),
                 "candidate_count": int(len(candidate_rows)),
                 "max_trials_per_family": int(model_pool_config.get("max_trials_per_family", 1)),
                 "search_strategy": str(model_pool_config.get("search_strategy", "random_subsample")),

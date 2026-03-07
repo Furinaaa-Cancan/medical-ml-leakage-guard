@@ -1,0 +1,54 @@
+{
+  "study_id": "sepsis-risk-icu-v1",
+  "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
+  "target_name": "sepsis",
+  "prediction_unit": "patient-episode",
+  "index_time_col": "event_time",
+  "label_col": "y",
+  "patient_id_col": "patient_id",
+  "primary_metric": "pr_auc",
+  "claim_tier_target": "publication-grade",
+  "phenotype_definition_spec": "phenotype_definitions.json",
+  "feature_lineage_spec": "feature_lineage.json",
+  "feature_group_spec": "feature_group_spec.json",
+  "split_protocol_spec": "split_protocol.json",
+  "imbalance_policy_spec": "imbalance_policy.json",
+  "missingness_policy_spec": "missingness_policy.json",
+  "tuning_protocol_spec": "tuning_protocol.json",
+  "performance_policy_spec": "performance_policy.json",
+  "external_cohort_spec": "external_cohort_spec.json",
+  "reporting_bias_checklist_spec": "reporting_bias_checklist.json",
+  "execution_attestation_spec": "execution_attestation.json",
+  "model_selection_report_file": "../evidence/model_selection_report.json",
+  "feature_engineering_report_file": "../evidence/feature_engineering_report.json",
+  "distribution_report_file": "../evidence/distribution_report.json",
+  "robustness_report_file": "../evidence/robustness_report.json",
+  "seed_sensitivity_report_file": "../evidence/seed_sensitivity_report.json",
+  "split_paths": {
+    "train": "../data/train.csv",
+    "valid": "../data/valid.csv",
+    "test": "../data/test.csv"
+  },
+  "evaluation_report_file": "../evidence/evaluation_report.json",
+  "prediction_trace_file": "../evidence/prediction_trace.csv.gz",
+  "external_validation_report_file": "../evidence/external_validation_report.json",
+  "ci_matrix_report_file": "../evidence/ci_matrix_report.json",
+  "stress_evidence_files": {
+    "seed_search_report": "../evidence/stress_seed_search_report.json",
+    "seed_selection": "../evidence/stress_seed_selection.json"
+  },
+  "evaluation_metric_path": "metrics.pr_auc",
+  "permutation_null_metrics_file": "../evidence/permutation_null_pr_auc.txt",
+  "actual_primary_metric": 0.44,
+  "thresholds": {
+    "alpha": 0.01,
+    "min_delta": 0.03,
+    "min_baseline_delta": 0.01,
+    "ci_min_resamples": 200,
+    "ci_max_width": 0.2
+  },
+  "context": {
+    "hospital_system": "example-health",
+    "notes": "No disease-defining variables are allowed in predictors."
+  }
+}

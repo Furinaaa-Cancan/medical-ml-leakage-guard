@@ -590,6 +590,72 @@ def test_tuning_optuna_preset_exposes_quick_options() -> None:
         play.select = original_select  # type: ignore[assignment]
 
 
+def test_candidate_pool_summary_estimates_base_candidates_by_search_mode() -> None:
+    print("\n=== play: candidate-pool summary estimates effective base candidates ===")
+    low_state = {
+        "model_pool": "logistic_l2",
+        "hyperparam_search": "fixed_grid",
+        "max_trials": 1,
+    }
+    low = play.candidate_pool_summary(low_state)
+    assert_true(low["candidate_count"] == 1, "fixed_grid + one family + one trial estimates 1 base candidate")
+    assert_true(low["ok"] is False, "candidate summary marks sub-3 candidate pool as invalid")
+
+    ok_state = {
+        "model_pool": "logistic_l2",
+        "hyperparam_search": "random_subsample",
+        "max_trials": 5,
+    }
+    ok = play.candidate_pool_summary(ok_state)
+    assert_true(ok["candidate_count"] == 5, "random_subsample candidate estimate matches max_trials cap")
+    assert_true(ok["ok"] is True, "candidate summary accepts 5 base candidates")
+
+    optuna_state = {
+        "model_pool": "logistic_l2",
+        "hyperparam_search": "optuna",
+        "optuna_trials": 10,
+        "max_trials": 1,
+    }
+    optuna = play.candidate_pool_summary(optuna_state)
+    assert_true(optuna["candidate_count"] == 2, "optuna estimate uses top-trial carry-forward count")
+    assert_true(optuna["ok"] is False, "optuna estimate still rejects <3 base candidates")
+
+
+def test_step_tuning_rejects_candidate_pool_too_small_before_run() -> None:
+    print("\n=== play: tuning blocks obviously too-small candidate pool before run ===")
+    original_select = play.select
+    original_notice = play._notice
+    notices = []
+    try:
+        trial_choices = [0, 1]  # first pick 1 -> reject, then 5 -> accept
+
+        def fake_select(opts, descs=None, title="", is_first=False):  # type: ignore[override]
+            if title == play.t("pick_tuning"):
+                return 0  # fixed_grid
+            if title == play.t("pick_trials_preset"):
+                return trial_choices.pop(0)
+            if title == play.t("pick_calib"):
+                return 0
+            if title == play.t("pick_device"):
+                return 1
+            return 0
+
+        play.select = fake_select  # type: ignore[assignment]
+        play._notice = lambda message: notices.append(str(message))  # type: ignore[assignment]
+        state = {
+            "source": "csv",
+            "_n_rows": 569,
+            "model_pool": "logistic_l2",
+        }
+        result = play.step_tuning(state)
+        assert_true(result is True, "step_tuning succeeds after user fixes too-small candidate pool")
+        assert_true(any("base candidates" in msg or "基础候选" in msg for msg in notices), "too-small candidate pool notice is surfaced")
+        assert_true(int(state.get("max_trials", 0)) == 5, "state keeps the later feasible max_trials value")
+    finally:
+        play.select = original_select  # type: ignore[assignment]
+        play._notice = original_notice  # type: ignore[assignment]
+
+
 def test_advanced_custom_mode_is_fully_interactive_and_completes() -> None:
     print("\n=== play: advanced custom mode remains interactive and can finish ===")
     original_select = play.select
@@ -798,6 +864,7 @@ def test_strict_small_sample_profile_enforces_conservative_training_setup() -> N
         "_strict_small_sample_max_rows": 1200,
         "_n_rows": 569,
         "model_pool": "logistic_l1,random_forest_balanced,hist_gradient_boosting_l2",
+        "include_optional_models": True,
         "hyperparam_search": "optuna",
         "max_trials": 30,
         "calibration": "sigmoid",
@@ -807,6 +874,10 @@ def test_strict_small_sample_profile_enforces_conservative_training_setup() -> N
     assert_true(
         state.get("model_pool") == "logistic_l1",
         "strict small-sample profile filters model pool to linear-only selections",
+    )
+    assert_true(
+        bool(state.get("include_optional_models")) is False,
+        "strict small-sample profile disables optional backend expansion flag",
     )
     assert_true(
         state.get("hyperparam_search") == "random_subsample",
@@ -838,6 +909,90 @@ def test_strict_small_sample_profile_inactive_on_large_data() -> None:
     assert_true(
         state.get("model_pool") == "logistic_l1,random_forest_balanced",
         "large-data profile does not force model-pool filtering",
+    )
+
+
+def test_strict_small_sample_profile_respects_default_threshold() -> None:
+    print("\n=== play: strict small-sample default threshold does not tighten medium data ===")
+    state = {
+        "_strict_small_sample": True,
+        "_n_rows": 569,
+        "model_pool": "logistic_l1,random_forest_balanced",
+        "include_optional_models": True,
+        "hyperparam_search": "optuna",
+        "max_trials": 30,
+        "calibration": "sigmoid",
+    }
+    result = play.apply_strict_small_sample_profile(state)
+    assert_true(
+        not bool(result.get("active")),
+        "default strict threshold leaves n=569 inactive",
+    )
+    assert_true(
+        state.get("model_pool") == "logistic_l1,random_forest_balanced",
+        "inactive strict mode does not rewrite model pool",
+    )
+    assert_true(
+        bool(state.get("include_optional_models")) is True,
+        "inactive strict mode does not clear optional include flag",
+    )
+    assert_true(
+        state.get("hyperparam_search") == "optuna",
+        "inactive strict mode does not downgrade tuning strategy",
+    )
+    assert_true(
+        state.get("calibration") == "sigmoid",
+        "inactive strict mode does not override calibration",
+    )
+
+
+def test_dataset_scale_policy_orders_defaults_by_size() -> None:
+    print("\n=== play: dataset scale policy differentiates small/medium/large defaults ===")
+    small = {"_n_rows": 300}
+    medium = {"_n_rows": 3000}
+    large = {"_n_rows": 30000}
+
+    assert_true(play.dataset_size_tier(small) == "small", "n=300 is treated as small tier")
+    assert_true(play.dataset_size_tier(medium) == "medium", "n=3000 is treated as medium tier")
+    assert_true(play.dataset_size_tier(large) == "large", "n=30000 is treated as large tier")
+
+    assert_true(
+        play.model_profile_order_for_state(small) == ["conservative", "balanced", "comprehensive", "custom"],
+        "small tier prioritizes conservative profile",
+    )
+    assert_true(
+        play.model_profile_order_for_state(medium) == ["balanced", "conservative", "comprehensive", "custom"],
+        "medium tier prioritizes balanced profile",
+    )
+    assert_true(
+        play.model_profile_order_for_state(large) == ["comprehensive", "balanced", "conservative", "custom"],
+        "large tier prioritizes comprehensive profile",
+    )
+
+    assert_true(
+        play.tuning_order_for_state(small) == ["fixed_grid", "random_subsample", "optuna"],
+        "small tier tuning prefers fixed grid first",
+    )
+    assert_true(
+        play.tuning_order_for_state(medium) == ["random_subsample", "fixed_grid", "optuna"],
+        "medium tier tuning prefers random search first",
+    )
+    assert_true(
+        play.tuning_order_for_state(large) == ["optuna", "random_subsample", "fixed_grid"],
+        "large tier tuning prefers optuna first",
+    )
+
+    assert_true(
+        play.validation_method_order_for_state(large) == ["holdout", "cv"],
+        "large tier prefers holdout before CV",
+    )
+    assert_true(
+        play.cv_folds_order_for_state(small) == [5, 3, 10],
+        "small tier prefers 5-fold CV first",
+    )
+    assert_true(
+        play.cv_folds_order_for_state(large) == [3, 5, 10],
+        "large tier prefers 3-fold CV first",
     )
 
 
@@ -965,6 +1120,55 @@ def test_step_run_failure_returns_fail_sentinel() -> None:
         play.run_spinner = original_spinner  # type: ignore[assignment]
 
 
+def test_step_run_fails_early_when_candidate_pool_is_too_small() -> None:
+    print("\n=== play: run step fails early before split/train when candidate pool is too small ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    calls = {"spinner": 0, "progress": 0}
+    try:
+        def fake_spinner(*args, **kwargs):  # type: ignore[override]
+            calls["spinner"] += 1
+            return (0, "", "")
+
+        def fake_progress(*args, **kwargs):  # type: ignore[override]
+            calls["progress"] += 1
+            return (0, "", "")
+
+        play.run_spinner = fake_spinner  # type: ignore[assignment]
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_candidate_pool_small_case",
+            "csv_path": "/tmp/mlgg_play_candidate_pool_small_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "logistic_l2",
+            "_model_labels": [play.t("m_logistic_l2")],
+            "include_optional_models": False,
+            "hyperparam_search": "fixed_grid",
+            "max_trials": 1,
+            "calibration": "none",
+            "device": "cpu",
+            "n_jobs": 1,
+        }
+        result = play.step_run(state)
+        assert_true(result is play.FAIL, "step_run returns FAIL before launching split/train for too-small candidate pool")
+        assert_true(calls["spinner"] == 0, "split/download spinner is not invoked when candidate pool is obviously too small")
+        assert_true(calls["progress"] == 0, "train progress is not invoked when candidate pool is obviously too small")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
+
+
 def test_step_run_prunes_unavailable_optional_model_backend() -> None:
     print("\n=== play: step_run prunes unavailable optional backends before train ===")
     original_spinner = play.run_spinner
@@ -1001,7 +1205,7 @@ def test_step_run_prunes_unavailable_optional_model_backend() -> None:
             "model_pool": "lightgbm,logistic_l2",
             "_model_labels": [play.t("m_lgbm"), play.t("m_logistic_l2")],
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1017,6 +1221,61 @@ def test_step_run_prunes_unavailable_optional_model_backend() -> None:
         play.run_with_progress = original_progress  # type: ignore[assignment]
         play.optional_backend_available = original_backend_available  # type: ignore[assignment]
         play.select = original_select  # type: ignore[assignment]
+
+
+def test_step_run_strict_small_sample_does_not_forward_optional_flag() -> None:
+    print("\n=== play: step_run strict small-sample disables optional expansion before train ===")
+    original_spinner = play.run_spinner
+    original_progress = play.run_with_progress
+    captured = {"train_cmd": None}
+    try:
+        play.run_spinner = lambda *args, **kwargs: (0, "", "")  # type: ignore[assignment]
+
+        def fake_progress(cmd, label, total=0, cwd="", timeout=3600):  # type: ignore[override]
+            captured["train_cmd"] = list(cmd)
+            return (0, "", "")
+
+        play.run_with_progress = fake_progress  # type: ignore[assignment]
+        state = {
+            "source": "csv",
+            "out_dir": "/tmp/mlgg_play_strict_optional_case",
+            "csv_path": "/tmp/mlgg_play_strict_optional_case_input.csv",
+            "pid": "patient_id",
+            "target": "y",
+            "time": "event_time",
+            "strategy": "stratified_grouped",
+            "train_ratio": 0.6,
+            "valid_ratio": 0.2,
+            "test_ratio": 0.2,
+            "validation_method": "holdout",
+            "cv_folds": 5,
+            "imbalance_strategies": ["auto"],
+            "imbalance_selection_metric": "pr_auc",
+            "model_pool": "xgboost,logistic_l1",
+            "_model_labels": [play.t("m_xgb"), play.t("m_logistic_l1")],
+            "include_optional_models": True,
+            "hyperparam_search": "optuna",
+            "optuna_trials": 50,
+            "max_trials": 30,
+            "calibration": "sigmoid",
+            "device": "cpu",
+            "n_jobs": 1,
+            "_strict_small_sample": True,
+            "_strict_small_sample_max_rows": 1200,
+            "_n_rows": 569,
+        }
+        result = play.step_run(state)
+        assert_true(result is True, "step_run succeeds in strict small-sample optional-flag case")
+        assert_true(state.get("model_pool") == "logistic_l1", "step_run applies strict filtered model pool before train")
+        assert_true(bool(state.get("include_optional_models")) is False, "step_run clears stale optional expansion flag")
+        joined = " ".join(str(x) for x in (captured["train_cmd"] or []))
+        assert_true("--model-pool logistic_l1" in joined, "train command uses strict filtered model pool")
+        assert_true("--include-optional-models" not in joined, "train command does not forward stale optional expansion flag")
+        assert_true("--hyperparam-search random_subsample" in joined, "train command reflects strict-mode optuna downgrade")
+        assert_true("--calibration-method power" in joined, "train command reflects strict-mode calibration downgrade")
+    finally:
+        play.run_spinner = original_spinner  # type: ignore[assignment]
+        play.run_with_progress = original_progress  # type: ignore[assignment]
 
 
 def test_step_run_dependency_install_path_covers_optional_and_optuna() -> None:
@@ -1189,7 +1448,7 @@ def test_step_run_dependency_partial_install_then_downgrade() -> None:
             "model_pool": "catboost,lightgbm,logistic_l2",
             "_model_labels": [play.t("m_cat"), play.t("m_lgbm"), play.t("m_logistic_l2")],
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 2,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1265,7 +1524,7 @@ def test_step_run_normalizes_stale_optional_flag_from_history() -> None:
             "_model_labels": [play.t("m_logistic_l2")],
             "include_optional_models": True,  # stale value from old run
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1340,6 +1599,43 @@ def test_export_cli_keeps_optional_flag_when_model_pool_has_optional() -> None:
     play.normalize_optional_backend_state(state)
     cmd = play._export_cli(state)
     assert_true("--include-optional-models" in cmd, "export cli keeps include-optional-models for optional model pools")
+
+
+def test_export_cli_strict_small_sample_uses_effective_execution_state() -> None:
+    print("\n=== play: export cli uses strict small-sample effective execution state ===")
+    state = {
+        "source": "csv",
+        "out_dir": "/tmp/mlgg_export_strict_small_sample_case",
+        "csv_path": "/tmp/mlgg_export_strict_small_sample_case_input.csv",
+        "pid": "patient_id",
+        "target": "y",
+        "time": "event_time",
+        "strategy": "stratified_grouped",
+        "train_ratio": 0.6,
+        "valid_ratio": 0.2,
+        "test_ratio": 0.2,
+        "validation_method": "holdout",
+        "cv_folds": 5,
+        "imbalance_strategies": ["auto"],
+        "imbalance_selection_metric": "pr_auc",
+        "model_pool": "xgboost,logistic_l1",
+        "_model_labels": [play.t("m_xgb"), play.t("m_logistic_l1")],
+        "include_optional_models": True,
+        "hyperparam_search": "optuna",
+        "optuna_trials": 50,
+        "max_trials": 30,
+        "calibration": "sigmoid",
+        "device": "cpu",
+        "n_jobs": 1,
+        "_strict_small_sample": True,
+        "_strict_small_sample_max_rows": 1200,
+        "_n_rows": 569,
+    }
+    cmd = play._export_cli(state)
+    assert_true("--model-pool logistic_l1" in cmd, "export cli uses strict filtered linear-only model pool")
+    assert_true("--include-optional-models" not in cmd, "export cli drops stale optional expansion flag")
+    assert_true("--hyperparam-search random_subsample" in cmd, "export cli reflects strict-mode optuna downgrade")
+    assert_true("--calibration-method power" in cmd, "export cli reflects strict-mode calibration downgrade")
 
 
 def test_step_run_dependency_partial_install_retry_then_success() -> None:
@@ -1463,7 +1759,7 @@ def test_step_run_fail_on_play_blockers_returns_fail() -> None:
             "_model_labels": [play.t("m_logistic_l2")],
             "include_optional_models": False,
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1513,7 +1809,7 @@ def test_step_run_fail_on_play_blockers_fails_when_readiness_unavailable() -> No
             "_model_labels": [play.t("m_logistic_l2")],
             "include_optional_models": False,
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1563,7 +1859,7 @@ def test_step_run_allows_readiness_unavailable_by_default_with_advisory() -> Non
             "_model_labels": [play.t("m_logistic_l2")],
             "include_optional_models": False,
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1621,7 +1917,7 @@ def test_step_run_fail_on_play_blockers_fails_when_readiness_schema_invalid() ->
             "_model_labels": [play.t("m_logistic_l2")],
             "include_optional_models": False,
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1678,7 +1974,7 @@ def test_step_run_allows_play_blockers_by_default() -> None:
             "_model_labels": [play.t("m_logistic_l2")],
             "include_optional_models": False,
             "hyperparam_search": "fixed_grid",
-            "max_trials": 1,
+            "max_trials": 5,
             "calibration": "none",
             "device": "cpu",
             "n_jobs": 1,
@@ -1780,6 +2076,8 @@ def main() -> int:
     test_tuning_max_trials_rejects_invalid_values()
     test_tuning_trials_preset_exposes_quick_options()
     test_tuning_optuna_preset_exposes_quick_options()
+    test_candidate_pool_summary_estimates_base_candidates_by_search_mode()
+    test_step_tuning_rejects_candidate_pool_too_small_before_run()
     test_advanced_custom_mode_is_fully_interactive_and_completes()
     test_advanced_njobs_custom_rejects_invalid_values()
     test_advanced_ignore_select_without_columns_uses_safe_defaults()
@@ -1789,10 +2087,13 @@ def main() -> int:
     test_split_syncs_ignore_cols_after_time_column_is_finalized()
     test_strict_small_sample_profile_enforces_conservative_training_setup()
     test_strict_small_sample_profile_inactive_on_large_data()
+    test_strict_small_sample_profile_respects_default_threshold()
+    test_dataset_scale_policy_orders_defaults_by_size()
     test_step_models_strict_mode_shows_linear_only_choices()
     test_tuning_order_strict_small_sample_hides_optuna()
     test_step_tuning_strict_small_sample_rejects_trials_above_cap()
     test_step_run_failure_returns_fail_sentinel()
+    test_step_run_fails_early_when_candidate_pool_is_too_small()
     test_step_run_prunes_unavailable_optional_model_backend()
     test_step_run_dependency_install_path_covers_optional_and_optuna()
     test_step_run_dependency_cancel_fails_closed()

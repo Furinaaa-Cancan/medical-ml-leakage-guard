@@ -26,6 +26,7 @@ dependencies = [
     "numpy>=1.23",
     "pandas>=1.5",
     "scikit-learn>=1.2",
+    "scipy>=1.9",
     "joblib>=1.2",
 ]
 
@@ -35,12 +36,12 @@ catboost = ["catboost>=1.2"]
 lightgbm = ["lightgbm>=3.3"]
 tabpfn = ["tabpfn>=0.1"]
 optuna = ["optuna>=3.0"]
-all = ["xgboost>=1.7", "catboost>=1.2", "lightgbm>=3.3", "tabpfn>=0.1", "optuna>=3.0"]
+web = ["flask>=3.0"]
+all = ["xgboost>=1.7", "catboost>=1.2", "lightgbm>=3.3", "tabpfn>=0.1", "optuna>=3.0", "flask>=3.0"]
 
 [project.scripts]
 mlgg = "scripts.mlgg:cli_main"
 mlgg-pixel = "scripts.mlgg_pixel:main"
-mlgg-web = "scripts.mlgg_web:main"
 
 [project.urls]
 Repository = "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard"

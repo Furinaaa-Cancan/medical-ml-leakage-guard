@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.2",
+  "study_id": "sepsis-risk-icu-v1",
+  "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
+  "issued_at_utc": "2026-02-24T11:46:00Z",
+  "required_artifact_names": [
+    "training_log",
+    "training_config",
+    "model_artifact",
+    "model_selection_report",
+    "robustness_report",
+    "seed_sensitivity_report",
+    "evaluation_report",
+    "prediction_trace",
+    "external_validation_report"
+  ],
+  "signed_payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "assurance_policy": {
+    "min_signing_key_bits": 3072,
+    "max_signing_key_age_days": 180,
+    "require_revocation_list": true,
+    "require_timestamp_trust": true,
+    "require_transparency_log": true,
+    "require_transparency_log_signature": true,
+    "require_execution_receipt": true,
+    "require_execution_log_attestation": true,
+    "require_independent_timestamp_authority": true,
+    "require_independent_execution_authority": true,
+    "require_independent_log_authority": true,
+    "require_distinct_authority_roles": true,
+    "require_witness_quorum": true,
+    "min_witness_count": 2,
+    "require_independent_witness_keys": true,
+    "require_witness_independence_from_signing": true
+  },
+  "signing": {
+    "method": "openssl-dgst-sha256",
+    "key_id": "attestation-key-2026q1",
+    "key_created_at_utc": "2026-01-01T00:00:00Z",
+    "key_not_after_utc": "2026-07-01T00:00:00Z",
+    "signed_payload_file": "../evidence/attestation_payload.json",
+    "signature_file": "../evidence/attestation.sig",
+    "public_key_file": "../keys/attestation_pub.pem",
+    "public_key_fingerprint_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "revocation_list_file": "../keys/key_revocations.json"
+  },
+  "timestamp_trust": {
+    "mode": "signed_record",
+    "authority_id": "timestamp-authority-local",
+    "record_file": "../evidence/attestation_timestamp_record.json",
+    "signature_file": "../evidence/attestation_timestamp_record.sig",
+    "public_key_file": "../keys/timestamp_pub.pem",
+    "public_key_fingerprint_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "transparency_log": {
+    "log_id": "transparency-log-local",
+    "record_file": "../evidence/attestation_transparency_record.json",
+    "signature_file": "../evidence/attestation_transparency_record.sig",
+    "public_key_file": "../keys/transparency_pub.pem",
+    "public_key_fingerprint_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "execution_receipt": {
+    "authority_id": "execution-authority-local",
+    "record_file": "../evidence/attestation_execution_receipt_record.json",
+    "signature_file": "../evidence/attestation_execution_receipt_record.sig",
+    "public_key_file": "../keys/execution_pub.pem",
+    "public_key_fingerprint_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "enforce_exit_code_zero": true
+  },
+  "execution_log_attestation": {
+    "authority_id": "execution-log-authority-local",
+    "artifact_name": "training_log",
+    "record_file": "../evidence/attestation_execution_log_record.json",
+    "signature_file": "../evidence/attestation_execution_log_record.sig",
+    "public_key_file": "../keys/execution_log_pub.pem",
+    "public_key_fingerprint_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "witness_quorum": {
+    "min_witness_count": 2,
+    "records": [
+      {
+        "authority_id": "witness-a",
+        "record_file": "../evidence/attestation_witness_record_1.json",
+        "signature_file": "../evidence/attestation_witness_record_1.sig",
+        "public_key_file": "../keys/witness_a_pub.pem",
+        "public_key_fingerprint_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "authority_id": "witness-b",
+        "record_file": "../evidence/attestation_witness_record_2.json",
+        "signature_file": "../evidence/attestation_witness_record_2.sig",
+        "public_key_file": "../keys/witness_b_pub.pem",
+        "public_key_fingerprint_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ]
+  }
+}

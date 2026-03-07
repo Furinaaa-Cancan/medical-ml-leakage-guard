@@ -219,3 +219,74 @@ class TestMissingArtifact:
         report = json.loads(report_path.read_text())
         codes = [f["code"] for f in report["failures"]]
         assert "missing_or_invalid_artifact" in codes
+
+
+# ── direct main() tests (for coverage) ──────────────────────────────────────
+
+from self_critique_gate import main as sc_main
+
+
+def _sc_argv(tmp_path, overrides=None, strict=False, allow_missing=False, min_score=None):
+    """Build sys.argv for direct main() call."""
+    paths = _write_artifacts(tmp_path, overrides)
+    argv = ["sc"]
+    for name in ARTIFACT_NAMES:
+        argv.extend([f"--{name}", paths[name]])
+    argv.extend(["--report", str(tmp_path / "rpt.json")])
+    if strict:
+        argv.append("--strict")
+    if allow_missing:
+        argv.append("--allow-missing-comparison")
+    if min_score is not None:
+        argv.extend(["--min-score", str(min_score)])
+    return argv
+
+
+class TestSelfCritiqueMain:
+    def test_all_pass(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path))
+        rc = sc_main()
+        assert rc == 0
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        assert data["status"] == "pass"
+        assert data["summary"]["quality_score"] > 0
+
+    def test_component_failure(self, tmp_path, monkeypatch):
+        overrides = {"leakage_report": {"status": "fail", "failure_count": 1, "warning_count": 0, "strict_mode": True}}
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 2
+
+    def test_manifest_no_comparison(self, tmp_path, monkeypatch):
+        overrides = {"manifest": _make_manifest(with_comparison=False)}
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 0  # warning only, not strict
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        all_codes = [f["code"] for f in data["failures"]] + [w["code"] for w in data["warnings"]]
+        assert "manifest_not_comparable" in all_codes
+
+    def test_strict_mode(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, strict=True))
+        rc = sc_main()
+        assert rc == 0
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        assert data["strict_mode"] is True
+
+    def test_low_score_strict(self, tmp_path, monkeypatch):
+        overrides = {
+            "leakage_report": {"status": "fail", "failure_count": 5, "warning_count": 0, "strict_mode": True},
+            "definition_report": {"status": "fail", "failure_count": 3, "warning_count": 0, "strict_mode": True},
+        }
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides, strict=True, min_score=95.0))
+        rc = sc_main()
+        assert rc == 2
+
+    def test_no_report_flag(self, tmp_path, monkeypatch, capsys):
+        paths = _write_artifacts(tmp_path)
+        argv = ["sc"]
+        for name in ARTIFACT_NAMES:
+            argv.extend([f"--{name}", paths[name]])
+        monkeypatch.setattr("sys.argv", argv)
+        rc = sc_main()
+        assert rc == 0

@@ -1,0 +1,186 @@
+{
+  "primary_metric": "pr_auc",
+  "model_pool": {
+    "models": [
+      "logistic_l1",
+      "logistic_l2",
+      "logistic_elasticnet",
+      "random_forest_balanced",
+      "hist_gradient_boosting_l2"
+    ],
+    "required_models": [
+      "logistic_l2"
+    ],
+    "include_optional_models": false,
+    "max_trials_per_family": 1,
+    "search_strategy": "fixed_grid",
+    "n_jobs": -1
+  },
+  "required_metrics": [
+    "accuracy",
+    "precision",
+    "ppv",
+    "npv",
+    "sensitivity",
+    "specificity",
+    "f1",
+    "f2_beta",
+    "roc_auc",
+    "pr_auc",
+    "brier"
+  ],
+  "beta": 2.0,
+  "threshold_policy": {
+    "strategy": "maximize_fbeta_under_floors",
+    "selection_split": "valid",
+    "allowed_selection_splits": [
+      "valid",
+      "cv_inner",
+      "nested_cv"
+    ],
+    "clinical_floors": {
+      "sensitivity_min": 0.85,
+      "npv_min": 0.90,
+      "specificity_min": 0.40,
+      "ppv_min": 0.55
+    }
+  },
+  "clinical_floors": {
+    "sensitivity_min": 0.85,
+    "npv_min": 0.90,
+    "specificity_min": 0.40,
+    "ppv_min": 0.55
+  },
+  "clinical_operating_point_v2": {
+    "strategy": "maximize_fbeta_under_floors",
+    "beta": 2.0,
+    "floors": {
+      "sensitivity_min": 0.85,
+      "npv_min": 0.90,
+      "specificity_min": 0.40,
+      "ppv_min": 0.55
+    }
+  },
+  "gap_thresholds": {
+    "train_valid": {
+      "pr_auc": {
+        "warn": 0.05,
+        "fail": 0.08
+      }
+    },
+    "valid_test": {
+      "pr_auc": {
+        "warn": 0.04,
+        "fail": 0.06
+      },
+      "brier": {
+        "warn": 0.02,
+        "fail": 0.03
+      }
+    },
+    "train_test": {
+      "f2_beta": {
+        "warn": 0.07,
+        "fail": 0.10
+      }
+    }
+  },
+  "robustness_thresholds": {
+    "time_slices": {
+      "pr_auc_drop_warn": 0.10,
+      "pr_auc_drop_fail": 0.14,
+      "pr_auc_range_warn": 0.15,
+      "pr_auc_range_fail": 0.20,
+      "min_slice_size": 8,
+      "min_positive": 2
+    },
+    "patient_hash_groups": {
+      "pr_auc_drop_warn": 0.10,
+      "pr_auc_drop_fail": 0.14,
+      "pr_auc_range_warn": 0.15,
+      "pr_auc_range_fail": 0.20,
+      "min_slice_size": 8,
+      "min_positive": 2
+    }
+  },
+  "seed_stability_thresholds": {
+    "pr_auc_std_max": 0.03,
+    "pr_auc_range_max": 0.08,
+    "f2_beta_std_max": 0.05,
+    "f2_beta_range_max": 0.12,
+    "brier_std_max": 0.02,
+    "brier_range_max": 0.05
+  },
+  "prediction_replay_thresholds": {
+    "metric_tolerance": 0.000001,
+    "threshold_tolerance": 0.000000001,
+    "beta": 2.0
+  },
+  "external_validation_thresholds": {
+    "min_cohort_count": 1,
+    "min_rows_per_cohort": 20,
+    "min_positive_per_cohort": 3,
+    "max_pr_auc_drop": 0.08,
+    "max_f2_beta_drop": 0.10,
+    "max_brier_increase": 0.05,
+    "metric_tolerance": 0.000001,
+    "beta": 2.0,
+    "require_cross_period": true,
+    "require_cross_institution": true
+  },
+  "calibration_dca_thresholds": {
+    "ece_max": 0.06,
+    "slope_min": 0.80,
+    "slope_max": 2.00,
+    "intercept_abs_max": 1.00,
+    "min_rows": 50,
+    "min_positives": 10,
+    "ece_bins": 10,
+    "ece_min_bin_size": 15,
+    "threshold_grid": {
+      "start": 0.05,
+      "end": 0.50,
+      "step": 0.05
+    },
+    "min_advantage_coverage": 0.50,
+    "min_average_advantage": 0.0,
+    "min_net_benefit_advantage": 0.0
+  },
+  "distribution_thresholds_v2": {
+    "split_classifier_auc_fail": 0.75,
+    "split_classifier_auc_warn": 0.68,
+    "top_feature_jsd_fail": 0.30,
+    "top_feature_jsd_warn": 0.20,
+    "high_shift_feature_fraction_fail": 0.30,
+    "high_shift_feature_fraction_warn": 0.20,
+    "missing_ratio_delta_fail": 0.20,
+    "missing_ratio_delta_warn": 0.12,
+    "prevalence_delta_fail": 0.20,
+    "prevalence_delta_warn": 0.10
+  },
+  "feature_engineering_policy": {
+    "require_explicit_feature_groups": true,
+    "allowed_selection_scopes": [
+      "train_only",
+      "cv_inner_train_only"
+    ],
+    "require_stability_evidence": true,
+    "min_feature_selection_frequency": 0.50,
+    "min_group_selection_frequency": 0.50,
+    "disallow_valid_test_external_for_selection": true,
+    "require_reproducibility_fields": true
+  },
+  "ci_policy": {
+    "n_resamples": 2000,
+    "max_resamples_supported": 4000,
+    "max_width": 0.20,
+    "metric_tolerance": 0.000001,
+    "transport_ci_required": true,
+    "width_gate_metrics": [
+      "pr_auc",
+      "f2_beta",
+      "brier"
+    ]
+  },
+  "notes": "Publication-grade V4 policy: distribution/generalization hard gates, explicit feature-engineering audit, full-matrix CI hard gate, dual external type coverage, and dual-side clinical floors."
+}

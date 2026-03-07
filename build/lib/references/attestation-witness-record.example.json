@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "authority_id": "witness-a",
+  "payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "study_id": "sepsis-risk-icu-v1",
+  "run_id": "sepsis-risk-icu-v1-train-2026-02-24-001",
+  "attested_at_utc": "2026-02-24T11:46:00Z",
+  "run_nonce": "b0d6eaf4c2a14c85b5e9b06b0f95ac22",
+  "statement": "witnessed execution payload hash"
+}
