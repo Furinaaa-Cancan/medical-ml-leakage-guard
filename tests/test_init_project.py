@@ -151,3 +151,94 @@ class TestCLIInit:
         assert proc.returncode == 0
         req = json.loads((project / "configs" / "request.json").read_text())
         assert req["study_id"] == "my-custom-study"
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectBasic:
+    def test_basic_init(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project), "--force", "--report", str(rpt),
+        ])
+        rc = ip.main()
+        assert rc == 0
+        assert (project / "configs" / "request.json").exists()
+        assert (project / "configs" / "phenotype_definitions.json").exists()
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainDirectCustomFields:
+    def test_custom_fields(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project), "--force",
+            "--study-id", "custom-study",
+            "--run-id", "run-001",
+            "--target-name", "heart_risk",
+            "--label-col", "outcome",
+            "--patient-id-col", "subject_id",
+        ])
+        rc = ip.main()
+        assert rc == 0
+        req = json.loads((project / "configs" / "request.json").read_text())
+        assert req["study_id"] == "custom-study"
+        assert req["run_id"] == "run-001"
+        assert req["target_name"] == "heart_risk"
+        assert req["label_col"] == "outcome"
+        assert req["patient_id_col"] == "subject_id"
+
+
+class TestMainDirectPreserved:
+    def test_no_force_preserves(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project), "--force",
+        ])
+        ip.main()
+        req1 = json.loads((project / "configs" / "request.json").read_text())
+        # Run again without --force
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project),
+        ])
+        ip.main()
+        req2 = json.loads((project / "configs" / "request.json").read_text())
+        assert req1["study_id"] == req2["study_id"]
+
+
+class TestMainDirectAutoRunId:
+    def test_auto_run_id(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project), "--force",
+        ])
+        ip.main()
+        req = json.loads((project / "configs" / "request.json").read_text())
+        assert req["run_id"].startswith("run-")
+
+
+class TestMainDirectDirs:
+    def test_all_dirs_created(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project), "--force",
+        ])
+        ip.main()
+        for d in ("configs", "data", "evidence", "models", "keys"):
+            assert (project / d).is_dir()
+
+
+class TestMainDirectAllTemplates:
+    def test_all_templates_copied(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ip", "--project-root", str(project), "--force", "--report", str(rpt),
+        ])
+        ip.main()
+        out = json.loads(rpt.read_text())
+        statuses = out["file_status"]
+        written_count = sum(1 for v in statuses.values() if v == "written")
+        assert written_count >= 10  # All templates + phenotype + request
