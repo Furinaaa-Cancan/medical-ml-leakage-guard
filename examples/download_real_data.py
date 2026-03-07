@@ -501,6 +501,73 @@ def prepare_mammographic(output: Path) -> None:
     print(f"  Rows: {len(df)} | Positive (malignant): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
 
 
+def prepare_synth_large(output: Path, n_rows: int = 5000) -> None:
+    """Synthetic large medical dataset — configurable row count, 15 features."""
+    print(f"\n=== Synthetic Large Medical Dataset ({n_rows} rows) ===")
+    print(f"  Rows: {n_rows} | Features: 15 | Task: predict adverse outcome (synthetic)")
+
+    rng = np.random.default_rng(50)
+    n = n_rows
+
+    age = rng.normal(55, 15, n).clip(18, 95).astype(int)
+    sex = rng.choice([0, 1], n)
+    bmi = rng.normal(27, 5, n).clip(15, 50).round(1)
+    bp_systolic = rng.normal(130, 20, n).clip(80, 200).astype(int)
+    bp_diastolic = rng.normal(80, 12, n).clip(50, 120).astype(int)
+    heart_rate = rng.normal(75, 12, n).clip(45, 130).astype(int)
+    glucose = rng.normal(100, 30, n).clip(50, 300).round(1)
+    cholesterol = rng.normal(200, 40, n).clip(100, 400).astype(int)
+    creatinine = rng.lognormal(0.0, 0.4, n).clip(0.3, 5.0).round(2)
+    hemoglobin = rng.normal(13.5, 2.0, n).clip(7, 18).round(1)
+    platelets = rng.normal(250, 60, n).clip(50, 500).astype(int)
+    wbc = rng.normal(7.0, 2.0, n).clip(2, 20).round(1)
+    smoking = rng.choice([0, 1], n, p=[0.7, 0.3])
+    diabetes_history = rng.choice([0, 1], n, p=[0.8, 0.2])
+    family_history = rng.choice([0, 1], n, p=[0.75, 0.25])
+
+    logit = (
+        -3.5
+        + 0.03 * (age - 55)
+        + 0.4 * sex
+        + 0.05 * (bmi - 27)
+        + 0.02 * (bp_systolic - 130)
+        + 0.01 * (glucose - 100)
+        + 0.005 * (cholesterol - 200)
+        + 0.3 * creatinine
+        - 0.1 * (hemoglobin - 13.5)
+        + 0.5 * smoking
+        + 0.6 * diabetes_history
+        + 0.3 * family_history
+        + rng.normal(0, 0.5, n)
+    )
+    prob = 1.0 / (1.0 + np.exp(-logit))
+    y = (rng.random(n) < prob).astype(int)
+
+    df = pd.DataFrame({
+        "age": age, "sex": sex, "bmi": bmi,
+        "bp_systolic": bp_systolic, "bp_diastolic": bp_diastolic,
+        "heart_rate": heart_rate, "glucose": glucose,
+        "cholesterol": cholesterol.astype(float), "creatinine": creatinine,
+        "hemoglobin": hemoglobin, "platelets": platelets,
+        "wbc": wbc, "smoking": smoking,
+        "diabetes_history": diabetes_history,
+        "family_history": family_history, "y": y,
+    })
+    # Add ~5% missing values to some columns
+    for col in ["glucose", "cholesterol", "creatinine", "hemoglobin"]:
+        mask = rng.random(n) < 0.05
+        df.loc[mask, col] = np.nan
+    df = add_patient_id_and_time(df, seed=50)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    pos = int(df["y"].sum())
+    neg = n - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {n} | Positive: {pos} ({pos/n*100:.1f}%) | Negative: {neg}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Download and prepare real UCI medical datasets for ml-leakage-guard pipeline.",
@@ -509,8 +576,8 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "all"],
-        help="Which dataset to prepare: heart, breast, ckd, hepatitis, spect, dermatology, pima, mammographic, or all.",
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "synth5k", "synth10k", "all"],
+        help="Dataset to prepare. synth5k/synth10k = synthetic large datasets (5000/10000 rows).",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
     args = parser.parse_args()
@@ -527,6 +594,8 @@ def main() -> int:
         "dermatology": ("dermatology.csv", prepare_dermatology),
         "pima": ("pima_diabetes.csv", prepare_pima),
         "mammographic": ("mammographic_mass.csv", prepare_mammographic),
+        "synth5k": ("synth_medical_5k.csv", lambda o: prepare_synth_large(o, n_rows=5000)),
+        "synth10k": ("synth_medical_10k.csv", lambda o: prepare_synth_large(o, n_rows=10000)),
     }
 
     if args.dataset == "all":

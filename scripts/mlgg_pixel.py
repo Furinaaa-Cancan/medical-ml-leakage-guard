@@ -209,6 +209,12 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_mammographic":{"en": "Mammographic Mass", "zh": "\u4e73\u8154\u80bf\u5757"},
     "ds_mammographic_d":{"en": "UCI Mammographic -- 961 patients, 5 features",
                          "zh": "UCI \u4e73\u8154\u80bf\u5757 -- 961 \u4f8b, 5 \u7279\u5f81"},
+    "ds_synth5k":    {"en": "Synthetic 5K", "zh": "\u5408\u6210 5K"},
+    "ds_synth5k_d":  {"en": "Synthetic -- 5,000 patients, 15 features (no download needed)",
+                      "zh": "\u5408\u6210\u6570\u636e -- 5,000 \u4f8b, 15 \u7279\u5f81\uff08\u65e0\u9700\u4e0b\u8f7d\uff09"},
+    "ds_synth10k":   {"en": "Synthetic 10K", "zh": "\u5408\u6210 10K"},
+    "ds_synth10k_d": {"en": "Synthetic -- 10,000 patients, 15 features (no download needed)",
+                      "zh": "\u5408\u6210\u6570\u636e -- 10,000 \u4f8b, 15 \u7279\u5f81\uff08\u65e0\u9700\u4e0b\u8f7d\uff09"},
 
     "src_full":      {"en": "Full Publication-Grade Pipeline", "zh": "\u5b8c\u6574\u51fa\u7248\u7ea7\u7ba1\u7ebf"},
     "src_full_d":    {"en": "28-gate strict pipeline with all specs",
@@ -1846,6 +1852,8 @@ PLAY_DOWNLOAD_DATASETS = [
     ("ckd", "chronic_kidney_disease", "ds_kidney", "ds_kidney_d"),
     ("pima", "pima_diabetes", "ds_pima", "ds_pima_d"),
     ("mammographic", "mammographic_mass", "ds_mammographic", "ds_mammographic_d"),
+    ("synth5k", "synth_medical_5k", "ds_synth5k", "ds_synth5k_d"),
+    ("synth10k", "synth_medical_10k", "ds_synth10k", "ds_synth10k_d"),
 ]
 
 
