@@ -266,3 +266,173 @@ class TestStrictMode:
     def test_strict_flag(self, tmp_path):
         report = _run_gate(tmp_path, strict=True)
         assert report["strict_mode"] is True
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(_make_seed_report()))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+
+
+class TestMainDirectMissing:
+    def test_missing_report(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(tmp_path / "nope.json"),
+            "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_seed_sensitivity_report" in codes
+
+
+class TestMainDirectWrongPrimary:
+    def test_wrong_primary_metric(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report()
+        sr_data["primary_metric"] = "roc_auc"
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "seed_stability_primary_metric_mismatch" in codes
+
+
+class TestMainDirectSelectionData:
+    def test_test_in_selection(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report()
+        sr_data["selection_data"] = "test_set"
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "seed_stability_selection_data_invalid" in codes
+
+
+class TestMainDirectInsufficientSeeds:
+    def test_too_few(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report(seeds=[
+            _make_seed_result(42, 0.82, 0.80, 0.15),
+            _make_seed_result(43, 0.81, 0.79, 0.16),
+        ])
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "insufficient_seed_runs" in codes
+
+
+class TestMainDirectDuplicate:
+    def test_duplicate_seed(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report(seeds=[
+            _make_seed_result(42, 0.82, 0.80, 0.15),
+            _make_seed_result(42, 0.81, 0.79, 0.16),
+            _make_seed_result(43, 0.83, 0.81, 0.14),
+            _make_seed_result(44, 0.82, 0.80, 0.15),
+            _make_seed_result(45, 0.81, 0.80, 0.15),
+        ])
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "duplicate_seed_result" in codes
+
+
+class TestMainDirectExceedsThreshold:
+    def test_high_std(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report(seeds=[
+            _make_seed_result(i, pr_auc=0.60 + i * 0.08, f2_beta=0.80, brier=0.15)
+            for i in range(5)
+        ])
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "seed_stability_exceeds_threshold" in codes
+
+
+class TestMainDirectSummaryMismatch:
+    def test_summary_mismatch(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report()
+        sr_data["summary"]["pr_auc"]["mean"] = 0.999
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "seed_summary_mismatch" in codes
+
+
+class TestMainDirectCorruptJSON:
+    def test_invalid_json(self, tmp_path, monkeypatch):
+        sr = tmp_path / "sr.json"
+        sr.write_text("{bad", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+        ])
+        rc = ssg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_seed_sensitivity_report" in codes
+
+
+class TestMainDirectStrict:
+    def test_strict_insufficient(self, tmp_path, monkeypatch):
+        sr_data = _make_seed_report(seeds=[
+            _make_seed_result(i, 0.82, 0.80, 0.15) for i in range(4)
+        ])
+        sr = tmp_path / "sr.json"
+        sr.write_text(json.dumps(sr_data))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "ssg", "--seed-sensitivity-report", str(sr), "--report", str(rpt),
+            "--strict",
+        ])
+        rc = ssg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "insufficient_seed_runs" in codes

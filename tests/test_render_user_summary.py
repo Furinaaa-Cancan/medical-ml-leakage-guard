@@ -259,3 +259,133 @@ class TestCLIPass:
         summary = json.loads(json_path.read_text())
         assert summary["study_id"] == "ST1"
         assert summary["run_id"] == "RN1"
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainPass:
+    def test_pass(self, tmp_path, monkeypatch):
+        ev_dir = _setup_evidence(tmp_path)
+        md_path = tmp_path / "s.md"
+        json_path = tmp_path / "s.json"
+        monkeypatch.setattr("sys.argv", [
+            "rus", "--evidence-dir", str(ev_dir),
+            "--out-markdown", str(md_path),
+            "--out-json", str(json_path),
+        ])
+        rc = rus.main()
+        assert rc == 0
+        assert md_path.exists()
+        assert json_path.exists()
+        s = json.loads(json_path.read_text())
+        assert s["overall_status"] == "pass"
+        md = md_path.read_text()
+        assert "ML Leakage Guard" in md
+
+
+class TestMainFail:
+    def test_fail(self, tmp_path, monkeypatch):
+        ev_dir = _setup_evidence(tmp_path, overall_pass=False)
+        json_path = tmp_path / "s.json"
+        monkeypatch.setattr("sys.argv", [
+            "rus", "--evidence-dir", str(ev_dir),
+            "--out-json", str(json_path),
+        ])
+        rc = rus.main()
+        assert rc == 2
+        s = json.loads(json_path.read_text())
+        assert s["overall_status"] == "fail"
+
+
+class TestMainWithRequest:
+    def test_request_metadata(self, tmp_path, monkeypatch):
+        ev_dir = _setup_evidence(tmp_path)
+        req = tmp_path / "request.json"
+        req.write_text(json.dumps({"study_id": "ST1", "run_id": "RN1"}))
+        json_path = tmp_path / "s.json"
+        monkeypatch.setattr("sys.argv", [
+            "rus", "--evidence-dir", str(ev_dir),
+            "--request", str(req),
+            "--out-json", str(json_path),
+        ])
+        rc = rus.main()
+        assert rc == 0
+        s = json.loads(json_path.read_text())
+        assert s["study_id"] == "ST1"
+        assert s["run_id"] == "RN1"
+
+
+class TestMainDefaultOutput:
+    def test_default_paths(self, tmp_path, monkeypatch):
+        """Without --out-markdown/--out-json, defaults to evidence dir."""
+        ev_dir = _setup_evidence(tmp_path)
+        monkeypatch.setattr("sys.argv", [
+            "rus", "--evidence-dir", str(ev_dir),
+        ])
+        rc = rus.main()
+        assert rc == 0
+        assert (ev_dir / "user_summary.md").exists()
+        assert (ev_dir / "user_summary.json").exists()
+
+
+class TestMainEmptyEvidence:
+    def test_empty_evidence(self, tmp_path, monkeypatch):
+        """Empty evidence dir → still runs but status is fail (missing DAG)."""
+        ev_dir = tmp_path / "evidence"
+        ev_dir.mkdir()
+        json_path = tmp_path / "s.json"
+        monkeypatch.setattr("sys.argv", [
+            "rus", "--evidence-dir", str(ev_dir),
+            "--out-json", str(json_path),
+        ])
+        rc = rus.main()
+        assert rc == 2
+        s = json.loads(json_path.read_text())
+        assert s["overall_status"] == "fail"
+
+
+class TestGetRemediationHints:
+    def test_with_hints(self):
+        payload = {
+            "failures": [{"code": "a", "remediation": "Fix A"}],
+            "warnings": [{"code": "b", "remediation": "Fix B"}],
+        }
+        hints = rus.get_remediation_hints(payload)
+        assert "Fix A" in hints
+        assert "Fix B" in hints
+
+    def test_none_payload(self):
+        assert rus.get_remediation_hints(None) == []
+
+    def test_limit(self):
+        payload = {
+            "failures": [{"code": f"c{i}", "remediation": f"Fix {i}"} for i in range(10)],
+        }
+        hints = rus.get_remediation_hints(payload, limit=3)
+        assert len(hints) == 3
+
+
+class TestGetSummaryField:
+    def test_from_summary(self):
+        payload = {"summary": {"quality_score": 97.5}}
+        assert rus._get_summary_field(payload, "quality_score") == 97.5
+
+    def test_from_top_level(self):
+        payload = {"quality_score": 90.0}
+        assert rus._get_summary_field(payload, "quality_score") == 90.0
+
+    def test_default(self):
+        assert rus._get_summary_field({}, "missing", "default_val") == "default_val"
+
+
+class TestDeriveNextActionsWithHints:
+    def test_with_remediation_hints(self):
+        summary = {
+            "overall_status": "fail",
+            "gate_status": [{"name": "leakage", "status": "fail"}],
+            "top_failure_codes": {"leakage": []},
+            "remediation_hints": {"leakage": ["Check for patient ID leakage"]},
+        }
+        actions = rus.derive_next_actions(summary)
+        assert any("leakage" in a for a in actions)
+        assert any("patient ID" in a for a in actions)

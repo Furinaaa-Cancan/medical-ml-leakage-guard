@@ -287,3 +287,156 @@ class TestStrictMode:
     def test_strict_flag(self, tmp_path):
         report = _run_gate(tmp_path, expected=0.85, strict=True)
         assert report["strict_mode"] is True
+
+
+# ── Direct main() tests ─────────────────────────────────────────────────────
+
+class TestMainDirectPass:
+    def test_pass_with_expected(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85}, "split": "test"}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--expected", "0.85",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "pass"
+        assert out["summary"]["actual_metric"] == 0.85
+
+
+class TestMainDirectMismatch:
+    def test_metric_mismatch(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85}}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--expected", "0.90",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "metric_mismatch" in codes
+
+
+class TestMainDirectMissing:
+    def test_missing_eval_report(self, tmp_path, monkeypatch):
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(tmp_path / "nope.json"),
+            "--metric-name", "roc_auc",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_evaluation_report" in codes
+
+
+class TestMainDirectNotFound:
+    def test_metric_not_found(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85}}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "pr_auc", "--expected", "0.80",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "metric_not_found" in codes
+
+
+class TestMainDirectNoExpected:
+    def test_warning_no_expected(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85}}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 0
+        out = json.loads(rpt.read_text())
+        warn_codes = [w["code"] for w in out["warnings"]]
+        assert "missing_expected_metric" in warn_codes
+
+
+class TestMainDirectStrict:
+    def test_strict_no_expected(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85}}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc",
+            "--report", str(rpt), "--strict",
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        assert out["status"] == "fail"
+
+
+class TestMainDirectSplitMismatch:
+    def test_split_mismatch(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85}, "split": "train"}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--expected", "0.85",
+            "--required-evaluation-split", "test",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "evaluation_split_mismatch" in codes
+
+
+class TestMainDirectPathMismatch:
+    def test_path_leaf_mismatch(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text(json.dumps({"metrics": {"roc_auc": 0.85, "pr_auc": 0.80}}))
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--metric-path", "metrics.pr_auc",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "metric_path_metric_mismatch" in codes
+
+
+class TestMainDirectInvalidReport:
+    def test_corrupt_json(self, tmp_path, monkeypatch):
+        ev = tmp_path / "eval.json"
+        ev.write_text("{bad", encoding="utf-8")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "mcg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc",
+            "--report", str(rpt),
+        ])
+        rc = mcg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_evaluation_report" in codes
