@@ -290,3 +290,41 @@ class TestSelfCritiqueMain:
         monkeypatch.setattr("sys.argv", argv)
         rc = sc_main()
         assert rc == 0
+
+    def test_multiple_component_failures_trigger_recommendations(self, tmp_path, monkeypatch):
+        fail_report = {"status": "fail", "failure_count": 1, "warning_count": 0, "strict_mode": True}
+        overrides = {
+            "reporting_bias_report": dict(fail_report),
+            "model_selection_audit_report": dict(fail_report),
+            "clinical_metrics_report": dict(fail_report),
+            "robustness_report": dict(fail_report),
+            "external_validation_report": dict(fail_report),
+            "calibration_dca_report": dict(fail_report),
+            "evaluation_quality_report": dict(fail_report),
+        }
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 2
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        recs = data.get("summary", {}).get("recommendations", [])
+        assert len(recs) >= 5
+        rec_text = " ".join(recs)
+        assert "TRIPOD" in rec_text or "checklist" in rec_text
+        assert "model-selection" in rec_text or "candidate" in rec_text
+
+    def test_seed_and_distribution_failures(self, tmp_path, monkeypatch):
+        fail_report = {"status": "fail", "failure_count": 1, "warning_count": 0, "strict_mode": True}
+        overrides = {
+            "seed_stability_report": dict(fail_report),
+            "distribution_generalization_report": dict(fail_report),
+            "feature_engineering_audit_report": dict(fail_report),
+            "prediction_replay_report": dict(fail_report),
+            "ci_matrix_report": dict(fail_report),
+            "generalization_gap_report": dict(fail_report),
+        }
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 2
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        recs = data.get("summary", {}).get("recommendations", [])
+        assert len(recs) >= 4
