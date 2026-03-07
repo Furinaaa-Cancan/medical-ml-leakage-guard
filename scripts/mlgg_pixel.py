@@ -1854,7 +1854,6 @@ BASE_FAMILY_GRID_SIZES = {
 PLAY_DOWNLOAD_DATASETS = [
     ("heart", "heart_disease", "ds_heart", "ds_heart_d"),
     ("breast", "breast_cancer", "ds_breast", "ds_breast_d"),
-    ("ckd", "chronic_kidney_disease", "ds_kidney", "ds_kidney_d"),
     ("pima", "pima_diabetes", "ds_pima", "ds_pima_d"),
     ("mammographic", "mammographic_mass", "ds_mammographic", "ds_mammographic_d"),
     ("thyroid", "thyroid_disease", "ds_thyroid", "ds_thyroid_d"),
