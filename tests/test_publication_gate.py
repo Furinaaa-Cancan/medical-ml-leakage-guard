@@ -510,3 +510,82 @@ class TestPublicationGateMain:
         monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
         rc = pub_main()
         assert rc == 2
+
+    def test_attestation_none_report(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        _write_json(paths["execution_attestation_report"], [1, 2, 3])
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_min_witness_too_low(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["key_assurance"]["policy"]["min_witness_count"] = 1
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_witness_not_present(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["witness_quorum"]["present"] = False
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_witness_not_required(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["witness_quorum"]["required"] = False
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_validated_witnesses_invalid(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["witness_quorum"]["validated_witnesses"] = "bad"
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_witness_min_count_invalid(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["witness_quorum"]["min_witness_count"] = "bad"
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_attestation_role_status_fail(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        ea = _good_execution_attestation()
+        ea["summary"]["authority_role_distinctness"]["status"] = "fail"
+        _write_json(paths["execution_attestation_report"], ea)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_manifest_has_errors(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        m = _good_manifest()
+        m["errors"] = [{"msg": "checksum mismatch"}]
+        _write_json(paths["manifest"], m)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
+
+    def test_manifest_no_comparison(self, tmp_path, monkeypatch):
+        paths = _make_all_artifacts(tmp_path)
+        m = _good_manifest()
+        del m["comparison"]
+        _write_json(paths["manifest"], m)
+        monkeypatch.setattr("sys.argv", _build_argv(tmp_path, paths))
+        rc = pub_main()
+        assert rc == 2
