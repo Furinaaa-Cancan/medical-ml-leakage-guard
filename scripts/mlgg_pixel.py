@@ -4939,15 +4939,22 @@ def step_run(state: Dict) -> Any:
                     sel_lines.append(f"  {'#':>2} {'model_id':<30} {'mean':>8}  {'std':>8}  {'folds':>5}")
                     top = sorted(candidates,
                                  key=lambda c: -float(c.get("selection_metrics", {}).get("pr_auc", {}).get("mean", 0)))
-                    display_limit = min(10, len(top))
-                    shown = list(top[:display_limit])
+                    # Show best model per family (not just top 10 overall)
+                    seen_families: set = set()
+                    shown: list = []
+                    for c in top:
+                        mid = str(c.get("model_id", ""))
+                        family = mid.split("__")[0] if "__" in mid else mid
+                        if family not in seen_families:
+                            seen_families.add(family)
+                            shown.append(c)
+                        if len(shown) >= 10:
+                            break
+                    # Always include selected model
                     if sel_id and all(str(c.get("model_id")) != str(sel_id) for c in shown):
                         selected_row = next((c for c in top if str(c.get("model_id")) == str(sel_id)), None)
                         if selected_row is not None:
-                            if len(shown) >= display_limit and shown:
-                                shown[-1] = selected_row
-                            else:
-                                shown.append(selected_row)
+                            shown.append(selected_row)
                     rank_map: Dict[str, int] = {}
                     for rank, row in enumerate(top, start=1):
                         row_id = str(row.get("model_id", ""))
