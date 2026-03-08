@@ -78,6 +78,41 @@ python3 scripts/mlgg.py doctor
 | 训练超时（>20min） | 大数据集 + 多模型 + bootstrap | 减少模型数/trials/用保守预设 |
 | `FileNotFoundError` | 路径错误或前序步骤未执行 | 检查 `data/` 目录下 CSV 是否存在 |
 
+### 数据泄漏 & 学术诚信检测覆盖
+
+本项目的 28 道 gate 覆盖以下学术诚信风险：
+
+**数据泄漏检测（4 道 gate）**：
+- `leakage_gate`: 行级重叠、患者 ID 重叠、时序穿越（训练数据晚于测试数据）
+- `split_protocol_gate`: 分割协议验证（患者不重叠、时序有序、种子锁定）
+- `definition_variable_guard`: 表型定义中的未来信息泄漏（用未来事件定义当前标签）
+- `feature_lineage_gate`: 特征来源链路追溯（特征是否包含标签信息或未来数据）
+
+**调优泄漏 / p-hacking（3 道 gate）**：
+- `tuning_leakage_gate`: 超参搜索是否使用了测试数据、模型选择数据源验证
+- `model_selection_audit_gate`: 候选池大小、选择标准、是否存在选择偏倚
+- `evaluation_quality_gate`: 主指标是否有 CI、是否优于基线（防止挑选性报告）
+
+**过拟合 & 泛化性（4 道 gate）**：
+- `generalization_gap_gate`: train-test 性能差距是否超过阈值
+- `covariate_shift_gate`: 训练/测试特征分布是否漂移
+- `robustness_gate`: 时间切片和分组的性能稳健性
+- `seed_stability_gate`: 不同随机种子下结果是否稳定
+
+**统计严谨性（3 道 gate）**：
+- `permutation_significance_gate`: 置换检验 p-value（模型是否优于随机）
+- `ci_matrix_gate`: Bootstrap CI 完整性（所有指标都有置信区间）
+- `prediction_replay_gate`: 预测结果是否可精确重现（防止结果篡改）
+
+**临床有效性 & 报告完整性（3 道 gate）**：
+- `calibration_dca_gate`: 概率校准质量 + 决策曲线分析
+- `reporting_bias_gate`: TRIPOD+AI / PROBAST+AI / STARD-AI 清单合规
+- `clinical_metrics_gate`: 混淆矩阵一致性、完整临床指标面板
+
+**出版级聚合（2 道 gate）**：
+- `publication_gate`: 聚合所有 gate 结果 + 执行签名验证
+- `self_critique_gate`: 全局质量评分 + 审稿人级自我批评
+
 ### 能力边界
 
 **能做的**：
