@@ -2761,6 +2761,25 @@ def step_config(state: Dict) -> Any:
     n_feat = len(columns) - sum(1 for v in detected.values() if v)
     feat_label = "Features" if LANG == "en" else "特征"
     preview_lines.append(f"  {feat_label}: ~{n_feat}")
+    # Data quality warnings
+    high_missing_cols = []
+    for col in columns:
+        p = profile.get(col, {})
+        total = p.get("rows", 0)
+        non_empty = p.get("non_empty", 0)
+        if total > 0:
+            missing_rate = 1.0 - (non_empty / total)
+            if missing_rate > 0.3:
+                high_missing_cols.append((col, missing_rate))
+    if high_missing_cols:
+        warn_label = "High missing:" if LANG == "en" else "高缺失列："
+        preview_lines.append("")
+        preview_lines.append(f"  ⚠ {warn_label}")
+        for col, rate in high_missing_cols[:5]:
+            preview_lines.append(f"    {col}: {rate:.0%}")
+        if len(high_missing_cols) > 5:
+            more = f"+{len(high_missing_cols)-5} more" if LANG == "en" else f"+{len(high_missing_cols)-5} 列"
+            preview_lines.append(f"    {more}")
     box_title = "Dataset Preview" if LANG == "en" else "数据集预览"
     box(box_title, preview_lines, color="C")
     print()
