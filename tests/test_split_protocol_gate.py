@@ -757,3 +757,130 @@ class TestSplitProtocolMain:
         ])
         rc = spg_main()
         assert rc == 0
+
+    def test_corrupt_protocol_spec(self, tmp_path, monkeypatch):
+        p = tmp_path / "protocol.json"
+        p.write_text("{bad")
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(p),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "invalid_protocol_spec" in codes
+
+    def test_id_col_mismatch(self, tmp_path, monkeypatch):
+        protocol = _make_protocol(tmp_path, overrides={"id_col": "subject_id"})
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(protocol),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "protocol_id_col_mismatch" in codes
+
+    def test_time_col_mismatch(self, tmp_path, monkeypatch):
+        protocol = _make_protocol(tmp_path, overrides={"index_time_col": "visit_date"})
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(protocol),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "protocol_time_col_mismatch" in codes
+
+    def test_seed_not_locked(self, tmp_path, monkeypatch):
+        protocol = _make_protocol(tmp_path, overrides={"split_seed_locked": False})
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(protocol),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "split_seed_not_locked" in codes
+
+    def test_group_disjoint_false(self, tmp_path, monkeypatch):
+        protocol = _make_protocol(tmp_path, overrides={"requires_group_disjoint": False})
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(protocol),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "group_disjoint_not_required" in codes
+
+    def test_allow_patient_overlap_true(self, tmp_path, monkeypatch):
+        protocol = _make_protocol(tmp_path, overrides={"allow_patient_overlap": True})
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(protocol),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "patient_overlap_allowed" in codes
+
+    def test_allow_time_overlap_true(self, tmp_path, monkeypatch):
+        protocol = _make_protocol(tmp_path, overrides={"allow_time_overlap": True})
+        _make_splits(tmp_path)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "spg", "--protocol-spec", str(protocol),
+            "--train", str(tmp_path / "train.csv"),
+            "--valid", str(tmp_path / "valid.csv"),
+            "--test", str(tmp_path / "test.csv"),
+            "--id-col", "patient_id", "--time-col", "event_time",
+            "--report", str(rpt),
+        ])
+        rc = spg_main()
+        assert rc == 2
+        data = json.loads(rpt.read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "time_overlap_allowed" in codes
