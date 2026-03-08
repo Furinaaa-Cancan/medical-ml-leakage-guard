@@ -4362,6 +4362,18 @@ def step_run(state: Dict) -> Any:
             print()
             for l in err.strip().split("\n")[-5:]:
                 print(f"  {DIM}{l}{RST}")
+        # Actionable next-steps
+        print()
+        if LANG == "zh":
+            print(f"  {s('Y', '可尝试：')}")
+            print(f"  {DIM}  1. 减少模型数量（选保守预设）{RST}")
+            print(f"  {DIM}  2. 降低每模型尝试次数{RST}")
+            print(f"  {DIM}  3. 用较小的数据集先验证流程{RST}")
+        else:
+            print(f"  {s('Y', 'Try:')}")
+            print(f"  {DIM}  1. Fewer models (use conservative preset){RST}")
+            print(f"  {DIM}  2. Lower max trials per model{RST}")
+            print(f"  {DIM}  3. Test with a smaller dataset first{RST}")
         return FAIL
     completed.append((train_label, "done"))
 
