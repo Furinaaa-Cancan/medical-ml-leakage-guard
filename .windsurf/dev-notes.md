@@ -57,6 +57,11 @@ Plus in `mlgg_pixel.py`:
 5. Read and parse the output report JSON
 6. Assert failure codes in `out["failures"]`
 
+### 6. prediction_replay_gate error code naming
+**Error**: Test expected `prediction_trace_score_out_of_range` but actual code is `prediction_score_out_of_range`.
+**Root cause**: Gate error codes don't always have `trace_` prefix consistently.
+**Fix**: Always check the actual error code in the gate source before writing test assertions.
+
 ## Key File Locations
 
 - Model families: `scripts/train_select_evaluate.py` (SUPPORTED_MODEL_FAMILIES, _family_grid, _build_estimator_for_family)
