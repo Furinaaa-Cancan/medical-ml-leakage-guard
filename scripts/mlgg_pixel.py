@@ -2730,6 +2730,31 @@ def step_config(state: Dict) -> Any:
     state["_column_profile"] = profile
     state["_rows"] = rows
 
+    # ── Dataset preview box ──
+    _clear()
+    step_header(4, TOTAL_STEPS, t("s_config"))
+    preview_lines = [
+        f"  {Path(csv_path).name}",
+        f"  {rows} {t('rows')}, {len(columns)} {t('columns')}",
+    ]
+    if detected.get("target") and profile:
+        tgt_p = profile.get(detected["target"], {})
+        pos_rate = tgt_p.get("positive_rate")
+        if pos_rate is not None:
+            preview_lines.append(f"  {t('target')}: {detected['target']}  ({s('C', f'{pos_rate:.1%} positive')})")
+        else:
+            preview_lines.append(f"  {t('target')}: {detected['target']}")
+    if detected.get("pid"):
+        preview_lines.append(f"  ID: {detected['pid']}")
+    if detected.get("time"):
+        preview_lines.append(f"  Time: {detected['time']}")
+    n_feat = len(columns) - sum(1 for v in detected.values() if v)
+    feat_label = "Features" if LANG == "en" else "特征"
+    preview_lines.append(f"  {feat_label}: ~{n_feat}")
+    box_title = "Dataset Preview" if LANG == "en" else "数据集预览"
+    box(box_title, preview_lines, color="C")
+    print()
+
     def _config_header(*chosen: Tuple[str, str]) -> None:
         _clear()
         step_header(4, TOTAL_STEPS, t("s_config"))
