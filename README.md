@@ -1,615 +1,19 @@
 # medical-ml-leakage-guard
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
-
-Publication-grade medical prediction workflow with strict anti-data-leakage gates, reproducibility evidence, and fail-closed review logic.
+[![Tests](https://img.shields.io/badge/tests-2905%20passed-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/gate%20coverage-%E2%89%A586%25-blue)]()
 
 面向医学预测任务的发布级防泄漏工作流，提供严格门控、可复现实验工件与 fail-closed 审核机制。
 
----
-
-## English Guide
-
-### 0. Installation (Terminal Quickstart)
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard.git
-cd medical-ml-leakage-guard
-
-# 2. (Recommended) Create a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate    # macOS/Linux
-# .venv\Scripts\activate     # Windows
-
-# 3. Install dependencies
-python3 -m pip install -r requirements.txt
-
-# Optional: install stable console scripts from package metadata
-python3 -m pip install -e .
-
-# 4. Verify installation
-python3 scripts/mlgg.py --help
-python3 scripts/mlgg.py doctor
-mlgg --help
-
-# 5. Run the full demo (one command, ~3-8 min)
-python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
-```
-
-That's it! After step 5, check `/tmp/mlgg_demo/evidence/onboarding_report.json` for the result.
-
-**Prefer an interactive experience?** Launch the pixel-art guided menu:
-
-```bash
-python3 scripts/mlgg.py play
-```
-
-Important:
-- `play` is a quick train/evaluate launcher for interactive exploration.
-- The “Quick Readiness (play mode)” card is **not** the 28-gate publication verdict.
-- Stable installed console scripts are `mlgg` and `mlgg-pixel`.
-- The browser wizard is currently a repository-local legacy prototype:
-  `python3 -m pip install ".[web]" && python3 scripts/mlgg_web.py`
-- In column/model menus, press `/` to search, `Enter` to finish search mode, and `c` to clear the filter.
-- For custom CSV, Step 4 now supports explicit selection of `Patient ID`, `Target`, and `Feature columns` (unselected features are automatically excluded from training).
-- Built-in model families in `play` now include: `logistic_l1/l2/elasticnet`, `random_forest`, `extra_trees`, `hist_gradient_boosting`, `adaboost`, `svm_linear`, `svm_rbf`, plus ensemble families `soft_voting/weighted_voting/stacking` (and optional `xgboost/catboost/lightgbm/tabpfn`).
-- For publication-grade pass/fail, run:
-  `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
-- For small datasets (for example UCI heart/ckd), prefer:
-  `python3 scripts/mlgg.py play -- --strict-small-sample`
-- In `--strict-small-sample` mode:
-  model picker is limited to `logistic_l1/l2/elasticnet`,
-  tuning menu hides `optuna`,
-  and tries/model are capped at input time (instead of silently adjusted later).
-- Default `--strict-small-sample-max-rows` is `500`.
-  For a medium-size dataset where you still want strict mode (for example UCI breast, n=569),
-  use: `python3 scripts/mlgg.py play -- --strict-small-sample --strict-small-sample-max-rows 800`
-- `play` now applies dataset-size-aware defaults automatically:
-  `small (<=1200 rows)` -> conservative model/tuning order,
-  `medium (1201-10000)` -> balanced order,
-  `large (>10000)` -> higher-capacity order (optuna/comprehensive first).
-- If you want `play` to exit non-zero on quick-readiness blockers, use:
-  `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
-- With `--fail-on-play-blockers`, `play` also fails closed when quick-readiness cannot be evaluated
-  (for example missing/invalid `evaluation_report.json`).
-
-**Want to use real medical data instead of demo?** Download a real UCI dataset:
-
-```bash
-# Download UCI Heart Disease (297 rows) or Breast Cancer (569 rows)
-python3 examples/download_real_data.py heart
-python3 examples/download_real_data.py breast
-
-# Split and run the pipeline
-python3 scripts/mlgg.py split -- \
-  --input examples/heart_disease.csv \
-  --output-dir /tmp/mlgg_heart/data \
-  --patient-id-col patient_id --target-col y --time-col event_time \
-  --strategy grouped_temporal
-```
-
-### 0.1 Which command should I use?
-
-| Goal | Command | What you get |
-|---|---|---|
-| Quick exploration / teaching | `python3 scripts/mlgg.py play` | Fast interactive train/eval, **not** publication verdict |
-| First strict end-to-end run | `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes` | 8-step strict flow + evidence reports |
-| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 28-gate strict decision |
-
-### 0.2 Status semantics (do not mix these)
-
-| Surface | Status values | Meaning | Release decision? |
-|---|---|---|---|
-| `play` quick readiness card | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | Lightweight educational signal in play mode | No |
-| `onboarding_report.json` | `status=pass|fail` + `termination_reason` | Whether onboarding flow completed cleanly | No (onboarding is a wrapper) |
-| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28-gate strict result | Yes |
-
-### 0.3 Fastest own-CSV strict closed loop (copy-paste)
-
-```bash
-# 1) Initialize project
-python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
-
-# 2) Split one CSV safely (default recommendation for cross-sectional data)
-python3 scripts/mlgg.py split -- \
-  --input /path/to/your_data.csv \
-  --output-dir /tmp/mlgg_project/data \
-  --patient-id-col patient_id \
-  --target-col y \
-  --time-col event_time \
-  --strategy stratified_grouped
-
-# 3) Train/evaluate (interactive)
-python3 scripts/mlgg.py train --interactive
-
-# 4) First strict run (bootstrap baseline)
-python3 scripts/mlgg.py workflow \
-  --request /tmp/mlgg_project/configs/request.json \
-  --strict \
-  --allow-missing-compare
-
-# 5) Strict compare rerun
-python3 scripts/mlgg.py workflow \
-  --request /tmp/mlgg_project/configs/request.json \
-  --strict \
-  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
-```
-
----
-
-### 1. What This Repository Does
-
-**Data leakage** in medical ML means information from outside the intended training scope (e.g., test labels, future timestamps, disease-defining variables) accidentally influences model training. This inflates reported performance and can lead to unsafe clinical decisions.
-
-This repository:
-- Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
-- Enforces **28 DAG-orchestrated fail-closed gates** covering:
-  - definition-variable leakage (disease-defining features used as predictors)
-  - feature lineage leakage (features derived from post-index-time data)
-  - split/time contamination (patient overlap or temporal ordering violations)
-  - model-selection/tuning leakage (validation/test data used in hyperparameter search)
-  - threshold/calibration misuse (threshold optimized on test set)
-  - external cohort transport robustness (performance degradation on unseen cohorts)
-- Outputs machine-checkable evidence and gate reports for release decisions.
-- Every gate is **binary pass/fail**: all 28 must pass for a publication-grade claim.
-
-**Architecture overview**: the pipeline is organized as a dependency DAG with 8 execution layers: `request contract validation → data fingerprinting → execution attestation → leakage/protocol gates → model audit gates → external validation gates → aggregated publication gate → self-critique scoring`. Each gate is an independent CLI script producing a standardized JSON report envelope (v2.0.0). The DAG executor (`run_dag_pipeline.py`) supports parallel execution within layers, checkpoint/resume, single-gate re-runs, and rich terminal output.
-
-**Expected runtime**:
-- Onboarding demo (guided mode): ~3-8 minutes depending on hardware
-- Full release benchmark suite (`--profile release`): ~30-90 minutes
-- Extended benchmark (`--profile extended`): ~2-6 hours
-
----
-
-### 2. Requirements
-- Python `3.10+`
-- `openssl` in PATH (required for execution attestation)
-- Python packages: `numpy`, `pandas`, `scikit-learn`, `scipy`, `joblib`
-- Optional model backends: `xgboost`, `catboost`, `lightgbm`, `tabpfn`
-- Optional tuning backend: `optuna`
-
-Install core dependencies:
-
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-Install optional model backends:
-
-```bash
-python3 -m pip install -r requirements-optional.txt
-```
-
-Install the legacy browser prototype only when needed:
-
-```bash
-python3 -m pip install ".[web]"
-```
-
-Check runtime environment:
-
-```bash
-python3 scripts/mlgg.py doctor
-```
-
----
-
-### 3. Fastest First Run (Recommended for New Users)
-
-#### 3.1 One-command onboarding
-
-```bash
-python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
-```
-
-This runs a fixed 8-step strict flow:
-1. `doctor`
-2. `init`
-3. generate offline demo medical data
-4. align configs
-5. train/select/evaluate
-6. generate attestation artifacts
-7. strict workflow bootstrap (`--allow-missing-compare`)
-8. strict workflow compare rerun
-
-#### 3.2 Preview commands only (no execution)
-
-```bash
-python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
-```
-
-- Preview mode writes `display_status=preview` and `preview_only=true`.
-- Preview mode only emits a command plan and does not execute training/gates.
-
-#### 3.3 Continue after failures for full diagnosis
-
-```bash
-python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --no-stop-on-fail
-```
-
----
-
-### 4. Key Outputs and How To Read Them
-
-After onboarding (or manual workflow), check:
-- `<project>/evidence/onboarding_report.json`
-- `<project>/evidence/dag_pipeline_report.json`
-- `<project>/evidence/productized_workflow_report.json`
-- `<project>/evidence/user_summary.md`
-
-`onboarding_report.json` contract is `onboarding_report.v2`:
-- `status`: `pass` or `fail`
-- `display_status`: user-facing status (`preview` for `--mode preview`)
-- `preview_only`: whether this run was preview-only (no execution)
-- `stop_on_fail`: run-time behavior (`true` or `false`)
-- `termination_reason`:
-  - `completed_successfully`
-  - `stopped_on_failure`
-  - `completed_with_failures`
-  - `cancelled_by_user`
-- `failure_codes`: merged codes from gate reports + onboarding step-level codes
-- `next_actions`: remediation commands (includes recommended release benchmark and advanced heart research route when onboarding passes)
-- `copy_ready_commands`: copy/paste-ready command block with absolute `mlgg.py` path (`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`)
-
-`productized_workflow_report.json` contract is `productized_workflow_report.v2`:
-- `status`: `pass` or `fail`
-- `status_reason`:
-  - `all_blocking_steps_passed`
-  - `blocking_step_failed`
-  - `bootstrap_recovered`
-- `blocking_failure_count`: count of blocking steps still failed at final state
-- `recovered_failure_count`: count of steps marked as `recovered`
-- `bootstrap_recovery_applied`: whether bootstrap retry recovery was applied
-- `bootstrap_recovery_source`: bootstrap trigger evidence source (or `null`)
-- `steps[]` now includes:
-  - `status`: `pass|fail|recovered`
-  - `blocking`: `true|false`
-  - `recovered_by_step`: retry step name or `null`
-
-Bootstrap isolation rule:
-- Bootstrap retry is triggered only by evidence generated in the current strict run.
-- Historical `publication_gate_report.json` / `manifest.json` are ignored.
-
-Quick inspect with Python:
-
-```bash
-python3 - <<'PY'
-import json
-from pathlib import Path
-p = Path("/tmp/mlgg_demo/evidence/onboarding_report.json")
-r = json.loads(p.read_text(encoding="utf-8"))
-print("status:", r["status"])
-print("termination_reason:", r.get("termination_reason"))
-print("failure_codes:", r.get("failure_codes", []))
-print("copy_ready_commands:", sorted(r.get("copy_ready_commands", {}).keys()))
-PY
-```
-
----
-
-### 5. Use Your Own Data (Manual Publication-Grade Path)
-
-#### Step A: Initialize project skeleton
-
-```bash
-python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
-```
-
-#### Step B: Prepare dataset files
-
-**Option 1 — Single CSV (recommended for first-time users):**
-
-If you have one complete CSV file, use `split_data.py` to auto-split with medical safety guarantees (patient-level disjoint, temporal ordering, prevalence checks, NaN patient_id/target exclusion, row count preservation, SHA256 input fingerprint, min 10 pos/neg per split, atomic file writes):
-
-```bash
-python3 scripts/mlgg.py split -- \
-  --input /path/to/your_data.csv \
-  --output-dir /tmp/mlgg_project/data \
-  --patient-id-col patient_id \
-  --target-col y \
-  --time-col event_time \
-  --strategy grouped_temporal
-```
-
-Or use the interactive wizard which guides you through the process:
-
-```bash
-python3 scripts/mlgg.py interactive --command train
-# Choose "single_csv" when prompted for data input mode
-```
-
-Or use onboarding with your own data:
-
-```bash
-python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_project --input-csv /path/to/your_data.csv --mode guided --yes
-```
-
-Available split strategies (onboarding/play wizard):
-- `stratified_grouped` (default): patient-disjoint split with stable class prevalence; preferred for cross-sectional/single-visit datasets.
-- `grouped_temporal`: time-ordered split; use only for true longitudinal prediction timelines.
-- `grouped_random`: available in split CLI (`scripts/mlgg.py split`) for research/debug only.
-
-**Option 2 — Pre-split files:**
-
-Put your files here:
-- `/tmp/mlgg_project/data/train.csv`
-- `/tmp/mlgg_project/data/valid.csv`
-- `/tmp/mlgg_project/data/test.csv`
-
-For publication-grade external validation, prepare both:
-- cross-period external cohort CSV
-- cross-institution external cohort CSV
-
-Minimum column contract (recommended):
-- `patient_id`: patient/entity ID
-- `event_time`: index/event time
-- `y`: binary label (`0/1`)
-- plus leakage-safe predictors
-
-#### Step C: Run schema preflight
-
-Single-file pre-check (before splitting):
-
-```bash
-python3 scripts/schema_preflight.py \
-  --input-csv /path/to/your_data.csv \
-  --target-col y \
-  --patient-id-col patient_id \
-  --time-col event_time \
-  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
-```
-
-Split-file pre-check (after splitting):
-
-```bash
-python3 scripts/mlgg.py preflight \
-  --train /tmp/mlgg_project/data/train.csv \
-  --valid /tmp/mlgg_project/data/valid.csv \
-  --test /tmp/mlgg_project/data/test.csv \
-  --target-col y \
-  --patient-id-col patient_id \
-  --time-col event_time \
-  --mapping-out /tmp/mlgg_project/evidence/schema_mapping.json \
-  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
-```
-
-#### Step D: Train/select/evaluate
-
-Option 1 (recommended for most users): interactive wizard
-
-```bash
-python3 scripts/mlgg.py train --interactive
-```
-
-Option 2: direct CLI template
-
-```bash
-python3 scripts/train_select_evaluate.py \
-  --train /tmp/mlgg_project/data/train.csv \
-  --valid /tmp/mlgg_project/data/valid.csv \
-  --test /tmp/mlgg_project/data/test.csv \
-  --target-col y \
-  --patient-id-col patient_id \
-  --ignore-cols patient_id,event_time \
-  --performance-policy /tmp/mlgg_project/configs/performance_policy.json \
-  --missingness-policy /tmp/mlgg_project/configs/missingness_policy.json \
-  --feature-group-spec /tmp/mlgg_project/configs/feature_group_spec.json \
-  --external-cohort-spec /tmp/mlgg_project/configs/external_cohort_spec.json \
-  --model-selection-report-out /tmp/mlgg_project/evidence/model_selection_report.json \
-  --evaluation-report-out /tmp/mlgg_project/evidence/evaluation_report.json \
-  --prediction-trace-out /tmp/mlgg_project/evidence/prediction_trace.csv.gz \
-  --external-validation-report-out /tmp/mlgg_project/evidence/external_validation_report.json \
-  --feature-engineering-report-out /tmp/mlgg_project/evidence/feature_engineering_report.json \
-  --distribution-report-out /tmp/mlgg_project/evidence/distribution_report.json \
-  --ci-matrix-report-out /tmp/mlgg_project/evidence/ci_matrix_report.json \
-  --robustness-report-out /tmp/mlgg_project/evidence/robustness_report.json \
-  --seed-sensitivity-out /tmp/mlgg_project/evidence/seed_sensitivity_report.json \
-  --model-out /tmp/mlgg_project/models/model.joblib \
-  --permutation-null-out /tmp/mlgg_project/evidence/permutation_null_pr_auc.txt
-```
-
-#### Step E: Run strict workflow (bootstrap + compare)
-
-First strict run (bootstrap baseline manifest):
-
-```bash
-python3 scripts/mlgg.py workflow \
-  --request /tmp/mlgg_project/configs/request.json \
-  --strict \
-  --allow-missing-compare
-```
-
-Second strict run (compare against baseline):
-
-```bash
-python3 scripts/mlgg.py workflow \
-  --request /tmp/mlgg_project/configs/request.json \
-  --strict \
-  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
-```
-
----
-
-### 6. Interactive Wizard (Terminal UX)
-
-Core interactive targets:
-- `init`
-- `workflow`
-- `train`
-- `authority`
-
-Entry methods:
-
-```bash
-python3 scripts/mlgg.py interactive --command train
-python3 scripts/mlgg.py train --interactive
-python3 scripts/mlgg.py interactive --command train -- --help
-```
-
-Reusable profiles:
-
-```bash
-# save
-python3 scripts/mlgg.py interactive --command train --profile-name demo --save-profile
-
-# load
-python3 scripts/mlgg.py interactive --command train --profile-name demo --load-profile
-```
-
-Print generated command only:
-
-```bash
-python3 scripts/mlgg.py interactive --command workflow --print-only --accept-defaults
-```
-
----
-
-### 7. Validation and Benchmark Commands
-
-```bash
-# unified help
-python3 scripts/mlgg.py --help
-python3 scripts/mlgg.py onboarding --help
-python3 scripts/mlgg.py train --interactive --help
-
-# gate smoke tests
-python3 scripts/test_gate_smoke.py
-
-# onboarding smoke tests
-python3 scripts/test_onboarding_smoke.py
-
-# split smoke tests (single-CSV workflow)
-python3 scripts/test_split_smoke.py
-
-# authority benchmark suite
-python3 scripts/mlgg.py authority
-
-# structured multi-dataset release benchmark matrix (recommended stability check)
-python3 scripts/mlgg.py benchmark-suite --profile release
-
-# reproducibility hard gate (default repeat=3) with explicit registry/JUnit + suite timeout budget
-python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --registry-file references/benchmark-registry.json --suite-timeout-seconds 7200 --emit-junit /tmp/mlgg_release_benchmark.junit.xml
-
-# authority release-grade stress path (recommended wrapper)
-python3 scripts/mlgg.py authority-release
-# equivalent explicit form:
-python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease
-
-# heart stress is advanced research/high-pressure mode (can fail by design)
-python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060
-# equivalent explicit form:
-python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250060
-
-# adversarial fail-closed checks
-python3 scripts/mlgg.py adversarial
-
-# machine-readable failure payload (JSON on stderr)
-python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
-```
-
-Notes:
-- Default stress case is `uci-chronic-kidney-disease` for a stable publication-grade path.
-- `uci-heart-disease` stress search is an advanced research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
-- Use `benchmark-suite --profile release` when you need a reproducible multi-dataset stability verdict.
-- `benchmark-suite` report contract is `release_benchmark_matrix.v2` and includes:
-  - `failure_codes` (blocking-only + matrix-level codes)
-  - `all_failure_codes` (blocking + observational + matrix-level codes)
-  - `blocking_failure_codes/observational_failure_codes`
-  - `repeat_count/repeat_consistent/dataset_registry_sha256`
-- In `release` profile, blocking suites are `authority_release_core` and `adversarial_fail_closed`; `authority_release_extended` (Diabetes130) remains observational/non-blocking and must still be reviewed.
-- For non-blocking authority failures, benchmark-suite also emits `observational_diagnostics` in the matrix report and a sidecar `*.observational_diagnostics.json`.
-- Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
-- `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
-- Use `--error-json` to emit structured failure payloads (`contract_version=mlgg_error.v1`) for automation.
-- CI pipelines:
-  - `.github/workflows/ci-smoke.yml` (push/PR fast checks)
-  - `.github/workflows/ci-full.yml` (nightly/manual release blocking: `benchmark-suite --profile release`)
-  - `.github/workflows/ci-extended.yml` (weekly observational extended benchmark)
-
----
-
-### 8. Troubleshooting (New User Focus)
-
-If guided mode is cancelled, onboarding now fails closed with:
-- failure code: `onboarding_step_cancelled`
-- non-interactive guided mode code: `onboarding_interactive_input_unavailable`
-- actionable `next_actions` in onboarding report
-- wrapper conflict failure code: `authority_preset_route_override_forbidden`
-
-Use this mapping for top failures:
-- `references/Troubleshooting-Top20.md`
-
-Top10 quick fixes (copy-paste):
-
-| Failure code | What it usually means | One-step fix |
-|---|---|---|
-| `onboarding_step_cancelled` | Guided step cancelled by user | Re-run with `--yes` or `--mode auto --no-stop-on-fail` |
-| `onboarding_interactive_input_unavailable` | Guided mode in non-interactive shell | Use `--yes` or switch to `--mode auto` |
-| `authority_preset_route_override_forbidden` | Wrapper route flags conflict | Remove conflicting route flags, keep preset route only |
-| `row_overlap` | Same rows appear across splits | Re-split data with patient-disjoint policy |
-| `id_overlap` | Patient IDs overlap across splits | Re-split by `patient_id` with grouped split |
-| `temporal_overlap` | Train/valid/test time boundary violation | Use proper index time and temporal ordering |
-| `suspicious_feature_names` | Feature names imply leakage path | Remove/review leakage-prone features (future/outcome/diagnosis-like) |
-| `benchmark_registry_missing` | Missing benchmark registry file | Use `--registry-file references/benchmark-registry.json` |
-| `benchmark_registry_mismatch` | Registry fingerprint/case mismatch | Restore official registry and rerun |
-| `benchmark_repeat_inconsistent` | Repeated runs are unstable | Keep same config/seed/data fingerprint and rerun `--repeat 3` |
-
-Typical diagnosis commands:
-
-```bash
-python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict
-python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare
-python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json
-python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
-```
-
----
-
-### 9. Repository Map
-- `scripts/`: gates, trainers, wrappers, CLI tools, and shared utilities (`_gate_utils.py`)
-  - Analysis tools: `evidence_digest.py`, `report_health_check.py`, `remediation_plan.py`, `threshold_sensitivity.py`, `compare_runs.py`, `export_latex.py`, `explain_gate.py`
-  - New tools: `policy_generator.py`, `gate_timeline.py`, `gate_coverage_matrix.py`, `evidence_comparator.py`
-- `tests/`: 2800+ pytest unit tests covering all gate scripts and analysis tools
-- `references/`: schema/policy/report examples, checklists, and benchmark registry
-- `experiments/authority-e2e/`: authority and adversarial runners with UCI public datasets
-- `agents/`: OpenAI agent interface definition (`openai.yaml`)
-- `.github/workflows/`: CI pipelines (smoke / full / extended)
-- `SKILL.md`: full workflow contract, gate ordering, and medical non-negotiable rules
-- `requirements.txt`: core Python dependencies
-- `requirements-optional.txt`: optional backend dependencies (`xgboost`, `catboost`, `lightgbm`, `tabpfn`, `optuna`)
-- `references/Beginner-Quickstart.md`: bilingual beginner tutorial
-- `references/Troubleshooting-Top20.md`: top failure-code remediation
-- `references/release-benchmark-suite.md`: release benchmark matrix profile and pass contract
-- `references/benchmark-registry.json`: frozen benchmark dataset registry (`benchmark_registry.v1`)
-
----
-
-### 10. Scope Notes
-- This repository is for **predictive modeling rigor**, not causal inference claims.
-- Publication-grade claim is valid only when all 28 strict gates pass (`status: pass` in `publication_gate_report.json`).
-- The system does **not** train models for you automatically in production — it validates that your training process is leakage-safe and reproducible.
-- Supported task type: **binary classification** only. Multi-class, regression, and survival analysis are out of scope.
-- The 28-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
-
----
-
-### 11. License
-
-This project is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/). See the [LICENSE](LICENSE) file for the full text.
-
-**You may**:
-- Use this software for personal study, academic research, and non-profit purposes
-- Modify and redistribute under the same license terms
-- Use within educational institutions, public research organizations, and government agencies
-
-**You may not**:
-- Use this software for any commercial purpose
-- Sell the software or services built on it
-- Incorporate it into commercial products
-
-For commercial licensing inquiries, please contact the repository owner.
+Publication-grade medical prediction workflow with strict anti-data-leakage gates, reproducibility evidence, and fail-closed review logic.
+
+**核心能力** | **Core Capabilities**:
+- 🏥 **20 个模型族**（逻辑回归/SVM/随机森林/XGBoost/KNN/MLP 等）自动训练+超参搜索
+- 🛡️ **28 道安全门控**（泄漏检测/校准/鲁棒性/TRIPOD 合规等）fail-closed 架构
+- 📊 **8 个真实医学数据集**（UCI/GitHub，297-14,980 行）一键下载训练
+- 🎮 **交互式 CLI 向导**（中英双语，EPV 提示/类别分布/数据质量警告）
+- 📈 **自动评估报告**（ROC-AUC/PR-AUC/Brier + 95% CI + 过拟合检测）
 
 ---
 
@@ -1037,35 +441,50 @@ python3 scripts/mlgg.py workflow \
 
 ---
 
-### 6. 交互式终端向导（易用层）
+### 6. Play 模式（推荐新手入口）
 
-支持核心命令：
-- `init`
-- `workflow`
-- `train`
-- `authority`
+一条命令启动全流程交互向导：
 
-进入方式：
+```bash
+python3 scripts/mlgg.py play
+```
+
+**Play 模式特性**：
+- 🎮 **11 步交互向导**：语言选择 → 数据源 → 分割 → 模型 → 训练 → 结果展示
+- 📊 **8 个内置真实数据集**（一键下载）：
+
+| 数据集 | 行数 | 特征 | 来源 |
+|--------|------|------|------|
+| 心脏病 | 297 | 13 | UCI |
+| 乳腺癌 | 569 | 30 | UCI |
+| Pima 糖尿病 | 768 | 8 | GitHub |
+| 乳腔肿块 | 961 | 5 | UCI |
+| Framingham 心脏 | 4,240 | 15 | GitHub |
+| 甲状腺疾病 | 7,200 | 21 | UCI |
+| 糖尿病 130 医院 | 10,000 | 17 | UCI |
+| 脑电图眼状态 | 14,980 | 14 | UCI |
+
+- 🏥 **20 个模型族**：逻辑回归(L1/L2/ElasticNet)、随机森林、极端随机树、直方图梯度提升、AdaBoost、SVM(线性/RBF)、KNN、高斯朴素贝叶斯、决策树、MLP 神经网络 + XGBoost/CatBoost/LightGBM/TabPFN(可选)
+- 📈 **智能提示**：EPV 过拟合风险(红/黄/灰)、类别分布、训练时间估算、数据质量警告
+- ⚡ **性能优化**：大数据集自动多核 + 自适应 bootstrap
+
+**自有 CSV 数据**：支持任意列名（包括中文），自动检测 + 手动映射两种模式。
+
+**快速查看训练结果**：
+
+```bash
+python3 scripts/quick_summary.py ~/Desktop/MLGG_Output/breast_cancer
+python3 scripts/quick_summary.py --json ~/Desktop/MLGG_Output/heart_disease
+```
+
+### 6.1 交互式终端向导（高级）
+
+支持核心命令：`init` / `workflow` / `train` / `authority`
 
 ```bash
 python3 scripts/mlgg.py interactive --command train
-python3 scripts/mlgg.py train --interactive
-python3 scripts/mlgg.py interactive --command train -- --help
-```
-
-profile 复用：
-
-```bash
-# 保存
 python3 scripts/mlgg.py interactive --command train --profile-name demo --save-profile
-
-# 加载
 python3 scripts/mlgg.py interactive --command train --profile-name demo --load-profile
-```
-
-只输出命令：
-
-```bash
 python3 scripts/mlgg.py interactive --command workflow --print-only --accept-defaults
 ```
 
@@ -1215,3 +634,613 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 - 嵌入商业产品
 
 如需商业授权，请联系仓库所有者。
+
+
+---
+
+## English Guide
+
+### 0. Installation (Terminal Quickstart)
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard.git
+cd medical-ml-leakage-guard
+
+# 2. (Recommended) Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate    # macOS/Linux
+# .venv\Scripts\activate     # Windows
+
+# 3. Install dependencies
+python3 -m pip install -r requirements.txt
+
+# Optional: install stable console scripts from package metadata
+python3 -m pip install -e .
+
+# 4. Verify installation
+python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py doctor
+mlgg --help
+
+# 5. Run the full demo (one command, ~3-8 min)
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
+```
+
+That's it! After step 5, check `/tmp/mlgg_demo/evidence/onboarding_report.json` for the result.
+
+**Prefer an interactive experience?** Launch the pixel-art guided menu:
+
+```bash
+python3 scripts/mlgg.py play
+```
+
+Important:
+- `play` is a quick train/evaluate launcher for interactive exploration.
+- The “Quick Readiness (play mode)” card is **not** the 28-gate publication verdict.
+- Stable installed console scripts are `mlgg` and `mlgg-pixel`.
+- The browser wizard is currently a repository-local legacy prototype:
+  `python3 -m pip install ".[web]" && python3 scripts/mlgg_web.py`
+- In column/model menus, press `/` to search, `Enter` to finish search mode, and `c` to clear the filter.
+- For custom CSV, Step 4 now supports explicit selection of `Patient ID`, `Target`, and `Feature columns` (unselected features are automatically excluded from training).
+- Built-in model families in `play` now include: `logistic_l1/l2/elasticnet`, `random_forest`, `extra_trees`, `hist_gradient_boosting`, `adaboost`, `svm_linear`, `svm_rbf`, plus ensemble families `soft_voting/weighted_voting/stacking` (and optional `xgboost/catboost/lightgbm/tabpfn`).
+- For publication-grade pass/fail, run:
+  `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare`
+- For small datasets (for example UCI heart/ckd), prefer:
+  `python3 scripts/mlgg.py play -- --strict-small-sample`
+- In `--strict-small-sample` mode:
+  model picker is limited to `logistic_l1/l2/elasticnet`,
+  tuning menu hides `optuna`,
+  and tries/model are capped at input time (instead of silently adjusted later).
+- Default `--strict-small-sample-max-rows` is `500`.
+  For a medium-size dataset where you still want strict mode (for example UCI breast, n=569),
+  use: `python3 scripts/mlgg.py play -- --strict-small-sample --strict-small-sample-max-rows 800`
+- `play` now applies dataset-size-aware defaults automatically:
+  `small (<=1200 rows)` -> conservative model/tuning order,
+  `medium (1201-10000)` -> balanced order,
+  `large (>10000)` -> higher-capacity order (optuna/comprehensive first).
+- If you want `play` to exit non-zero on quick-readiness blockers, use:
+  `python3 scripts/mlgg.py play -- --strict-small-sample --fail-on-play-blockers`
+- With `--fail-on-play-blockers`, `play` also fails closed when quick-readiness cannot be evaluated
+  (for example missing/invalid `evaluation_report.json`).
+
+**Want to use real medical data instead of demo?** Download a real UCI dataset:
+
+```bash
+# Download UCI Heart Disease (297 rows) or Breast Cancer (569 rows)
+python3 examples/download_real_data.py heart
+python3 examples/download_real_data.py breast
+
+# Split and run the pipeline
+python3 scripts/mlgg.py split -- \
+  --input examples/heart_disease.csv \
+  --output-dir /tmp/mlgg_heart/data \
+  --patient-id-col patient_id --target-col y --time-col event_time \
+  --strategy grouped_temporal
+```
+
+### 0.1 Which command should I use?
+
+| Goal | Command | What you get |
+|---|---|---|
+| Quick exploration / teaching | `python3 scripts/mlgg.py play` | Fast interactive train/eval, **not** publication verdict |
+| First strict end-to-end run | `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes` | 8-step strict flow + evidence reports |
+| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 28-gate strict decision |
+
+### 0.2 Status semantics (do not mix these)
+
+| Surface | Status values | Meaning | Release decision? |
+|---|---|---|---|
+| `play` quick readiness card | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | Lightweight educational signal in play mode | No |
+| `onboarding_report.json` | `status=pass|fail` + `termination_reason` | Whether onboarding flow completed cleanly | No (onboarding is a wrapper) |
+| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 28-gate strict result | Yes |
+
+### 0.3 Fastest own-CSV strict closed loop (copy-paste)
+
+```bash
+# 1) Initialize project
+python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
+
+# 2) Split one CSV safely (default recommendation for cross-sectional data)
+python3 scripts/mlgg.py split -- \
+  --input /path/to/your_data.csv \
+  --output-dir /tmp/mlgg_project/data \
+  --patient-id-col patient_id \
+  --target-col y \
+  --time-col event_time \
+  --strategy stratified_grouped
+
+# 3) Train/evaluate (interactive)
+python3 scripts/mlgg.py train --interactive
+
+# 4) First strict run (bootstrap baseline)
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --allow-missing-compare
+
+# 5) Strict compare rerun
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
+```
+
+---
+
+### 1. What This Repository Does
+
+**Data leakage** in medical ML means information from outside the intended training scope (e.g., test labels, future timestamps, disease-defining variables) accidentally influences model training. This inflates reported performance and can lead to unsafe clinical decisions.
+
+This repository:
+- Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
+- Enforces **28 DAG-orchestrated fail-closed gates** covering:
+  - definition-variable leakage (disease-defining features used as predictors)
+  - feature lineage leakage (features derived from post-index-time data)
+  - split/time contamination (patient overlap or temporal ordering violations)
+  - model-selection/tuning leakage (validation/test data used in hyperparameter search)
+  - threshold/calibration misuse (threshold optimized on test set)
+  - external cohort transport robustness (performance degradation on unseen cohorts)
+- Outputs machine-checkable evidence and gate reports for release decisions.
+- Every gate is **binary pass/fail**: all 28 must pass for a publication-grade claim.
+
+**Architecture overview**: the pipeline is organized as a dependency DAG with 8 execution layers: `request contract validation → data fingerprinting → execution attestation → leakage/protocol gates → model audit gates → external validation gates → aggregated publication gate → self-critique scoring`. Each gate is an independent CLI script producing a standardized JSON report envelope (v2.0.0). The DAG executor (`run_dag_pipeline.py`) supports parallel execution within layers, checkpoint/resume, single-gate re-runs, and rich terminal output.
+
+**Expected runtime**:
+- Onboarding demo (guided mode): ~3-8 minutes depending on hardware
+- Full release benchmark suite (`--profile release`): ~30-90 minutes
+- Extended benchmark (`--profile extended`): ~2-6 hours
+
+---
+
+### 2. Requirements
+- Python `3.10+`
+- `openssl` in PATH (required for execution attestation)
+- Python packages: `numpy`, `pandas`, `scikit-learn`, `scipy`, `joblib`
+- Optional model backends: `xgboost`, `catboost`, `lightgbm`, `tabpfn`
+- Optional tuning backend: `optuna`
+
+Install core dependencies:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Install optional model backends:
+
+```bash
+python3 -m pip install -r requirements-optional.txt
+```
+
+Install the legacy browser prototype only when needed:
+
+```bash
+python3 -m pip install ".[web]"
+```
+
+Check runtime environment:
+
+```bash
+python3 scripts/mlgg.py doctor
+```
+
+---
+
+### 3. Fastest First Run (Recommended for New Users)
+
+#### 3.1 One-command onboarding
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes
+```
+
+This runs a fixed 8-step strict flow:
+1. `doctor`
+2. `init`
+3. generate offline demo medical data
+4. align configs
+5. train/select/evaluate
+6. generate attestation artifacts
+7. strict workflow bootstrap (`--allow-missing-compare`)
+8. strict workflow compare rerun
+
+#### 3.2 Preview commands only (no execution)
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode preview
+```
+
+- Preview mode writes `display_status=preview` and `preview_only=true`.
+- Preview mode only emits a command plan and does not execute training/gates.
+
+#### 3.3 Continue after failures for full diagnosis
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode auto --no-stop-on-fail
+```
+
+---
+
+### 4. Key Outputs and How To Read Them
+
+After onboarding (or manual workflow), check:
+- `<project>/evidence/onboarding_report.json`
+- `<project>/evidence/dag_pipeline_report.json`
+- `<project>/evidence/productized_workflow_report.json`
+- `<project>/evidence/user_summary.md`
+
+`onboarding_report.json` contract is `onboarding_report.v2`:
+- `status`: `pass` or `fail`
+- `display_status`: user-facing status (`preview` for `--mode preview`)
+- `preview_only`: whether this run was preview-only (no execution)
+- `stop_on_fail`: run-time behavior (`true` or `false`)
+- `termination_reason`:
+  - `completed_successfully`
+  - `stopped_on_failure`
+  - `completed_with_failures`
+  - `cancelled_by_user`
+- `failure_codes`: merged codes from gate reports + onboarding step-level codes
+- `next_actions`: remediation commands (includes recommended release benchmark and advanced heart research route when onboarding passes)
+- `copy_ready_commands`: copy/paste-ready command block with absolute `mlgg.py` path (`workflow_bootstrap/workflow_compare/authority_release/authority_research_heart/adversarial`)
+
+`productized_workflow_report.json` contract is `productized_workflow_report.v2`:
+- `status`: `pass` or `fail`
+- `status_reason`:
+  - `all_blocking_steps_passed`
+  - `blocking_step_failed`
+  - `bootstrap_recovered`
+- `blocking_failure_count`: count of blocking steps still failed at final state
+- `recovered_failure_count`: count of steps marked as `recovered`
+- `bootstrap_recovery_applied`: whether bootstrap retry recovery was applied
+- `bootstrap_recovery_source`: bootstrap trigger evidence source (or `null`)
+- `steps[]` now includes:
+  - `status`: `pass|fail|recovered`
+  - `blocking`: `true|false`
+  - `recovered_by_step`: retry step name or `null`
+
+Bootstrap isolation rule:
+- Bootstrap retry is triggered only by evidence generated in the current strict run.
+- Historical `publication_gate_report.json` / `manifest.json` are ignored.
+
+Quick inspect with Python:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path("/tmp/mlgg_demo/evidence/onboarding_report.json")
+r = json.loads(p.read_text(encoding="utf-8"))
+print("status:", r["status"])
+print("termination_reason:", r.get("termination_reason"))
+print("failure_codes:", r.get("failure_codes", []))
+print("copy_ready_commands:", sorted(r.get("copy_ready_commands", {}).keys()))
+PY
+```
+
+---
+
+### 5. Use Your Own Data (Manual Publication-Grade Path)
+
+#### Step A: Initialize project skeleton
+
+```bash
+python3 scripts/mlgg.py init --project-root /tmp/mlgg_project
+```
+
+#### Step B: Prepare dataset files
+
+**Option 1 — Single CSV (recommended for first-time users):**
+
+If you have one complete CSV file, use `split_data.py` to auto-split with medical safety guarantees (patient-level disjoint, temporal ordering, prevalence checks, NaN patient_id/target exclusion, row count preservation, SHA256 input fingerprint, min 10 pos/neg per split, atomic file writes):
+
+```bash
+python3 scripts/mlgg.py split -- \
+  --input /path/to/your_data.csv \
+  --output-dir /tmp/mlgg_project/data \
+  --patient-id-col patient_id \
+  --target-col y \
+  --time-col event_time \
+  --strategy grouped_temporal
+```
+
+Or use the interactive wizard which guides you through the process:
+
+```bash
+python3 scripts/mlgg.py interactive --command train
+# Choose "single_csv" when prompted for data input mode
+```
+
+Or use onboarding with your own data:
+
+```bash
+python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_project --input-csv /path/to/your_data.csv --mode guided --yes
+```
+
+Available split strategies (onboarding/play wizard):
+- `stratified_grouped` (default): patient-disjoint split with stable class prevalence; preferred for cross-sectional/single-visit datasets.
+- `grouped_temporal`: time-ordered split; use only for true longitudinal prediction timelines.
+- `grouped_random`: available in split CLI (`scripts/mlgg.py split`) for research/debug only.
+
+**Option 2 — Pre-split files:**
+
+Put your files here:
+- `/tmp/mlgg_project/data/train.csv`
+- `/tmp/mlgg_project/data/valid.csv`
+- `/tmp/mlgg_project/data/test.csv`
+
+For publication-grade external validation, prepare both:
+- cross-period external cohort CSV
+- cross-institution external cohort CSV
+
+Minimum column contract (recommended):
+- `patient_id`: patient/entity ID
+- `event_time`: index/event time
+- `y`: binary label (`0/1`)
+- plus leakage-safe predictors
+
+#### Step C: Run schema preflight
+
+Single-file pre-check (before splitting):
+
+```bash
+python3 scripts/schema_preflight.py \
+  --input-csv /path/to/your_data.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --time-col event_time \
+  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
+```
+
+Split-file pre-check (after splitting):
+
+```bash
+python3 scripts/mlgg.py preflight \
+  --train /tmp/mlgg_project/data/train.csv \
+  --valid /tmp/mlgg_project/data/valid.csv \
+  --test /tmp/mlgg_project/data/test.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --time-col event_time \
+  --mapping-out /tmp/mlgg_project/evidence/schema_mapping.json \
+  --report /tmp/mlgg_project/evidence/schema_preflight_report.json
+```
+
+#### Step D: Train/select/evaluate
+
+Option 1 (recommended for most users): interactive wizard
+
+```bash
+python3 scripts/mlgg.py train --interactive
+```
+
+Option 2: direct CLI template
+
+```bash
+python3 scripts/train_select_evaluate.py \
+  --train /tmp/mlgg_project/data/train.csv \
+  --valid /tmp/mlgg_project/data/valid.csv \
+  --test /tmp/mlgg_project/data/test.csv \
+  --target-col y \
+  --patient-id-col patient_id \
+  --ignore-cols patient_id,event_time \
+  --performance-policy /tmp/mlgg_project/configs/performance_policy.json \
+  --missingness-policy /tmp/mlgg_project/configs/missingness_policy.json \
+  --feature-group-spec /tmp/mlgg_project/configs/feature_group_spec.json \
+  --external-cohort-spec /tmp/mlgg_project/configs/external_cohort_spec.json \
+  --model-selection-report-out /tmp/mlgg_project/evidence/model_selection_report.json \
+  --evaluation-report-out /tmp/mlgg_project/evidence/evaluation_report.json \
+  --prediction-trace-out /tmp/mlgg_project/evidence/prediction_trace.csv.gz \
+  --external-validation-report-out /tmp/mlgg_project/evidence/external_validation_report.json \
+  --feature-engineering-report-out /tmp/mlgg_project/evidence/feature_engineering_report.json \
+  --distribution-report-out /tmp/mlgg_project/evidence/distribution_report.json \
+  --ci-matrix-report-out /tmp/mlgg_project/evidence/ci_matrix_report.json \
+  --robustness-report-out /tmp/mlgg_project/evidence/robustness_report.json \
+  --seed-sensitivity-out /tmp/mlgg_project/evidence/seed_sensitivity_report.json \
+  --model-out /tmp/mlgg_project/models/model.joblib \
+  --permutation-null-out /tmp/mlgg_project/evidence/permutation_null_pr_auc.txt
+```
+
+#### Step E: Run strict workflow (bootstrap + compare)
+
+First strict run (bootstrap baseline manifest):
+
+```bash
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --allow-missing-compare
+```
+
+Second strict run (compare against baseline):
+
+```bash
+python3 scripts/mlgg.py workflow \
+  --request /tmp/mlgg_project/configs/request.json \
+  --strict \
+  --compare-manifest /tmp/mlgg_project/evidence/manifest_baseline.bootstrap.json
+```
+
+---
+
+### 6. Play Mode (Recommended for New Users)
+
+One command to launch the full interactive wizard:
+
+```bash
+python3 scripts/mlgg.py play
+```
+
+**Play Mode Features**:
+- 🎮 **11-step wizard**: Language → Data Source → Split → Models → Train → Results
+- 📊 **8 built-in real medical datasets** (auto-download):
+  Heart Disease (297), Breast Cancer (569), Pima Diabetes (768), Mammographic Mass (961), Framingham Heart (4,240), Thyroid Disease (7,200), Diabetes 130 Hospitals (10,000), EEG Eye State (14,980)
+- 🏥 **20 model families**: Logistic(L1/L2/ElasticNet), RF, ExtraTrees, HistGBM, AdaBoost, SVM(linear/RBF), KNN, GaussianNB, DecisionTree, MLP + XGBoost/CatBoost/LightGBM/TabPFN(optional)
+- 📈 **Smart hints**: EPV risk (red/yellow/gray), class distribution, training time estimate, data quality warnings
+- ⚡ **Auto-optimized**: adaptive bootstrap + auto n_jobs for large datasets
+
+**Custom CSV**: supports any column names (including Chinese), auto-detect + manual mapping.
+
+**Quick results viewer**:
+
+```bash
+python3 scripts/quick_summary.py ~/Desktop/MLGG_Output/breast_cancer
+python3 scripts/quick_summary.py --json ~/Desktop/MLGG_Output/heart_disease
+```
+
+### 6.1 Interactive Wizard (Advanced)
+
+Core commands: `init` / `workflow` / `train` / `authority`
+
+```bash
+python3 scripts/mlgg.py interactive --command train
+python3 scripts/mlgg.py interactive --command train --profile-name demo --save-profile
+python3 scripts/mlgg.py interactive --command train --profile-name demo --load-profile
+python3 scripts/mlgg.py interactive --command workflow --print-only --accept-defaults
+```
+
+---
+
+### 7. Validation and Benchmark Commands
+
+```bash
+# unified help
+python3 scripts/mlgg.py --help
+python3 scripts/mlgg.py onboarding --help
+python3 scripts/mlgg.py train --interactive --help
+
+# gate smoke tests
+python3 scripts/test_gate_smoke.py
+
+# onboarding smoke tests
+python3 scripts/test_onboarding_smoke.py
+
+# split smoke tests (single-CSV workflow)
+python3 scripts/test_split_smoke.py
+
+# authority benchmark suite
+python3 scripts/mlgg.py authority
+
+# structured multi-dataset release benchmark matrix (recommended stability check)
+python3 scripts/mlgg.py benchmark-suite --profile release
+
+# reproducibility hard gate (default repeat=3) with explicit registry/JUnit + suite timeout budget
+python3 scripts/mlgg.py benchmark-suite --profile release --repeat 3 --registry-file references/benchmark-registry.json --suite-timeout-seconds 7200 --emit-junit /tmp/mlgg_release_benchmark.junit.xml
+
+# authority release-grade stress path (recommended wrapper)
+python3 scripts/mlgg.py authority-release
+# equivalent explicit form:
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-chronic-kidney-disease
+
+# heart stress is advanced research/high-pressure mode (can fail by design)
+python3 scripts/mlgg.py authority-research-heart --stress-seed-min 20250003 --stress-seed-max 20250060
+# equivalent explicit form:
+python3 scripts/mlgg.py authority --include-stress-cases --stress-case-id uci-heart-disease --stress-seed-search --stress-seed-min 20250003 --stress-seed-max 20250060
+
+# adversarial fail-closed checks
+python3 scripts/mlgg.py adversarial
+
+# machine-readable failure payload (JSON on stderr)
+python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
+```
+
+Notes:
+- Default stress case is `uci-chronic-kidney-disease` for a stable publication-grade path.
+- `uci-heart-disease` stress search is an advanced research/high-pressure benchmark; seed ranges may have no release-ready candidate under fixed strict floors.
+- Use `benchmark-suite --profile release` when you need a reproducible multi-dataset stability verdict.
+- `benchmark-suite` report contract is `release_benchmark_matrix.v2` and includes:
+  - `failure_codes` (blocking-only + matrix-level codes)
+  - `all_failure_codes` (blocking + observational + matrix-level codes)
+  - `blocking_failure_codes/observational_failure_codes`
+  - `repeat_count/repeat_consistent/dataset_registry_sha256`
+- In `release` profile, blocking suites are `authority_release_core` and `adversarial_fail_closed`; `authority_release_extended` (Diabetes130) remains observational/non-blocking and must still be reviewed.
+- For non-blocking authority failures, benchmark-suite also emits `observational_diagnostics` in the matrix report and a sidecar `*.observational_diagnostics.json`.
+- Interactive `authority` wizard now defaults to the CKD release path; heart is presented as an advanced option with explicit warning.
+- `authority-release` and `authority-research-heart` are fixed-route wrappers; conflicting route flags are rejected fail-closed.
+- Use `--error-json` to emit structured failure payloads (`contract_version=mlgg_error.v1`) for automation.
+- CI pipelines:
+  - `.github/workflows/ci-smoke.yml` (push/PR fast checks)
+  - `.github/workflows/ci-full.yml` (nightly/manual release blocking: `benchmark-suite --profile release`)
+  - `.github/workflows/ci-extended.yml` (weekly observational extended benchmark)
+
+---
+
+### 8. Troubleshooting (New User Focus)
+
+If guided mode is cancelled, onboarding now fails closed with:
+- failure code: `onboarding_step_cancelled`
+- non-interactive guided mode code: `onboarding_interactive_input_unavailable`
+- actionable `next_actions` in onboarding report
+- wrapper conflict failure code: `authority_preset_route_override_forbidden`
+
+Use this mapping for top failures:
+- `references/Troubleshooting-Top20.md`
+
+Top10 quick fixes (copy-paste):
+
+| Failure code | What it usually means | One-step fix |
+|---|---|---|
+| `onboarding_step_cancelled` | Guided step cancelled by user | Re-run with `--yes` or `--mode auto --no-stop-on-fail` |
+| `onboarding_interactive_input_unavailable` | Guided mode in non-interactive shell | Use `--yes` or switch to `--mode auto` |
+| `authority_preset_route_override_forbidden` | Wrapper route flags conflict | Remove conflicting route flags, keep preset route only |
+| `row_overlap` | Same rows appear across splits | Re-split data with patient-disjoint policy |
+| `id_overlap` | Patient IDs overlap across splits | Re-split by `patient_id` with grouped split |
+| `temporal_overlap` | Train/valid/test time boundary violation | Use proper index time and temporal ordering |
+| `suspicious_feature_names` | Feature names imply leakage path | Remove/review leakage-prone features (future/outcome/diagnosis-like) |
+| `benchmark_registry_missing` | Missing benchmark registry file | Use `--registry-file references/benchmark-registry.json` |
+| `benchmark_registry_mismatch` | Registry fingerprint/case mismatch | Restore official registry and rerun |
+| `benchmark_repeat_inconsistent` | Repeated runs are unstable | Keep same config/seed/data fingerprint and rerun `--repeat 3` |
+
+Typical diagnosis commands:
+
+```bash
+python3 scripts/request_contract_gate.py --request <project>/configs/request.json --strict
+python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare
+python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --compare-manifest <project>/evidence/manifest_baseline.bootstrap.json
+python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-disease --error-json
+```
+
+---
+
+### 9. Repository Map
+- `scripts/`: gates, trainers, wrappers, CLI tools, and shared utilities (`_gate_utils.py`)
+  - Analysis tools: `evidence_digest.py`, `report_health_check.py`, `remediation_plan.py`, `threshold_sensitivity.py`, `compare_runs.py`, `export_latex.py`, `explain_gate.py`
+  - New tools: `policy_generator.py`, `gate_timeline.py`, `gate_coverage_matrix.py`, `evidence_comparator.py`
+- `tests/`: 2800+ pytest unit tests covering all gate scripts and analysis tools
+- `references/`: schema/policy/report examples, checklists, and benchmark registry
+- `experiments/authority-e2e/`: authority and adversarial runners with UCI public datasets
+- `agents/`: OpenAI agent interface definition (`openai.yaml`)
+- `.github/workflows/`: CI pipelines (smoke / full / extended)
+- `SKILL.md`: full workflow contract, gate ordering, and medical non-negotiable rules
+- `requirements.txt`: core Python dependencies
+- `requirements-optional.txt`: optional backend dependencies (`xgboost`, `catboost`, `lightgbm`, `tabpfn`, `optuna`)
+- `references/Beginner-Quickstart.md`: bilingual beginner tutorial
+- `references/Troubleshooting-Top20.md`: top failure-code remediation
+- `references/release-benchmark-suite.md`: release benchmark matrix profile and pass contract
+- `references/benchmark-registry.json`: frozen benchmark dataset registry (`benchmark_registry.v1`)
+
+---
+
+### 10. Scope Notes
+- This repository is for **predictive modeling rigor**, not causal inference claims.
+- Publication-grade claim is valid only when all 28 strict gates pass (`status: pass` in `publication_gate_report.json`).
+- The system does **not** train models for you automatically in production — it validates that your training process is leakage-safe and reproducible.
+- Supported task type: **binary classification** only. Multi-class, regression, and survival analysis are out of scope.
+- The 28-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
+
+---
+
+### 11. License
+
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/). See the [LICENSE](LICENSE) file for the full text.
+
+**You may**:
+- Use this software for personal study, academic research, and non-profit purposes
+- Modify and redistribute under the same license terms
+- Use within educational institutions, public research organizations, and government agencies
+
+**You may not**:
+- Use this software for any commercial purpose
+- Sell the software or services built on it
+- Incorporate it into commercial products
+
+For commercial licensing inquiries, please contact the repository owner.
