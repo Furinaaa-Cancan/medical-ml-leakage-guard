@@ -9,11 +9,11 @@
 Publication-grade medical prediction workflow with strict anti-data-leakage gates, reproducibility evidence, and fail-closed review logic.
 
 **核心能力** | **Core Capabilities**:
-- 🏥 **20 个模型族**（逻辑回归/SVM/随机森林/XGBoost/KNN/MLP 等）自动训练+超参搜索
-- 🛡️ **28 道安全门控**（泄漏检测/校准/鲁棒性/TRIPOD 合规等）fail-closed 架构
-- 📊 **8 个真实医学数据集**（UCI/GitHub，297-14,980 行）一键下载训练
-- 🎮 **交互式 CLI 向导**（中英双语，EPV 提示/类别分布/数据质量警告）
-- 📈 **自动评估报告**（ROC-AUC/PR-AUC/Brier + 95% CI + 过拟合检测）
+- **20 个模型族**（逻辑回归/SVM/随机森林/XGBoost/KNN/MLP 等）自动训练+超参搜索
+- **28 道安全门控**（泄漏检测/校准/鲁棒性/TRIPOD 合规等）fail-closed 架构
+- **8 个真实医学数据集**（UCI/GitHub，297-14,980 行）一键下载训练
+- **交互式 CLI 向导**（中英双语，EPV 提示/类别分布/数据质量警告）
+- **自动评估报告**（ROC-AUC/PR-AUC/Brier + 95% CI + 过拟合检测）
 
 ---
 
@@ -450,8 +450,8 @@ python3 scripts/mlgg.py play
 ```
 
 **Play 模式特性**：
-- 🎮 **11 步交互向导**：语言选择 → 数据源 → 分割 → 模型 → 训练 → 结果展示
-- 📊 **8 个内置真实数据集**（一键下载）：
+- **11 步交互向导**：语言选择 → 数据源 → 分割 → 模型 → 训练 → 结果展示
+- **8 个内置真实数据集**（一键下载）：
 
 | 数据集 | 行数 | 特征 | 来源 |
 |--------|------|------|------|
@@ -464,9 +464,9 @@ python3 scripts/mlgg.py play
 | 糖尿病 130 医院 | 10,000 | 17 | UCI |
 | 脑电图眼状态 | 14,980 | 14 | UCI |
 
-- 🏥 **20 个模型族**：逻辑回归(L1/L2/ElasticNet)、随机森林、极端随机树、直方图梯度提升、AdaBoost、SVM(线性/RBF)、KNN、高斯朴素贝叶斯、决策树、MLP 神经网络 + XGBoost/CatBoost/LightGBM/TabPFN(可选)
-- 📈 **智能提示**：EPV 过拟合风险(红/黄/灰)、类别分布、训练时间估算、数据质量警告
-- ⚡ **性能优化**：大数据集自动多核 + 自适应 bootstrap
+- **20 个模型族**：逻辑回归(L1/L2/ElasticNet)、随机森林、极端随机树、直方图梯度提升、AdaBoost、SVM(线性/RBF)、KNN、高斯朴素贝叶斯、决策树、MLP 神经网络 + XGBoost/CatBoost/LightGBM/TabPFN(可选)
+- **智能提示**：EPV 过拟合风险(红/黄/灰)、类别分布、训练时间估算、数据质量警告
+- **性能优化**：大数据集自动多核 + 自适应 bootstrap
 
 **自有 CSV 数据**：支持任意列名（包括中文），自动检测 + 手动映射两种模式。
 
@@ -1071,12 +1071,12 @@ python3 scripts/mlgg.py play
 ```
 
 **Play Mode Features**:
-- 🎮 **11-step wizard**: Language → Data Source → Split → Models → Train → Results
-- 📊 **8 built-in real medical datasets** (auto-download):
+- **11-step wizard**: Language → Data Source → Split → Models → Train → Results
+- **8 built-in real medical datasets** (auto-download):
   Heart Disease (297), Breast Cancer (569), Pima Diabetes (768), Mammographic Mass (961), Framingham Heart (4,240), Thyroid Disease (7,200), Diabetes 130 Hospitals (10,000), EEG Eye State (14,980)
-- 🏥 **20 model families**: Logistic(L1/L2/ElasticNet), RF, ExtraTrees, HistGBM, AdaBoost, SVM(linear/RBF), KNN, GaussianNB, DecisionTree, MLP + XGBoost/CatBoost/LightGBM/TabPFN(optional)
-- 📈 **Smart hints**: EPV risk (red/yellow/gray), class distribution, training time estimate, data quality warnings
-- ⚡ **Auto-optimized**: adaptive bootstrap + auto n_jobs for large datasets
+- **20 model families**: Logistic(L1/L2/ElasticNet), RF, ExtraTrees, HistGBM, AdaBoost, SVM(linear/RBF), KNN, GaussianNB, DecisionTree, MLP + XGBoost/CatBoost/LightGBM/TabPFN(optional)
+- **Smart hints**: EPV risk (red/yellow/gray), class distribution, training time estimate, data quality warnings
+- **Auto-optimized**: adaptive bootstrap + auto n_jobs for large datasets
 
 **Custom CSV**: supports any column names (including Chinese), auto-detect + manual mapping.
 
