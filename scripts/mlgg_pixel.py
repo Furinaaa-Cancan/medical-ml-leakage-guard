@@ -3119,6 +3119,22 @@ def step_imbalance(state: Dict) -> Any:
     _clear()
     step_header(6, TOTAL_STEPS, t("s_imbalance"))
 
+    # Show class distribution hint if available
+    n_rows = int(state_n_rows(state) or 0)
+    profile = state.get("_column_profile", {})
+    target = state.get("target", "y")
+    tgt_p = profile.get(target, {})
+    pos_rate = tgt_p.get("positive_rate")
+    if pos_rate is not None and n_rows > 0:
+        pos_n = int(round(pos_rate * n_rows))
+        neg_n = n_rows - pos_n
+        ratio = max(pos_n, neg_n) / max(min(pos_n, neg_n), 1)
+        if LANG == "zh":
+            hint = f"  类别分布：阳性 {pos_n} ({pos_rate:.1%}) / 阴性 {neg_n}  比例 1:{ratio:.1f}"
+        else:
+            hint = f"  Class balance: positive {pos_n} ({pos_rate:.1%}) / negative {neg_n}  ratio 1:{ratio:.1f}"
+        print(f"  {DIM}{hint}{RST}\n")
+
     selected = multi_select(
         [t("imb_auto"), t("imb_none"), t("imb_weight"),
          t("imb_smote"), t("imb_ros"), t("imb_rus"), t("imb_adasyn")],
