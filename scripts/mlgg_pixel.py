@@ -3573,18 +3573,26 @@ def step_advanced(state: Dict) -> Any:
     pool_tokens = model_pool_tokens_from_state(state)
     has_optional_in_pool = any(family in OPTIONAL_MODEL_MODULES for family in pool_tokens)
 
+    # Auto-detect smart n_jobs default based on dataset size
+    n_rows_est = int(state_n_rows(state) or 0)
+    default_njobs = 1
+    if n_rows_est > 2000:
+        import os as _os
+        cpu_count = _os.cpu_count() or 1
+        default_njobs = max(1, min(cpu_count, 4))  # cap at 4 to avoid memory issues
+
     ci = select([t("adv_no"), t("adv_yes")], title=t("adv_ask"))
     if ci < 0:
         return BACK
     if ci == 0:
         state.setdefault("ignore_cols", default_ignore_columns(state))
-        state.setdefault("n_jobs", 1)
+        state.setdefault("n_jobs", default_njobs)
         state.setdefault("include_optional_models", has_optional_in_pool)
         enforce_optional_backend_policy(state)
         return True
 
     state.setdefault("ignore_cols", default_ignore_columns(state))
-    state.setdefault("n_jobs", 1)
+    state.setdefault("n_jobs", default_njobs)
     state.setdefault("include_optional_models", has_optional_in_pool)
 
     while True:
