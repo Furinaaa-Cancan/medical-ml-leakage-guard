@@ -4345,6 +4345,13 @@ def step_run(state: Dict) -> Any:
         "--random-seed", "20260225",
         "--feature-engineering-mode", state.get("fe_mode", "strict"),
     ]
+    # Adaptive bootstrap: reduce resamples for large datasets (larger samples need fewer resamples)
+    n_rows_est = int(state_n_rows(state) or 0)
+    if n_rows_est > 5000:
+        train_cmd.extend(["--bootstrap-resamples", "200", "--ci-bootstrap-resamples", "500"])
+    elif n_rows_est > 2000:
+        train_cmd.extend(["--bootstrap-resamples", "300", "--ci-bootstrap-resamples", "1000"])
+
     if bool(state.get("include_optional_models", False)):
         train_cmd.append("--include-optional-models")
     if state.get("hyperparam_search") == "optuna":
