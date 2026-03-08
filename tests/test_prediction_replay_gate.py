@@ -582,3 +582,58 @@ class TestMainScoreOutOfRange:
         out = json.loads(rpt.read_text())
         codes = [f["code"] for f in out["failures"]]
         assert "prediction_score_out_of_range" in codes
+
+
+class TestRequireMetricBlock:
+    def test_missing_split(self):
+        failures = []
+        result = prg.require_metric_block({}, "test", failures)
+        assert result is None
+        assert len(failures) == 1
+        assert failures[0]["code"] == "prediction_trace_schema_invalid"
+
+    def test_metrics_not_dict(self):
+        failures = []
+        result = prg.require_metric_block({"test": {"metrics": "bad"}}, "test", failures)
+        assert result is None
+        assert len(failures) == 1
+
+    def test_valid_block(self):
+        failures = []
+        result = prg.require_metric_block({"test": {"metrics": {"roc_auc": 0.85}}}, "test", failures)
+        assert result is not None
+        assert len(failures) == 0
+
+
+class TestCompareMetricEdgeCases:
+    def test_expected_none(self):
+        failures = []
+        prg.compare_metric("test", "roc_auc", 0.85, None, 1e-6, failures)
+        assert len(failures) == 1
+        assert failures[0]["code"] == "prediction_metric_replay_mismatch"
+
+    def test_within_tolerance(self):
+        failures = []
+        prg.compare_metric("test", "roc_auc", 0.850001, 0.85, 1e-3, failures)
+        assert len(failures) == 0
+
+    def test_exceeds_tolerance(self):
+        failures = []
+        prg.compare_metric("test", "roc_auc", 0.90, 0.85, 1e-6, failures)
+        assert len(failures) == 1
+
+
+class TestParseThresholdsEdgeCases:
+    def test_no_block(self):
+        result = prg.parse_thresholds({"other": True})
+        assert result["beta"] == 2.0
+
+    def test_custom_values(self):
+        policy = {"prediction_replay_thresholds": {"beta": 3.0, "metric_tolerance": 0.01}}
+        result = prg.parse_thresholds(policy)
+        assert result["beta"] == 3.0
+        assert result["metric_tolerance"] == 0.01
+
+    def test_none_policy(self):
+        result = prg.parse_thresholds(None)
+        assert result["metric_tolerance"] == 1e-6
