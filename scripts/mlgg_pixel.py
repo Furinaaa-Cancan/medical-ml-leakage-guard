@@ -1304,19 +1304,28 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
     bar_w = 24
     current = 0
     cur_model = ""
-    last_draw: Tuple[int, int, str] = (-1, -1, "__init__")
+    last_draw: Tuple[int, int, str, int] = (-1, -1, "__init__", -1)
     stderr_lines: List[str] = []
     stdout_buf: List[str] = []
 
     sys.stdout.write(HIDE_CUR)
     sys.stdout.flush()
 
+    _t0 = time.time()
+
+    def _elapsed_str() -> str:
+        elapsed = int(time.time() - _t0)
+        if elapsed < 60:
+            return f"{elapsed}s"
+        return f"{elapsed // 60}m{elapsed % 60:02d}s"
+
     def _draw_bar(done: int, total_n: int, model_name: str) -> None:
         nonlocal last_draw
         if total_n <= 0:
             total_n = 1
         done = max(0, min(done, total_n))
-        draw_key = (done, total_n, model_name)
+        elapsed_bucket = int(time.time() - _t0)
+        draw_key = (done, total_n, model_name, elapsed_bucket)
         if draw_key == last_draw:
             return
         last_draw = draw_key
@@ -1326,7 +1335,8 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
         cols = max(_cols(), 40)
         name_budget = 30 if cols >= 100 else 20 if cols >= 80 else 12
         name = _compact_model_id(model_name, max_len=name_budget) if model_name else ""
-        base = f"  {bar} {s('W', f'{pct:>3}%')}  {s('W', label)}"
+        elapsed = _elapsed_str()
+        base = f"  {bar} {s('W', f'{pct:>3}%')}  {s('W', label)}  {DIM}{elapsed}{RST}"
         line = f"{base} {s('D', name)}" if name else base
         if _wlen(line) >= cols:
             line = _trunc(line, max(cols - 1, 20))
