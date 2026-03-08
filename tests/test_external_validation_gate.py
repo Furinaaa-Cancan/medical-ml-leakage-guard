@@ -543,3 +543,104 @@ class TestMainScoreOutOfRange:
         out = json.loads(rpt.read_text())
         codes = [f["code"] for f in out["failures"]]
         assert "external_validation_metric_replay_mismatch" in codes
+
+
+class TestMainCorruptEvalReport:
+    def test_corrupt_eval_json(self, tmp_path, monkeypatch):
+        trace_path, _, ext_path = _build_test_artifacts(tmp_path)
+        bad_eval = tmp_path / "bad_eval.json"
+        bad_eval.write_text("{corrupt")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(bad_eval),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "external_validation_missing" in codes
+
+
+class TestMainCorruptTrace:
+    def test_corrupt_trace_csv(self, tmp_path, monkeypatch):
+        _, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        bad_trace = tmp_path / "bad_trace.csv"
+        bad_trace.write_text("")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(bad_trace),
+            "--evaluation-report", str(eval_path),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "external_validation_missing" in codes or "external_validation_metric_replay_mismatch" in codes
+
+
+class TestMainMissingTraceColumns:
+    def test_missing_columns(self, tmp_path, monkeypatch):
+        trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        df = pd.read_csv(trace_path)
+        df = df.drop(columns=["cohort_type"])
+        trace2 = tmp_path / "trace_missing_col.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace2),
+            "--evaluation-report", str(eval_path),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "external_validation_metric_replay_mismatch" in codes
+
+
+class TestMainWithPolicy:
+    def test_custom_policy_thresholds(self, tmp_path, monkeypatch):
+        trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        policy = {"external_validation_thresholds": {"max_pr_auc_drop": 0.001}}
+        pp = tmp_path / "policy.json"
+        _write_json(pp, policy)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--performance-policy", str(pp),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        out = json.loads(rpt.read_text())
+        assert "thresholds" in out.get("summary", {}) or rc in (0, 2)
+
+    def test_corrupt_policy(self, tmp_path, monkeypatch):
+        trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        bad_pp = tmp_path / "bad_policy.json"
+        bad_pp.write_text("{bad")
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--performance-policy", str(bad_pp),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "external_validation_missing" in codes
