@@ -571,3 +571,139 @@ class TestMainDirectStrict:
         assert rc == 2
         out = json.loads(rpt.read_text())
         assert out["strict_mode"] is True
+
+
+class TestMainDirectEarlyStoppingInvalid:
+    def test_invalid_early_stopping(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["early_stopping_data"] = "test_split"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "test_data_usage_detected" in codes or "invalid_early_stopping_data" in codes
+
+
+class TestMainDirectRefitScopeInvalid:
+    def test_invalid_refit_scope(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["final_model_refit_scope"] = "all_data_including_test"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_final_model_refit_scope" in codes or "test_data_usage_detected" in codes
+
+
+class TestMainDirectEarlyStopNoValid:
+    def test_early_stop_valid_no_split(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["early_stopping_data"] = "valid"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "valid_early_stopping_without_valid_split" in codes
+
+
+class TestMainDirectRefitNoValid:
+    def test_refit_valid_no_split(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["final_model_refit_scope"] = "train_plus_valid_no_test"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "train_plus_valid_refit_without_valid_split" in codes
+
+
+class TestMainDirectOuterEvalNotLocked:
+    def test_outer_not_locked(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["outer_evaluation_split_locked"] = False
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "outer_evaluation_not_locked" in codes
+
+
+class TestMainDirectInvalidTrials:
+    def test_zero_trials(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["hyperparameter_trials"] = 0
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_hyperparameter_trials" in codes
+
+
+class TestMainDirectCvMissingConfig:
+    def test_cv_missing(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        del spec["cv"]
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "missing_cv_config" in codes
+
+
+class TestMainDirectInvalidModelSelectionData:
+    def test_bad_model_selection(self, tmp_path, monkeypatch):
+        spec = _good_spec()
+        spec["model_selection_data"] = "train_and_test"
+        spec_path = _write_json(tmp_path / "spec.json", spec)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "tlg", "--tuning-spec", str(spec_path),
+            "--has-valid-split", "--report", str(rpt),
+        ])
+        rc = tlg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "test_data_usage_detected" in codes or "invalid_model_selection_data" in codes
