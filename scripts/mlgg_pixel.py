@@ -3226,6 +3226,27 @@ def step_models(state: Dict) -> Any:
         else:
             print(f"  {DIM}{t('profile_scale_hint_medium')}{RST}\n")
 
+        # Show EPV hint for clinical guidance
+        n_rows = int(state_n_rows(state) or 0)
+        n_features = len(state.get("selected_features", state.get("_columns", [])))
+        n_features = max(1, n_features - 2)  # exclude pid + time
+        if n_rows > 0 and n_features > 0:
+            profile_info = state.get("_column_profile", {})
+            target = state.get("target", "y")
+            pos_rate = (profile_info.get(target, {}).get("positive_rate") or 0.35)
+            epv = round(n_rows * pos_rate / n_features, 1)
+            if LANG == "zh":
+                epv_hint = f"  EPV（每变量事件数）≈ {epv}  |  {n_features} 特征, ~{int(n_rows * pos_rate)} 阳性事件"
+            else:
+                epv_hint = f"  EPV (events per variable) ≈ {epv}  |  {n_features} features, ~{int(n_rows * pos_rate)} positive events"
+            if epv < 5:
+                print(f"  {s('R', epv_hint)}")
+            elif epv < 10:
+                print(f"  {s('Y', epv_hint)}")
+            else:
+                print(f"  {DIM}{epv_hint}{RST}")
+            print()
+
         profile_order = model_profile_order_for_state(state)
         profile_title = {
             "conservative": t("profile_conservative"),
