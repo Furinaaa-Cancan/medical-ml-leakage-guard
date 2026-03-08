@@ -113,6 +113,30 @@ python3 scripts/mlgg.py doctor
 - `publication_gate`: 聚合所有 gate 结果 + 执行签名验证
 - `self_critique_gate`: 全局质量评分 + 审稿人级自我批评
 
+### 缺失值插补 & Pipeline 隔离
+
+**缺失值处理**（`train_select_evaluate.py`）：
+- `SimpleImputer`（默认）：中位数填充 + 缺失指示器列
+- `IterativeImputer` (MICE)：多重迭代插补（`--imputation-strategy mice`）
+- 插补器在 sklearn Pipeline 内部，**只在训练集上 fit**，验证/测试集只做 transform
+- 特征过滤阈值：strict 模式丢弃缺失率 >60% 的特征
+
+**Pipeline 隔离保证**：
+每个候选模型的 Pipeline 结构为 `imputer → scaler → classifier`：
+- imputer 的统计量（中位数/参数）只从训练集计算
+- scaler 的均值/标准差只从训练集计算
+- classifier 只在训练集上拟合
+- 验证/测试集只做 transform + predict，不影响任何参数
+
+**超参数搜索隔离**（由 `tuning_leakage_gate` 强制检查）：
+- `model_selection_data`: 只允许 `valid` / `cv_inner` / `nested_cv`（禁止 `test`）
+- `early_stopping_data`: 只允许 `none` / `valid` / `cv_inner`（禁止 `test`）
+- `preprocessing_fit_scope`: 必须是 `train_only`
+- `feature_selection_scope`: 必须是 `train_only`
+- `final_model_refit_scope`: 只允许 `train_only` / `train_plus_valid_no_test`
+
+以上全部是 fail-closed 检查——违反任何一条即判定失败。
+
 ### 能力边界
 
 **能做的**：
