@@ -607,6 +607,86 @@ class TestMainMissingTraceColumns:
         assert "external_validation_metric_replay_mismatch" in codes
 
 
+class TestMainNonFiniteExternalScore:
+    def test_nan_y_score(self, tmp_path, monkeypatch):
+        trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        df = pd.read_csv(trace_path)
+        ext_rows = df[df["scope"] == "external"]
+        if len(ext_rows) > 0:
+            df.loc[ext_rows.index[0], "y_score"] = float("nan")
+        trace2 = tmp_path / "trace_nan.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace2),
+            "--evaluation-report", str(eval_path),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+
+
+class TestMainMissingEvalPrAuc:
+    def test_no_pr_auc(self, tmp_path, monkeypatch):
+        trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        ev = json.loads(eval_path.read_text())
+        del ev["metrics"]["pr_auc"]
+        _write_json(eval_path, ev)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "external_validation_metric_replay_mismatch" in codes
+
+
+class TestMainNonDictCohort:
+    def test_cohort_not_dict(self, tmp_path, monkeypatch):
+        trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
+        ext = json.loads(ext_path.read_text())
+        ext["cohorts"].append("not_a_dict")
+        _write_json(ext_path, ext)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "evg",
+            "--external-validation-report", str(ext_path),
+            "--prediction-trace", str(trace_path),
+            "--evaluation-report", str(eval_path),
+            "--report", str(rpt),
+        ])
+        rc = evg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "external_validation_metric_replay_mismatch" in codes
+
+
+class TestParseThresholdsEdgeCases:
+    def test_custom_bool_thresholds(self):
+        policy = {"external_validation_thresholds": {"require_cross_period": False, "require_cross_institution": False}}
+        result = evg.parse_thresholds(policy)
+        assert result["require_cross_period"] is False
+
+    def test_custom_numeric_thresholds(self):
+        policy = {"external_validation_thresholds": {"beta": 3.0, "min_cohort_count": 2.0, "max_pr_auc_drop": 0.05}}
+        result = evg.parse_thresholds(policy)
+        assert result["beta"] == 3.0
+        assert result["min_cohort_count"] == 2.0
+
+    def test_no_thresholds_block(self):
+        result = evg.parse_thresholds({"other": True})
+        assert result["beta"] == 2.0  # default
+
+
 class TestMainWithPolicy:
     def test_custom_policy_thresholds(self, tmp_path, monkeypatch):
         trace_path, eval_path, ext_path = _build_test_artifacts(tmp_path)
