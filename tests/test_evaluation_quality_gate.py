@@ -704,3 +704,122 @@ class TestMainDirectLossMetric:
         assert rc == 0
         out = json.loads(rpt.read_text())
         assert out["summary"]["higher_is_better"] is False
+
+
+class TestMainDirectInvalidMinResamples:
+    def test_zero_min_resamples(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--min-resamples", "0",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_min_resamples" in codes
+
+
+class TestMainDirectInvalidTolerance:
+    def test_negative_tolerance(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--tolerance", "-0.1",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_tolerance" in codes
+
+
+class TestMainDirectInvalidBaselineDelta:
+    def test_negative_delta(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--min-baseline-delta", "-1",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_min_baseline_delta" in codes
+
+
+class TestMainDirectInvalidMaxCIWidth:
+    def test_zero_ci_width(self, tmp_path, monkeypatch):
+        ev = _write_json(tmp_path / "eval.json", _good_eval_report())
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "eqg", "--evaluation-report", str(ev),
+            "--metric-name", "roc_auc", "--max-ci-width", "0",
+            "--report", str(rpt),
+        ])
+        rc = eqg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "invalid_max_ci_width" in codes
+
+
+class TestCIMatrixExtractionEdgeCases:
+    def test_no_split_metrics_ci(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix({}, "roc_auc")
+        assert lo is None
+
+    def test_no_test_block(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix(
+            {"split_metrics_ci": {"train": {}}}, "roc_auc")
+        assert lo is None
+
+    def test_no_metrics_block(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix(
+            {"split_metrics_ci": {"test": {"other": 1}}}, "roc_auc")
+        assert lo is None
+
+    def test_no_metric(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix(
+            {"split_metrics_ci": {"test": {"metrics": {"pr_auc": {}}}}}, "roc_auc")
+        assert lo is None
+
+    def test_bad_ci_95(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix(
+            {"split_metrics_ci": {"test": {"metrics": {"roc_auc": {"ci_95": [0.8]}}}}}, "roc_auc")
+        assert lo is None
+
+    def test_float_n_resamples(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix(
+            {"split_metrics_ci": {"test": {"metrics": {"roc_auc": {"ci_95": [0.8, 0.9], "n_resamples": 500.0}}}}}, "roc_auc")
+        assert n == 500
+
+    def test_valid_extraction(self):
+        lo, hi, n, path = eqg.extract_primary_metric_ci_from_ci_matrix(
+            {"split_metrics_ci": {"test": {"metrics": {"roc_auc": {"ci_95": [0.8, 0.9], "n_resamples": 1000}}}}}, "roc_auc")
+        assert lo == 0.8
+        assert hi == 0.9
+        assert n == 1000
+
+
+class TestBaselineExtractionEdgeCases:
+    def test_baseline_metric_in_flat_dict(self):
+        ev = {"baselines": {"model_a": {"roc_auc": 0.75}}}
+        result = eqg.extract_baseline_metrics(ev, "roc_auc")
+        assert result.get("model_a") == 0.75
+
+    def test_baseline_empty_name_skipped(self):
+        ev = {"baselines": {"": {"metrics": {"roc_auc": 0.75}}}}
+        result = eqg.extract_baseline_metrics(ev, "roc_auc")
+        assert len(result) == 0
+
+    def test_baseline_not_dict(self):
+        ev = {"baselines": "not_a_dict"}
+        result = eqg.extract_baseline_metrics(ev, "roc_auc")
+        assert result == {}
