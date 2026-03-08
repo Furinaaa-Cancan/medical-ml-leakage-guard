@@ -637,3 +637,55 @@ class TestParseThresholdsEdgeCases:
     def test_none_policy(self):
         result = prg.parse_thresholds(None)
         assert result["metric_tolerance"] == 1e-6
+
+
+class TestLoadTrace:
+    def test_file_not_found(self, tmp_path):
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            prg.load_trace(str(tmp_path / "nonexistent.csv"))
+
+    def test_valid_load(self, tmp_path):
+        csv_path = tmp_path / "trace.csv"
+        csv_path.write_text("scope,y_true,y_score,y_pred,selected_threshold,model_id\ntest,1,0.9,1,0.5,m1\n")
+        df = prg.load_trace(str(csv_path))
+        assert len(df) == 1
+
+
+class TestMainThresholdOutOfRange:
+    def test_threshold_above_one(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        df = pd.read_csv(trace_path)
+        df.loc[0, "selected_threshold"] = 1.5
+        trace2 = tmp_path / "trace_thr.csv"
+        df.to_csv(trace2, index=False)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace2),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_schema_invalid" in codes
+
+
+class TestMainMissingSplitMetrics:
+    def test_no_split_metrics(self, tmp_path, monkeypatch):
+        trace_path, eval_path = _build_trace_and_eval(tmp_path)
+        ev = json.loads(eval_path.read_text())
+        del ev["split_metrics"]
+        _write_json(eval_path, ev)
+        rpt = tmp_path / "rpt.json"
+        monkeypatch.setattr("sys.argv", [
+            "prg", "--evaluation-report", str(eval_path),
+            "--prediction-trace", str(trace_path),
+            "--report", str(rpt),
+        ])
+        rc = prg.main()
+        assert rc == 2
+        out = json.loads(rpt.read_text())
+        codes = [f["code"] for f in out["failures"]]
+        assert "prediction_trace_schema_invalid" in codes
