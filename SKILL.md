@@ -5,6 +5,96 @@ description: "Publication-grade medical prediction workflow with strict anti-dat
 
 # ML Leakage Guard
 
+## AI 操作指引（Quick Dispatch）
+
+当用户提出请求时，按以下决策树选择操作路径：
+
+### 用户意图 → 操作命令
+
+| 用户说的 | 你该做的 |
+|---------|---------|
+| "帮我训练一个模型" / "跑一下预测" | `python3 scripts/mlgg.py play` — 启动交互向导 |
+| "用我的数据训练" / "我有一个 CSV" | `python3 scripts/mlgg.py play` → 选"使用自己的数据集" |
+| "查看训练结果" / "结果怎么样" | `python3 scripts/quick_summary.py <output_dir>` |
+| "下载一个测试数据集" | `python3 examples/download_real_data.py <name>` (heart/breast/pima/mammographic/thyroid/eeg_eye/framingham/diabetes130) |
+| "严格审计" / "出版级验证" | `python3 scripts/mlgg.py workflow --strict` |
+| "检查环境" / "安装有问题" | `python3 scripts/mlgg.py doctor` |
+| "初始化项目" | `python3 scripts/mlgg.py onboarding` |
+| "对比两次运行" | `python3 scripts/compare_runs.py --run-a <dir1> --run-b <dir2>` |
+| "生成修复计划" | `python3 scripts/remediation_plan.py --evidence-dir <dir>` |
+| "解释某个 gate 失败" | `python3 scripts/explain_gate.py --report <gate_report.json>` |
+
+### 五条常用命令（覆盖 90% 场景）
+
+```bash
+# 1. 新手一键体验（推荐入口）
+python3 scripts/mlgg.py play
+
+# 2. 快速查看结果
+python3 scripts/quick_summary.py ~/Desktop/MLGG_Output/breast_cancer
+
+# 3. 下载真实数据集
+python3 examples/download_real_data.py breast --output /tmp/breast.csv
+
+# 4. 严格出版级流程
+python3 scripts/mlgg.py onboarding && python3 scripts/mlgg.py workflow --strict
+
+# 5. 环境诊断
+python3 scripts/mlgg.py doctor
+```
+
+### 添加新数据集的操作步骤
+
+1. 在 `examples/download_real_data.py` 的 `URLS` 字典中添加下载 URL
+2. 创建 `prepare_<name>()` 函数（参考现有函数格式）
+3. 调用 `add_patient_id_and_time(df, seed=N)`（种子必须唯一）
+4. 输出列顺序：`patient_id, event_time, y, features...`
+5. 添加到 `PREPARE` 字典和 CLI `choices`
+6. 在 `scripts/mlgg_pixel.py` 中添加 i18n 字符串 + `PLAY_DOWNLOAD_DATASETS` 条目
+7. 测试：`python3 examples/download_real_data.py <name> --output /tmp/test.csv`
+
+### 添加新模型族的操作步骤
+
+修改 `scripts/train_select_evaluate.py` 的 5 个位置：
+1. `SUPPORTED_MODEL_FAMILIES` 集合
+2. `_family_grid()` — 超参数网格
+3. `_build_estimator_for_family()` — Pipeline 构建
+4. `_family_base_complexity()` — 复杂度排名
+5. `_family_friendly_name()` — 显示名称
+
+修改 `scripts/mlgg_pixel.py` 的 4 个位置：
+6. `MODEL_POOL` 列表
+7. `BASE_FAMILY_GRID_SIZES` 字典
+8. `_T` i18n 字符串
+9. `MODEL_PROFILE_PRESETS`（balanced/comprehensive）
+
+### 常见错误恢复
+
+| 错误信息 | 根因 | 修复 |
+|---------|------|------|
+| `Unsupported model family` | 新模型未加到 `SUPPORTED_MODEL_FAMILIES` | 更新白名单（见上方 5 个位置） |
+| `candidate_pool_too_small` | 候选模型少于 3 个 | 增加模型族或提高 `--max-trials-per-family` |
+| `NaN to integer` | numpy 整数数组赋 NaN | 用 `DataFrame.loc[mask, col] = np.nan` |
+| 训练超时（>20min） | 大数据集 + 多模型 + bootstrap | 减少模型数/trials/用保守预设 |
+| `FileNotFoundError` | 路径错误或前序步骤未执行 | 检查 `data/` 目录下 CSV 是否存在 |
+
+### 能力边界
+
+**能做的**：
+- 表格型医学二分类预测（EHR/临床/注册数据）
+- 自动防泄漏分割 + 模型训练 + 评估 + 出版级审计
+- 8 个真实数据集 + 自定义 CSV（支持中文列名）
+- 20 个 sklearn 模型族 + 4 个可选后端
+
+**做不了的**：
+- 图像/文本/时序等非表格数据
+- 多分类/回归任务（仅二分类）
+- 深度学习模型（TabNet/Transformer 等）
+- 模型部署/API serving
+- 交互式可视化 dashboard
+
+---
+
 ## Objective (Goal Clarity)
 Solve one narrow problem: produce leakage-safe, publication-grade medical prediction evidence.
 
