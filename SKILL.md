@@ -429,12 +429,19 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/compare_runs.py`: compare two pipeline runs side-by-side.
 - `scripts/export_latex.py`: generate LaTeX tables from evaluation/CI/model-selection reports.
 - `scripts/explain_gate.py`: explain a single gate result in human-readable form.
+- `scripts/quick_summary.py`: one-command training results viewer with key metrics, overfitting risk, model selection top-10.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
+### examples/
+- `examples/download_real_data.py`: download and prepare 8 real medical datasets (UCI/GitHub) + 2 synthetic generators.
+  - Real datasets: heart(297), breast(569), pima(768), mammographic(961), thyroid(7200), eeg_eye(14980), framingham(4240), diabetes130(10000).
+  - All produce pipeline-ready CSV with `patient_id`, `event_time`, `y` columns.
+
 ### tests/
-- `tests/`: 2800+ pytest unit tests covering all gate scripts and analysis tools.
+- `tests/`: 2905+ pytest unit tests covering all gate scripts and analysis tools.
   - Direct `main()` tests for 20+ gate scripts (bypass subprocess for in-process coverage).
-  - Run: `python3 -m pytest tests/ -q --tb=short` (~8 min for full suite).
+  - All gate modules ≥86% coverage; publication_gate 97%, evaluation_quality_gate 94%.
+  - Run: `python3 -m pytest tests/ -q --tb=short` (~10 min for full suite).
 
 ### references/
 - `references/Beginner-Quickstart.md`: bilingual novice quickstart (minimal loop + publication-grade loop).

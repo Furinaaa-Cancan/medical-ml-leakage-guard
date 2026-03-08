@@ -26,8 +26,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Extreme warning (features >= rows): blocks selection
   - High warning (EPV < 5): shows overfitting risk estimate
 
-- **5 More Friendly Error Patterns** for play mode UX
-  - candidate_pool_too_small, MemoryError, ConvergenceWarning, ValueError, timeout
+- **Quick Results Viewer** (`quick_summary.py`)
+  - One-command view of training results: `python3 scripts/quick_summary.py /path/to/output`
+  - Shows key metrics with 95% CI, overfitting risk assessment, model selection top-10
+  - Supports `--json` output and `--eval` direct file path
+  - 21 unit tests (93% coverage)
+
+- **9 Play Mode UX Improvements**
+  - Training time estimate in confirm step (based on rows × candidates)
+  - Dataset preview box for custom CSV (rows, columns, positive rate, detected columns)
+  - Class distribution hint in imbalance strategy step (positive/negative ratio)
+  - EPV (events per variable) hint in model selection (red/yellow/gray risk coding)
+  - Elapsed time in training progress bar (real-time "45s", "2m30s")
+  - Actionable next-steps when training fails (3 bilingual suggestions)
+  - Data quality warning for columns with >30% missing values
+  - 13 friendly error patterns (candidate_pool_too_small, MemoryError, ConvergenceWarning, ValueError, timeout + 8 existing)
+
+- **2 Performance Optimizations**
+  - Adaptive bootstrap resampling: >5000 rows uses 200/500 (was 500/2000), ~60% faster
+  - Auto n_jobs: >2000 rows auto-sets min(cpu_count, 4) parallel workers
 
 - **Remediation Plan Generator** (`remediation_plan.py`)
   - Scans all gate reports in an evidence directory, collects failures and warnings
