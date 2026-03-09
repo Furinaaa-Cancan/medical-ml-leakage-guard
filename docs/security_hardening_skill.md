@@ -27,6 +27,8 @@
 | L13 权限控制 | 未授权操作 | RBAC 4 角色：admin/operator/auditor/viewer | `_security.py` | `test_rbac_receipts.py` |
 | L14 不可否认 | 执行结果伪造 | HMAC 签名执行回执 `.execution_receipt.json` | `_security.py` | `test_rbac_receipts.py` |
 | L15 Gate 审计 | 安全检查遗漏 | 第 29 道 gate `security_audit_gate` | `security_audit_gate.py` | `test_security_audit_gate.py` |
+| L16 管线自动加密 | 证据完成后未加密 | `--encrypt` flag 自动 AES 加密所有 JSON | `run_dag_pipeline.py` | — |
+| L17 管线执行回执 | 执行结果伪造/否认 | `--sign-receipt` flag 自动生成 HMAC 签名回执 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
 
 ---
 
@@ -88,6 +90,20 @@
 - **修复**: 改用 pickle 模块的常量（`pickle.GLOBAL`, `pickle.REDUCE`, `pickle.STOP` 等）程序化构造
 - **教训**: **不要手写二进制 pickle payload**，使用 pickle 模块提供的 opcode 常量组合构造。格式为 `PROTO + GLOBAL(module\nfunc\n) + arg + TUPLE1 + REDUCE + STOP`
 
+### 错误 9: SecureModelLoader 直接用 joblib.load 绕过沙盒
+
+- **症状**: 虽然实现了 `RestrictedUnpickler`，但 `SecureModelLoader.load()` 仍然调用 `joblib.load()` 而非受限加载器
+- **根因**: `RestrictedUnpickler` 和 `SecureModelLoader` 是不同阶段开发的，未衔接
+- **修复**: 改为先尝试 `safe_pickle_load(fh)`，仅在非 SecurityError 异常时（如 joblib 压缩格式）降级到 `joblib.load()`
+- **教训**: **实现安全组件后必须检查所有调用点是否已集成**。安全组件如果不在实际执行路径上就等于没有
+
+### 错误 10: `_finalize` 安全后处理需要 best-effort 模式
+
+- **症状**: 如果加密或签名环节失败，不应阻止管线正常返回结果
+- **根因**: 安全后处理是可选增强功能，不是管线的核心判定逻辑
+- **修复**: 用 `try/except` 包裹加密和签名逻辑，失败时仅打印 `[WARN]`，不改变 exit code
+- **教训**: **安全增强功能应该 best-effort**，不能因为增强功能失败而破坏核心功能
+
 ---
 
 ## 三、关键设计决策与理由
@@ -122,6 +138,18 @@
 - **理由**: 最小权限原则。未知用户不应有写入或执行权限
 - **注意**: 首次部署时管理员需要手动 `assign_role(username, Role.ADMIN)`
 
+### 3.6 管线安全后处理用 best-effort 模式
+
+- **决策**: `--encrypt` 和 `--sign-receipt` 在 `_finalize` 中用 `try/except` 包裹
+- **理由**: 安全增强是可选层，不应阻塞管线核心判定（pass/fail）和报告输出
+- **注意**: 如果加密失败，证据仍以明文存在，应在 CI/CD 中检查 `.enc` 文件是否生成
+
+### 3.7 SecureModelLoader 使用「先沙盒后降级」策略
+
+- **决策**: 先尝试 `RestrictedUnpickler`，仅在格式不兼容（如 joblib 压缩）时降级 `joblib.load`
+- **理由**: joblib 使用 zlib/lz4 压缩后的文件不是标准 pickle 格式，`RestrictedUnpickler` 无法直接解析
+- **注意**: 降级路径仍然存在理论上的 RCE 风险，但受 HMAC 签名验证保护（未签名/签名不匹配的模型直接拒绝加载）
+
 ---
 
 ## 四、文件变更清单
@@ -133,7 +161,7 @@
 | `scripts/_gate_utils.py` | 修改 | JSON 大小限制, 审计日志, resolve_path 加固 |
 | `scripts/_gate_framework.py` | 修改 | CLI 参数长度验证 |
 | `scripts/_gate_registry.py` | 修改 | 注册 security_audit_gate |
-| `scripts/run_dag_pipeline.py` | 修改 | 审计日志集成, security_audit_gate 命令构建 |
+| `scripts/run_dag_pipeline.py` | 修改 | 审计日志集成, security_audit_gate 命令构建, --encrypt/--sign-receipt 安全后处理 |
 | `scripts/mlgg_web.py` | 修改 | CSP headers, rate limiting, 文件名清洗, 路径防护 |
 | `scripts/split_data.py` | 修改 | CSV 大小限制 |
 | `scripts/train_select_evaluate.py` | 修改 | CSV 大小限制, categorical_analysis 嵌入 |
@@ -187,6 +215,8 @@ python3 scripts/_security.py verify-audit evidence/
 | `591a816` | RestrictedUnpickler + AES 加密 + 安全删除 + Rate Limiting |
 | `b59918c` | CLI 新命令 + README 安全文档扩展 |
 | `051e545` | RBAC + 签名执行回执 + RestrictedUnpickler 集成到 SecureModelLoader |
+| `3d68469` | 安全加固 Skill 归纳总结文档 |
+| `(pending)` | --encrypt/--sign-receipt 管线集成 + Skill 文档更新 |
 
 ---
 
