@@ -21,7 +21,7 @@ from _gate_framework import (
     print_gate_summary,
     register_remediations,
 )
-from _gate_utils import add_issue, try_parse_time as _shared_try_parse_time, epoch_to_iso as _shared_epoch_to_iso
+from _gate_utils import _check_json_file_size, add_issue, try_parse_time as _shared_try_parse_time, epoch_to_iso as _shared_epoch_to_iso
 
 
 register_remediations({
@@ -204,6 +204,7 @@ def main() -> int:
         return finish(args, failures, warnings, {}, {})
 
     try:
+        _check_json_file_size(spec_path)
         with spec_path.open("r", encoding="utf-8") as fh:
             spec = json.load(fh)
         if not isinstance(spec, dict):
@@ -350,6 +351,27 @@ def main() -> int:
                 "missing_entity_ids",
                 "Rows with missing entity IDs prevent reliable overlap leakage audit.",
                 {"split": split_name, "missing_id_rows": stats["missing_id_rows"]},
+            )
+        if stats["prevalence"] is not None and stats["prevalence"] < 0.02:
+            add_issue(
+                warnings,
+                "prevalence_too_low",
+                "Label prevalence below 2% may degrade model reliability.",
+                {
+                    "split": split_name,
+                    "prevalence": round(stats["prevalence"], 4),
+                    "positive_count": stats["positive_count"],
+                },
+            )
+        elif stats["positive_count"] > 0 and stats["positive_count"] < 5:
+            add_issue(
+                warnings,
+                "prevalence_too_low",
+                "Fewer than 5 positive cases in split; statistical reliability is limited.",
+                {
+                    "split": split_name,
+                    "positive_count": stats["positive_count"],
+                },
             )
 
     # Entity overlap
