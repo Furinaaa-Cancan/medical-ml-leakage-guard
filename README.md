@@ -1133,7 +1133,53 @@ python3 scripts/quick_summary.py ~/Desktop/MLGG_Output/breast_cancer
 python3 scripts/quick_summary.py --json ~/Desktop/MLGG_Output/heart_disease
 ```
 
-### 6.1 Interactive Wizard (Advanced)
+### 6.1 Security Hardening
+
+The pipeline automatically enforces 19 layers of defense-in-depth:
+
+- **HMAC model signing**: Model artifacts (`.pkl`) auto-generate HMAC-SHA256 signatures (`.pkl.sig`)
+- **Evidence integrity manifest**: All evidence files generate SHA256 checksums (`.manifest.json`)
+- **Restricted deserialization sandbox**: `RestrictedUnpickler` whitelist — only sklearn/numpy/scipy/pandas allowed; blocks `os.system`, `subprocess.Popen`, etc.
+- **AES-256-GCM evidence encryption**: Encrypt sensitive evidence at rest with auto key management (`.mlgg_encryption_key`, 0o600)
+- **Tamper-evident audit log**: HMAC-SHA256 chained log (`.gate_audit.jsonl`) — any entry tampered ⇒ chain breaks
+- **Secure file cleanup**: Zero-fill before unlink to prevent data recovery
+- **RBAC access control**: 4 roles (admin/operator/auditor/viewer) with fine-grained permissions
+- **Signed execution receipts**: HMAC-signed `.execution_receipt.json` for non-repudiation
+- **Web hardening**: CSP/X-Frame-Options/nosniff headers, upload filename regex, per-IP rate limiting (30 req/min)
+- **Path traversal protection**: null byte rejection, forbidden system path prefixes, optional sandbox enforcement
+
+```bash
+# Sign / verify model artifacts
+python3 scripts/_security.py sign models/model.pkl
+python3 scripts/_security.py verify models/model.pkl
+
+# Create evidence integrity manifest
+python3 scripts/_security.py manifest evidence/
+
+# Run security audit
+python3 scripts/_security.py audit evidence/
+
+# Verify dependency integrity
+python3 scripts/_security.py check-deps
+
+# Encrypt / decrypt evidence files
+python3 scripts/_security.py encrypt evidence/
+python3 scripts/_security.py decrypt evidence/report.json.enc
+
+# Securely delete sensitive files
+python3 scripts/_security.py secure-delete evidence/ --pattern "*.tmp"
+
+# Verify audit log chain integrity
+python3 scripts/_security.py verify-audit evidence/
+
+# Pipeline with auto-encrypt + signed receipt + secure cleanup
+python3 scripts/run_dag_pipeline.py --request request.json --strict \
+  --encrypt --sign-receipt --secure-cleanup
+```
+
+**Defense coverage**: Path traversal | Pickle RCE | JSON bomb | Membership inference | Supply chain | Resource exhaustion DoS | Evidence tampering | Sensitive data exposure | Web CSRF/XSS/Clickjacking | DDoS rate limiting | Unauthorized access (RBAC) | Non-repudiation
+
+### 6.2 Interactive Wizard (Advanced)
 
 Core commands: `init` / `workflow` / `train` / `authority`
 
