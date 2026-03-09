@@ -47,6 +47,7 @@ EXPECTED_REPORTS: List[str] = [
     "reporting_bias_report.json",
     "execution_attestation_report.json",
     "self_critique_report.json",
+    "security_audit_gate_report.json",
     "publication_gate_report.json",
 ]
 

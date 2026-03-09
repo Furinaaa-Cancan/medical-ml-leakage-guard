@@ -51,6 +51,7 @@ GATE_ORDER: List[Tuple[str, str]] = [
     ("reporting_bias", "reporting_bias_report.json"),
     ("execution_attestation", "execution_attestation_report.json"),
     ("self_critique", "self_critique_report.json"),
+    ("security_audit", "security_audit_gate_report.json"),
     ("publication", "publication_gate_report.json"),
 ]
 

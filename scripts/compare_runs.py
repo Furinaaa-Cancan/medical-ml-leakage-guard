@@ -103,6 +103,7 @@ REPORT_FILES = [
     "permutation_report.json",
     "publication_gate_report.json",
     "self_critique_report.json",
+    "security_audit_gate_report.json",
 ]
 
 METRIC_KEYS = [
