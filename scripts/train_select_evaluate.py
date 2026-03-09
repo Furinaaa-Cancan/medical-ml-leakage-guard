@@ -801,6 +801,7 @@ def select_features_by_filter(
     kept: List[str] = []
     dropped_missing: List[str] = []
     dropped_low_variance: List[str] = []
+    outlier_warnings: List[Dict[str, Any]] = []
     for feature in features:
         series = X_train[feature]
         missing_ratio = float(series.isna().mean())
@@ -813,12 +814,32 @@ def select_features_by_filter(
             dropped_low_variance.append(feature)
             continue
         kept.append(feature)
+        # Outlier detection (IQR method) — report only, no dropping
+        valid = numeric.dropna()
+        if len(valid) >= 20:
+            q1 = float(valid.quantile(0.25))
+            q3 = float(valid.quantile(0.75))
+            iqr = q3 - q1
+            if iqr > 0:
+                lower = q1 - 3.0 * iqr
+                upper = q3 + 3.0 * iqr
+                n_outliers = int(((valid < lower) | (valid > upper)).sum())
+                outlier_pct = n_outliers / len(valid)
+                if outlier_pct > 0.05:
+                    outlier_warnings.append({
+                        "feature": feature,
+                        "outlier_count": n_outliers,
+                        "outlier_pct": round(outlier_pct, 4),
+                        "iqr_lower": round(lower, 4),
+                        "iqr_upper": round(upper, 4),
+                    })
     report = {
         "max_missing_ratio": float(max_missing_ratio),
         "min_variance": float(min_variance),
         "dropped_for_missingness": dropped_missing,
         "dropped_for_low_variance": dropped_low_variance,
         "kept_count": int(len(kept)),
+        "outlier_warnings": outlier_warnings,
     }
     return kept, report
 
