@@ -33,7 +33,7 @@ from _gate_framework import (
     print_gate_summary,
     register_remediations,
 )
-from _gate_utils import add_issue, resolve_path
+from _gate_utils import _check_json_file_size, add_issue, resolve_path
 
 
 register_remediations({
@@ -278,6 +278,7 @@ def load_json_obj(path: Path, failures: List[Dict[str, Any]], code_prefix: str) 
         )
         return None
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
     except Exception as exc:
