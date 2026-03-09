@@ -2,7 +2,7 @@
 
 > 加固日期: 2026-03-09  
 > 加固范围: 全项目安全防御体系  
-> 涉及文件: 15+ 文件修改/新增  
+> 涉及文件: 30+ 文件修改/新增  
 > 测试覆盖: 152 个安全专项测试
 
 ---
@@ -109,7 +109,7 @@
 
 ### 错误 11: `security_audit_gate` exit code 不一致
 
-- **症状**: `security_audit_gate` 失败时返回 exit code `1`，而其余 29 个 gate 返回 `2`
+- **症状**: `security_audit_gate` 失败时返回 exit code `1`，而其余 28 个 gate 返回 `2`
 - **根因**: 手动编写 `return 1 if status == "fail" else 0`，未参考其他 gate 的惯例
 - **修复**: 改为 `return 2 if status == "fail" else 0`
 - **教训**: **新增 gate 的 exit code 必须与框架约定一致**（0=pass, 2=fail）。DAG pipeline 依赖 exit code 2 判定失败
