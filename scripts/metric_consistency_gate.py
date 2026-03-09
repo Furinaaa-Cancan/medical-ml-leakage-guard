@@ -19,7 +19,7 @@ from _gate_framework import (
     print_gate_summary,
     register_remediations,
 )
-from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, to_float
+from _gate_utils import _check_json_file_size, add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, to_float
 
 
 register_remediations({
@@ -282,6 +282,7 @@ def main() -> int:
         return finish(args, failures, warnings, actual_metric=None, metric_source_path=None)
 
     try:
+        _check_json_file_size(report_path)
         with report_path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
