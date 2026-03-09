@@ -172,6 +172,7 @@ def get_session(sid: str) -> Dict[str, Any]:
             oldest = next(iter(_sessions))
             _sessions.pop(oldest, None)
             _log_queues.pop(oldest, None)
+            _csrf_tokens.pop(oldest, None)
         _sessions[sid] = {
             "step": 1,
             "project_root": "",
@@ -520,6 +521,8 @@ def reset():
     sid = request.args.get("sid") or request.cookies.get("sid", "")
     if sid in _sessions:
         del _sessions[sid]
+    _log_queues.pop(sid, None)
+    _csrf_tokens.pop(sid, None)
     return redirect(url_for("index"))
 
 

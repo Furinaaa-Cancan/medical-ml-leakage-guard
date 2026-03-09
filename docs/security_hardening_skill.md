@@ -244,7 +244,8 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `ee85885` | README English security section (6.1) |
 | `430d3bd` | Skill doc commit log 最终化 |
 | `dfb9e67` | run_strict_pipeline 安全 flags + DRY 敏感 pattern + Skill 陷阱表 |
-| `(pending)` | CSRF token 防护 + L20 + Skill 最终更新 |
+| `84c3506` | CSRF token 防护 + L20 |
+| `(pending)` | CSRF session cleanup fix + Skill 最终更新 |
 
 ---
 
