@@ -61,6 +61,7 @@ URLS = {
     "thyroid_train": "https://archive.ics.uci.edu/ml/machine-learning-databases/thyroid-disease/ann-train.data",
     "thyroid_test": "https://archive.ics.uci.edu/ml/machine-learning-databases/thyroid-disease/ann-test.data",
     "eeg_eye": "https://archive.ics.uci.edu/ml/machine-learning-databases/00264/EEG%20Eye%20State.arff",
+    "vitaldb": "https://physionet.org/files/vitaldb/1.0.0/clinical_data.csv",
 }
 
 
@@ -595,6 +596,49 @@ def prepare_eeg_eye(output: Path) -> None:
     print(f"  Rows: {len(df)} | Positive (eye closed): {pos} ({pos/len(df)*100:.1f}%) | Negative (eye open): {neg}")
 
 
+def prepare_vitaldb(output: Path) -> None:
+    """VitalDB Surgical Patient Data — 6,388 patients, ~30 preoperative features."""
+    print("\n=== VitalDB Surgical Patient Data ===")
+    print("  Source: https://physionet.org/content/vitaldb/1.0.0/")
+    print("  Rows: ~6,388 | Features: ~30 | Task: predict ICU admission after surgery")
+
+    raw_path = output.parent / ".vitaldb_raw.csv"
+    download_file(URLS["vitaldb"], raw_path)
+
+    df = pd.read_csv(raw_path)
+
+    # Target: ICU admission (icu_days > 0)
+    df["y"] = (pd.to_numeric(df["icu_days"], errors="coerce").fillna(0) > 0).astype(int)
+
+    # Select preoperative numeric features (available before surgery)
+    preop_cols = [c for c in df.columns if c.startswith("preop_") and c not in ("preop_ecg", "preop_pft")]
+    base_cols = ["age", "height", "weight", "bmi", "asa", "emop"]
+    keep_cols = [c for c in base_cols + preop_cols if c in df.columns]
+
+    # Encode sex as numeric
+    if "sex" in df.columns:
+        df["is_female"] = (df["sex"] == "F").astype(int)
+        keep_cols.append("is_female")
+
+    # Convert all to numeric
+    for col in keep_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df[["y"] + keep_cols].copy()
+
+    df = add_patient_id_and_time(df, seed=55)
+    feature_cols = [c for c in df.columns if c not in ("patient_id", "event_time", "y")]
+    df = df[["patient_id", "event_time", "y"] + feature_cols]
+
+    df.to_csv(output, index=False)
+    if raw_path.exists():
+        raw_path.unlink()
+    pos = int(df["y"].sum())
+    neg = len(df) - pos
+    print(f"  Output: {output}")
+    print(f"  Rows: {len(df)} | Positive (ICU admit): {pos} ({pos/len(df)*100:.1f}%) | Negative: {neg}")
+
+
 def prepare_framingham(output: Path) -> None:
     """Framingham Heart Study — 4,240 patients, 15 clinical features."""
     print("\n=== Framingham Heart Study ===")
@@ -778,7 +822,7 @@ def main() -> int:
     )
     parser.add_argument(
         "dataset",
-        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "thyroid", "eeg_eye", "framingham", "diabetes130", "all"],
+        choices=["heart", "breast", "ckd", "hepatitis", "spect", "dermatology", "pima", "mammographic", "thyroid", "eeg_eye", "framingham", "diabetes130", "vitaldb", "all"],
         help="Dataset to prepare. framingham=4240 rows, diabetes130=10K subsample of 101K real hospital records.",
     )
     parser.add_argument("--output", default="", help="Output CSV path (default: examples/<dataset>.csv).")
@@ -800,6 +844,7 @@ def main() -> int:
         "eeg_eye": ("eeg_eye_state.csv", prepare_eeg_eye),
         "framingham": ("framingham_heart.csv", prepare_framingham),
         "diabetes130": ("diabetes130_readmission.csv", lambda o: prepare_diabetes130(o, max_rows=10000)),
+        "vitaldb": ("vitaldb_icu.csv", prepare_vitaldb),
     }
 
     if args.dataset == "all":

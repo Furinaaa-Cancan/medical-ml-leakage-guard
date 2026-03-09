@@ -215,6 +215,9 @@ _T: Dict[str, Dict[str, str]] = {
     "ds_eeg_eye":    {"en": "EEG Eye State", "zh": "\u8111\u7535\u7736\u7701\u72b6\u6001"},
     "ds_eeg_eye_d":  {"en": "UCI EEG -- 14,980 observations, 14 features (~20min train)",
                       "zh": "UCI \u8111\u7535\u56fe -- 14,980 \u4f8b, 14 \u7279\u5f81\uff08\u8bad\u7ec3\u7ea620\u5206\u949f\uff09"},
+    "ds_vitaldb":    {"en": "VitalDB Surgical", "zh": "VitalDB \u624b\u672f"},
+    "ds_vitaldb_d":  {"en": "PhysioNet VitalDB -- 6,388 patients, ~30 features (ICU prediction)",
+                      "zh": "PhysioNet VitalDB -- 6,388 \u4f8b, ~30 \u7279\u5f81\uff08ICU \u5165\u4f4f\u9884\u6d4b\uff09"},
     "ds_framingham": {"en": "Framingham Heart", "zh": "Framingham \u5fc3\u810f"},
     "ds_framingham_d":{"en": "Framingham Heart Study -- 4,240 patients, 15 features",
                        "zh": "Framingham \u5fc3\u810f\u7814\u7a76 -- 4,240 \u4f8b, 15 \u7279\u5f81"},
@@ -1868,6 +1871,7 @@ PLAY_DOWNLOAD_DATASETS = [
     ("mammographic", "mammographic_mass", "ds_mammographic", "ds_mammographic_d"),
     ("thyroid", "thyroid_disease", "ds_thyroid", "ds_thyroid_d"),
     ("eeg_eye", "eeg_eye_state", "ds_eeg_eye", "ds_eeg_eye_d"),
+    ("vitaldb", "vitaldb_icu", "ds_vitaldb", "ds_vitaldb_d"),
     ("framingham", "framingham_heart", "ds_framingham", "ds_framingham_d"),
     ("diabetes130", "diabetes130_readmission", "ds_diabetes130", "ds_diabetes130_d"),
 ]
