@@ -114,6 +114,13 @@
 - **修复**: 改为 `return 2 if status == "fail" else 0`
 - **教训**: **新增 gate 的 exit code 必须与框架约定一致**（0=pass, 2=fail）。DAG pipeline 依赖 exit code 2 判定失败
 
+### 错误 12: `evidence_digest.py` 缺少 security_audit_gate + 硬编码计数
+
+- **症状**: `evidence_digest` 报告始终显示 28 个 gate，不包含 security_audit_gate
+- **根因**: `gate_files` 列表是手动维护的，新增 gate 后未同步更新
+- **修复**: 添加 `security_audit_gate_report.json` 到列表，更新测试 28→29
+- **教训**: **新增 gate 后必须 `grep -rn` 搜索所有硬编码的 gate 列表和计数**，包括 digest/summary/coverage 等工具
+
 ---
 
 ## 三、关键设计决策与理由
@@ -256,6 +263,8 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `84c3506` | CSRF token 防护 + L20 |
 | `eb7e1b6` | CSRF session cleanup fix + Skill 最终更新 |
 | `087fee5` | security_audit_gate exit code 修正 (1→2) + Skill 错误记录 |
+| `fb912f0` | load_json_optional 添加 JSON 大小检查 + README 层数 19→21 |
+| `79449c9` | evidence_digest 添加 security_audit_gate_report + 硬编码 28→29 |
 
 ---
 

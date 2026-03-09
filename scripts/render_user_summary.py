@@ -20,6 +20,7 @@ DEFAULT_GATE_FILES = {
     "clinical_metrics": "clinical_metrics_report.json",
     "generalization_gap": "generalization_gap_report.json",
     "external_validation_gate": "external_validation_gate_report.json",
+    "security_audit_gate": "security_audit_gate_report.json",
 }
 
 
