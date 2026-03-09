@@ -271,6 +271,24 @@ def add_input_file_argument(
     group.add_argument(flag, required=required, help=help_text)
 
 
+_MAX_CLI_ARG_LENGTH = 4096  # max characters per CLI string argument
+
+
+def sanitize_cli_args(args: argparse.Namespace) -> List[str]:
+    """Validate CLI argument lengths and content. Returns list of issues."""
+    issues: List[str] = []
+    for attr, value in vars(args).items():
+        if isinstance(value, str):
+            if len(value) > _MAX_CLI_ARG_LENGTH:
+                issues.append(
+                    f"Argument --{attr} exceeds {_MAX_CLI_ARG_LENGTH} chars "
+                    f"({len(value)} chars)"
+                )
+            if "\x00" in value:
+                issues.append(f"Argument --{attr} contains null byte")
+    return issues
+
+
 def validate_input_files(
     args: argparse.Namespace,
     file_args: Sequence[str],

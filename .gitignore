@@ -23,3 +23,5 @@ dist/
 *.pkl.sig
 .gate_audit.jsonl
 .manifest.json
+.mlgg_encryption_key
+*.enc

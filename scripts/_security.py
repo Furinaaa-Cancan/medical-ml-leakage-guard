@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 import os
+import pickle
 import secrets
 import struct
 import sys
@@ -532,7 +533,277 @@ class SecurityError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# 7. Resource exhaustion protection
+# 7. Restricted unpickler (deserialization sandbox)
+# ---------------------------------------------------------------------------
+
+_ALLOWED_PICKLE_MODULES = frozenset({
+    "sklearn", "sklearn.linear_model", "sklearn.ensemble", "sklearn.svm",
+    "sklearn.neighbors", "sklearn.naive_bayes", "sklearn.neural_network",
+    "sklearn.tree", "sklearn.calibration", "sklearn.pipeline",
+    "sklearn.preprocessing", "sklearn.impute", "sklearn.compose",
+    "sklearn.feature_selection", "sklearn.model_selection",
+    "sklearn.base", "sklearn.utils", "sklearn.utils._bunch",
+    "sklearn.utils.validation", "sklearn.metrics",
+    "numpy", "numpy.core", "numpy.core.multiarray", "numpy.core.numeric",
+    "numpy.ma", "numpy.ma.core", "numpy.random", "numpy.dtypes",
+    "numpy._core", "numpy._core.multiarray", "numpy._core._methods",
+    "scipy", "scipy.sparse", "scipy.sparse._csr", "scipy.sparse._csc",
+    "scipy.sparse._arrays", "scipy.special", "scipy.optimize",
+    "pandas", "pandas.core", "pandas.core.frame", "pandas.core.series",
+    "pandas.core.indexes", "pandas._libs",
+    "joblib", "joblib.numpy_pickle",
+    "builtins", "collections", "copy", "copyreg", "io",
+    "_codecs", "codecs", "encodings",
+})
+
+_BLOCKED_CALLABLES = frozenset({
+    "os.system", "os.popen", "os.exec", "os.execv", "os.execve",
+    "os.spawn", "os.spawnl", "os.spawnle",
+    "subprocess.call", "subprocess.run", "subprocess.Popen",
+    "eval", "exec", "compile", "__import__",
+    "builtins.eval", "builtins.exec", "builtins.__import__",
+    "nt.system", "posix.system",
+    "webbrowser.open", "ctypes.CDLL",
+})
+
+
+class RestrictedUnpickler(pickle.Unpickler):
+    """Unpickler that only allows whitelisted modules/classes.
+
+    Blocks arbitrary code execution during model deserialization by rejecting
+    any module not in the allow-list. This prevents attacks where a malicious
+    .pkl file contains instructions to execute os.system(), subprocess.Popen(),
+    or other dangerous callables.
+    """
+
+    def find_class(self, module: str, name: str) -> Any:
+        fqn = f"{module}.{name}"
+        if fqn in _BLOCKED_CALLABLES:
+            raise SecurityError(
+                f"Blocked dangerous callable during deserialization: {fqn}"
+            )
+        # Check module against whitelist (allow sub-modules)
+        mod_root = module.split(".")[0]
+        allowed = any(
+            module == allowed_mod or module.startswith(allowed_mod + ".")
+            for allowed_mod in _ALLOWED_PICKLE_MODULES
+        )
+        if not allowed and mod_root not in {
+            "builtins", "collections", "copy", "copyreg",
+            "io", "_codecs", "codecs", "encodings",
+        }:
+            raise SecurityError(
+                f"Disallowed module in pickle stream: {module}.{name} — "
+                f"only sklearn/numpy/scipy/pandas/joblib modules are permitted"
+            )
+        return super().find_class(module, name)
+
+
+def safe_pickle_load(file_obj: Any) -> Any:
+    """Load a pickle stream using the restricted unpickler.
+
+    Args:
+        file_obj: File-like object opened in binary mode.
+
+    Returns:
+        Deserialized object.
+
+    Raises:
+        SecurityError: If the pickle stream contains disallowed modules.
+    """
+    return RestrictedUnpickler(file_obj).load()
+
+
+# ---------------------------------------------------------------------------
+# 8. Evidence encryption at rest (AES-256-GCM)
+# ---------------------------------------------------------------------------
+
+_ENC_HEADER = b"MLGG-ENC-v1\x00"
+_ENC_KEY_FILE = ".mlgg_encryption_key"
+
+
+def _get_encryption_key() -> bytes:
+    """Get or create a 32-byte AES-256 encryption key.
+
+    Key sources (in priority order):
+        1. MLGG_ENCRYPTION_KEY environment variable (hex-encoded)
+        2. .mlgg_encryption_key file in project root
+        3. Auto-generate and persist a new key
+    """
+    env_key = os.environ.get("MLGG_ENCRYPTION_KEY", "").strip()
+    if env_key:
+        try:
+            raw = bytes.fromhex(env_key)
+            if len(raw) >= 32:
+                return raw[:32]
+        except ValueError:
+            pass
+
+    search = Path.cwd()
+    for _ in range(10):
+        candidate = search / _ENC_KEY_FILE
+        if candidate.exists():
+            raw = candidate.read_bytes().strip()
+            try:
+                key = bytes.fromhex(raw.decode("ascii"))
+                if len(key) >= 32:
+                    return key[:32]
+            except (ValueError, UnicodeDecodeError):
+                pass
+            break
+        parent = search.parent
+        if parent == search:
+            break
+        search = parent
+
+    key = secrets.token_bytes(32)
+    key_path = search / _ENC_KEY_FILE
+    try:
+        key_path.write_bytes(key.hex().encode("ascii") + b"\n")
+        key_path.chmod(0o600)
+    except OSError:
+        pass
+    return key
+
+
+def encrypt_evidence(data: bytes, key: Optional[bytes] = None) -> bytes:
+    """Encrypt evidence data using AES-256-GCM.
+
+    Args:
+        data: Plaintext bytes to encrypt.
+        key: 32-byte AES key. Auto-derived if None.
+
+    Returns:
+        Encrypted blob: header + nonce(12) + tag(16) + ciphertext.
+    """
+    if key is None:
+        key = _get_encryption_key()
+
+    nonce = secrets.token_bytes(12)
+
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        aesgcm = AESGCM(key)
+        ciphertext = aesgcm.encrypt(nonce, data, None)
+        # ciphertext includes the 16-byte tag appended by cryptography lib
+        return _ENC_HEADER + nonce + ciphertext
+    except ImportError:
+        # Fallback: XOR-based obfuscation with HMAC integrity (not true AES)
+        # This is a degraded mode when cryptography package is unavailable
+        import hashlib as _hl
+        stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(data))
+        ciphertext = bytes(a ^ b for a, b in zip(data, stream_key))
+        tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()[:16]
+        return _ENC_HEADER + nonce + tag + ciphertext
+
+
+def decrypt_evidence(blob: bytes, key: Optional[bytes] = None) -> bytes:
+    """Decrypt evidence data encrypted with encrypt_evidence.
+
+    Args:
+        blob: Encrypted blob from encrypt_evidence.
+        key: 32-byte AES key. Auto-derived if None.
+
+    Returns:
+        Decrypted plaintext bytes.
+
+    Raises:
+        SecurityError: If decryption or integrity check fails.
+    """
+    if key is None:
+        key = _get_encryption_key()
+
+    header_len = len(_ENC_HEADER)
+    if not blob.startswith(_ENC_HEADER):
+        raise SecurityError("Invalid encryption header")
+
+    nonce = blob[header_len:header_len + 12]
+
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        aesgcm = AESGCM(key)
+        ciphertext_with_tag = blob[header_len + 12:]
+        return aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+    except ImportError:
+        tag = blob[header_len + 12:header_len + 28]
+        ciphertext = blob[header_len + 28:]
+        expected_tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(tag, expected_tag):
+            raise SecurityError("Evidence integrity check failed: HMAC mismatch")
+        import hashlib as _hl
+        stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(ciphertext))
+        return bytes(a ^ b for a, b in zip(ciphertext, stream_key))
+
+
+def encrypt_file(path: Path, key: Optional[bytes] = None) -> Path:
+    """Encrypt a file in-place, adding .enc extension.
+
+    Returns path to encrypted file.
+    """
+    data = path.read_bytes()
+    encrypted = encrypt_evidence(data, key)
+    enc_path = path.with_suffix(path.suffix + ".enc")
+    enc_path.write_bytes(encrypted)
+    return enc_path
+
+
+def decrypt_file(enc_path: Path, key: Optional[bytes] = None) -> bytes:
+    """Decrypt an .enc file and return plaintext bytes."""
+    blob = enc_path.read_bytes()
+    return decrypt_evidence(blob, key)
+
+
+# ---------------------------------------------------------------------------
+# 9. Secure file cleanup
+# ---------------------------------------------------------------------------
+
+
+def secure_delete(path: Path, passes: int = 1) -> None:
+    """Overwrite a file with zeros before unlinking to prevent data recovery.
+
+    Args:
+        path: File to securely delete.
+        passes: Number of overwrite passes (1 is sufficient for SSDs).
+    """
+    if not path.exists() or not path.is_file():
+        return
+    try:
+        size = path.stat().st_size
+        with path.open("r+b") as fh:
+            for _ in range(passes):
+                fh.seek(0)
+                remaining = size
+                chunk = 64 * 1024
+                while remaining > 0:
+                    write_size = min(chunk, remaining)
+                    fh.write(b"\x00" * write_size)
+                    remaining -= write_size
+                fh.flush()
+                os.fsync(fh.fileno())
+    except OSError:
+        pass
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def secure_cleanup_dir(directory: Path, pattern: str = "*") -> int:
+    """Securely delete all matching files in a directory.
+
+    Returns number of files deleted.
+    """
+    count = 0
+    for fpath in directory.glob(pattern):
+        if fpath.is_file():
+            secure_delete(fpath)
+            count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# 10. Resource exhaustion protection
 # ---------------------------------------------------------------------------
 
 

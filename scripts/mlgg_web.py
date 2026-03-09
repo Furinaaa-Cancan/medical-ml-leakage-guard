@@ -58,6 +58,43 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload limit
 _ALLOWED_UPLOAD_EXTENSIONS = {".csv"}
 _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.\-]{0,200}\.csv$")
 
+# ---------------------------------------------------------------------------
+# In-memory rate limiter (no external dependency required)
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX_REQUESTS = 30  # per window per IP
+_rate_buckets: Dict[str, List[float]] = {}
+_rate_lock = threading.Lock()
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if request is allowed, False if rate-limited."""
+    import time as _t
+    now = _t.time()
+    cutoff = now - _RATE_LIMIT_WINDOW
+    with _rate_lock:
+        bucket = _rate_buckets.get(ip, [])
+        bucket = [ts for ts in bucket if ts > cutoff]
+        if len(bucket) >= _RATE_LIMIT_MAX_REQUESTS:
+            _rate_buckets[ip] = bucket
+            return False
+        bucket.append(now)
+        _rate_buckets[ip] = bucket
+        # Evict stale IPs periodically
+        if len(_rate_buckets) > 1000:
+            stale = [k for k, v in _rate_buckets.items() if not v or v[-1] < cutoff]
+            for k in stale:
+                del _rate_buckets[k]
+    return True
+
+
+@app.before_request
+def _enforce_rate_limit():
+    """Reject requests that exceed the per-IP rate limit."""
+    ip = request.remote_addr or "unknown"
+    if not _check_rate_limit(ip):
+        return Response("Rate limit exceeded. Try again later.", status=429)
+
 
 @app.after_request
 def _set_security_headers(response):
