@@ -107,13 +107,40 @@ def write_json(path: Path, payload: Dict[str, Any]) -> None:
     tmp_path.replace(path)
 
 
-def resolve_path(base: Path, value: str) -> Path:
-    """Resolve a potentially relative path against a base directory."""
+_FORBIDDEN_PATH_PREFIXES = [
+    "/etc", "/private/etc", "/proc", "/sys", "/dev",
+    "/var/run", "/boot", "/sbin",
+]
+
+
+def resolve_path(base: Path, value: str, sandbox: Optional[Path] = None) -> Path:
+    """Resolve a potentially relative path against a base directory.
+
+    Args:
+        base: Base directory for relative paths.
+        value: Raw path string to resolve.
+        sandbox: If provided, the resolved path must be under this directory.
+
+    Raises:
+        ValueError: If the path contains null bytes or targets forbidden system paths.
+    """
+    if "\x00" in value:
+        raise ValueError(f"Null byte in path: {value!r}")
     p = Path(value).expanduser()
     if not p.is_absolute():
         p = (base / p).resolve()
     else:
         p = p.resolve()
+    resolved = str(p)
+    for prefix in _FORBIDDEN_PATH_PREFIXES:
+        if resolved.startswith(prefix + "/") or resolved == prefix:
+            raise ValueError(f"Path targets forbidden system location: {p}")
+    if sandbox is not None:
+        sandbox_resolved = sandbox.resolve()
+        if not resolved.startswith(str(sandbox_resolved)):
+            raise ValueError(
+                f"Path escapes sandbox: {p} is not under {sandbox_resolved}"
+            )
     return p
 
 
@@ -421,3 +448,116 @@ def metric_panel(
         "brier": brier,
     }
     return metrics, cm
+
+
+# ---------------------------------------------------------------------------
+# Tamper-evident audit log for gate executions
+# ---------------------------------------------------------------------------
+
+_AUDIT_LOG_NAME = ".gate_audit.jsonl"
+
+
+def _hmac_chain(prev_hash: str, entry_json: str) -> str:
+    """Compute HMAC-SHA256 chain hash linking this entry to the previous."""
+    import hashlib
+    import hmac
+    key = prev_hash.encode("utf-8")
+    return hmac.new(key, entry_json.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def append_audit_entry(
+    evidence_dir: Path,
+    gate_name: str,
+    status: str,
+    failure_count: int = 0,
+    warning_count: int = 0,
+    execution_time: float = 0.0,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Append a tamper-evident audit log entry for a gate execution.
+
+    Each entry contains:
+      - timestamp, gate name, status, counts
+      - chain_hash: HMAC-SHA256 linking to previous entry (tamper detection)
+      - pid and hostname for forensic tracing
+
+    Args:
+        evidence_dir: Directory containing the audit log.
+        gate_name: Name of the executed gate.
+        status: Gate result status (pass/fail).
+        failure_count: Number of failures.
+        warning_count: Number of warnings.
+        execution_time: Execution duration in seconds.
+        extra: Optional additional metadata.
+    """
+    import datetime as _dt
+    import platform
+
+    log_path = evidence_dir / _AUDIT_LOG_NAME
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read last chain hash
+    prev_hash = "0" * 64
+    if log_path.exists():
+        try:
+            lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+            if lines:
+                last = json.loads(lines[-1])
+                prev_hash = last.get("chain_hash", prev_hash)
+        except (json.JSONDecodeError, OSError, KeyError):
+            pass
+
+    entry: Dict[str, Any] = {
+        "timestamp_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "gate_name": gate_name,
+        "status": status,
+        "failure_count": failure_count,
+        "warning_count": warning_count,
+        "execution_time_seconds": round(execution_time, 3),
+        "pid": os.getpid(),
+        "hostname": platform.node(),
+    }
+    if extra:
+        entry["extra"] = extra
+
+    entry_json = json.dumps(entry, ensure_ascii=True, sort_keys=True)
+    entry["chain_hash"] = _hmac_chain(prev_hash, entry_json)
+
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=True, sort_keys=True) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def verify_audit_chain(evidence_dir: Path) -> Dict[str, Any]:
+    """Verify the integrity of the gate audit log chain.
+
+    Returns:
+        Dict with 'valid' (bool), 'entries' (int), 'broken_at' (int or None).
+    """
+    log_path = evidence_dir / _AUDIT_LOG_NAME
+    if not log_path.exists():
+        return {"valid": True, "entries": 0, "broken_at": None, "reason": "no_log"}
+
+    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    if not lines:
+        return {"valid": True, "entries": 0, "broken_at": None}
+
+    prev_hash = "0" * 64
+    for idx, line in enumerate(lines):
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            return {"valid": False, "entries": len(lines), "broken_at": idx, "reason": "json_parse_error"}
+
+        stored_hash = entry.pop("chain_hash", None)
+        if stored_hash is None:
+            return {"valid": False, "entries": len(lines), "broken_at": idx, "reason": "missing_chain_hash"}
+
+        entry_json = json.dumps(entry, ensure_ascii=True, sort_keys=True)
+        expected = _hmac_chain(prev_hash, entry_json)
+        if stored_hash != expected:
+            return {"valid": False, "entries": len(lines), "broken_at": idx, "reason": "chain_hash_mismatch"}
+        prev_hash = stored_hash
+
+    return {"valid": True, "entries": len(lines), "broken_at": None}

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shlex
 import subprocess
 import sys
@@ -53,6 +54,52 @@ PYTHON = sys.executable
 app = Flask(__name__)
 app.secret_key = os.urandom(32)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload limit
+
+_ALLOWED_UPLOAD_EXTENSIONS = {".csv"}
+_SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.\-]{0,200}\.csv$")
+
+
+@app.after_request
+def _set_security_headers(response):
+    """Inject security headers into every response."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none'"
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+def _sanitize_upload_filename(raw: str) -> str:
+    """Sanitize an uploaded filename to prevent path traversal and injection."""
+    basename = Path(raw).name
+    basename = basename.replace("\x00", "").strip()
+    if not basename or not _SAFE_FILENAME_RE.match(basename):
+        raise ValueError(f"Invalid upload filename: {raw!r}")
+    ext = Path(basename).suffix.lower()
+    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
+        raise ValueError(f"Disallowed file extension: {ext}")
+    return basename
+
+
+def _validate_path_no_traversal(raw: str, label: str = "path") -> Path:
+    """Resolve a user-supplied path and reject traversal attempts."""
+    if "\x00" in raw:
+        raise ValueError(f"Null byte in {label}")
+    p = Path(raw).expanduser().resolve()
+    forbidden = ["/etc", "/private/etc", "/proc", "/sys", "/dev"]
+    for prefix in forbidden:
+        if str(p).startswith(prefix):
+            raise ValueError(f"{label} targets forbidden system path: {p}")
+    return p
 
 # ── session state ──────────────────────────────────────────────────────────────
 _MAX_SESSIONS = 100
@@ -331,9 +378,10 @@ def handle_step(step_num: int):
         raw = request.form.get("project_root", "").strip()
         if not raw:
             return "Project root is required.", 400
-        p = Path(raw).expanduser().resolve()
-        if ".." in raw:
-            return "Path traversal not allowed.", 400
+        try:
+            p = _validate_path_no_traversal(raw, "project_root")
+        except ValueError as exc:
+            return str(exc), 400
         session["project_root"] = str(p)
         session["step"] = 2
 
@@ -341,16 +389,19 @@ def handle_step(step_num: int):
         csv_file = request.files.get("csv_file")
         csv_path = request.form.get("csv_path", "").strip()
         if csv_file and csv_file.filename:
-            safe_name = Path(csv_file.filename).name
-            if ".." in safe_name or "/" in safe_name:
-                return "Invalid filename.", 400
+            try:
+                safe_name = _sanitize_upload_filename(csv_file.filename)
+            except ValueError as exc:
+                return str(exc), 400
             dest = UPLOAD_DIR / f"{sid}_{safe_name}"
             csv_file.save(str(dest))
             session["csv_path"] = str(dest)
         elif csv_path:
-            if ".." in csv_path:
-                return "Path traversal not allowed.", 400
-            session["csv_path"] = csv_path
+            try:
+                validated = _validate_path_no_traversal(csv_path, "csv_path")
+            except ValueError as exc:
+                return str(exc), 400
+            session["csv_path"] = str(validated)
         else:
             return "CSV file or path required.", 400
         session["step"] = 3

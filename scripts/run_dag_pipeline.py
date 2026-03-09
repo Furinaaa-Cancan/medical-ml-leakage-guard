@@ -212,11 +212,32 @@ def run_gate_subprocess(
         stderr = f"EXCEPTION: {exc}"
 
     elapsed = _time.time() - t0
+    status = "pass" if exit_code == 0 else "fail"
+
+    # Tamper-evident audit log entry
+    try:
+        from _gate_utils import append_audit_entry
+        evidence_dir_for_audit = Path(cmd[2]) if len(cmd) > 2 else None
+        # Try to find evidence dir from --report or --evidence-dir args
+        for i, arg in enumerate(cmd):
+            if arg in ("--report", "--evidence-dir") and i + 1 < len(cmd):
+                audit_dir = Path(cmd[i + 1]).expanduser().resolve().parent
+                if audit_dir.exists():
+                    append_audit_entry(
+                        evidence_dir=audit_dir,
+                        gate_name=gate_name,
+                        status=status,
+                        execution_time=elapsed,
+                    )
+                    break
+    except Exception:
+        pass  # Audit logging is best-effort; never block pipeline
+
     return {
         "name": gate_name,
         "command": shlex.join(cmd),
         "exit_code": exit_code,
-        "status": "pass" if exit_code == 0 else "fail",
+        "status": status,
         "execution_time_seconds": round(elapsed, 3),
         "stdout_tail": stdout[-4000:],
         "stderr_tail": stderr[-4000:],

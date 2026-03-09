@@ -292,6 +292,32 @@ def _check_artifact_sizes(
     return summary
 
 
+def _check_audit_chain(
+    evidence_dir: Path,
+    warnings: List[GateIssue],
+) -> Dict[str, Any]:
+    """Verify the tamper-evident gate audit log chain."""
+    try:
+        from _gate_utils import verify_audit_chain
+        result = verify_audit_chain(evidence_dir)
+    except ImportError:
+        return {"checked": False, "reason": "module_unavailable"}
+
+    if not result.get("valid", True) and result.get("entries", 0) > 0:
+        warnings.append(GateIssue(
+            code="audit_chain_broken",
+            severity=Severity.WARNING,
+            message=f"Gate audit log chain integrity broken at entry {result.get('broken_at')}: {result.get('reason')}.",
+            details=result,
+        ))
+
+    return {
+        "checked": True,
+        "valid": result.get("valid", True),
+        "entries": result.get("entries", 0),
+    }
+
+
 def main() -> int:
     start_gate_timer()
     args = parse_args()
@@ -317,6 +343,7 @@ def main() -> int:
     perm_summary = _check_file_permissions(evidence_dir, warnings)
     sensitive_summary = _check_sensitive_data(evidence_dir, failures)
     size_summary = _check_artifact_sizes(evidence_dir, warnings)
+    audit_summary = _check_audit_chain(evidence_dir, warnings)
 
     # Strict mode: promote warnings to failures
     if args.strict:
@@ -340,6 +367,7 @@ def main() -> int:
         "file_permissions": perm_summary,
         "sensitive_data_scan": sensitive_summary,
         "artifact_sizes": size_summary,
+        "audit_chain": audit_summary,
     }
 
     report = build_report_envelope(
