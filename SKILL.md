@@ -16,7 +16,7 @@ description: "Publication-grade medical prediction workflow with strict anti-dat
 | "帮我训练一个模型" / "跑一下预测" | `python3 scripts/mlgg.py play` — 启动交互向导 |
 | "用我的数据训练" / "我有一个 CSV" | `python3 scripts/mlgg.py play` → 选"使用自己的数据集" |
 | "查看训练结果" / "结果怎么样" | `python3 scripts/quick_summary.py <output_dir>` |
-| "下载一个测试数据集" | `python3 examples/download_real_data.py <name>` (heart/breast/pima/mammographic/thyroid/eeg_eye/framingham/diabetes130) |
+| "下载一个测试数据集" | `python3 examples/download_real_data.py <name>` (heart/breast/pima/mammographic/thyroid/eeg_eye/vitaldb/framingham/diabetes130) |
 | "严格审计" / "出版级验证" | `python3 scripts/mlgg.py workflow --strict` |
 | "检查环境" / "安装有问题" | `python3 scripts/mlgg.py doctor` |
 | "初始化项目" | `python3 scripts/mlgg.py onboarding` |
@@ -142,7 +142,7 @@ python3 scripts/mlgg.py doctor
 **能做的**：
 - 表格型医学二分类预测（EHR/临床/注册数据）
 - 自动防泄漏分割 + 模型训练 + 评估 + 出版级审计
-- 8 个真实数据集 + 自定义 CSV（支持中文列名）
+- 9 个真实数据集 + 自定义 CSV（支持中文列名）
 - 20 个 sklearn 模型族 + 4 个可选后端
 
 **做不了的**：
@@ -582,8 +582,8 @@ If any step returns non-zero, stop and block claim release.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### examples/
-- `examples/download_real_data.py`: download and prepare 8 real medical datasets (UCI/GitHub) + 2 synthetic generators.
-  - Real datasets: heart(297), breast(569), pima(768), mammographic(961), thyroid(7200), eeg_eye(14980), framingham(4240), diabetes130(10000).
+- `examples/download_real_data.py`: download and prepare 9 real medical datasets (UCI/PhysioNet/GitHub) + 2 synthetic generators.
+  - Real datasets: heart(297), breast(569), pima(768), mammographic(961), framingham(4240), vitaldb(6388), thyroid(7200), diabetes130(10000), eeg_eye(14980).
   - All produce pipeline-ready CSV with `patient_id`, `event_time`, `y` columns.
 
 ### tests/
