@@ -84,9 +84,10 @@ def load_json_optional(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, ValueError):
         return None
     if isinstance(payload, dict):
         return payload
