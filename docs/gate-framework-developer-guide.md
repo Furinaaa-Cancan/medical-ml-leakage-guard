@@ -312,6 +312,6 @@ python3 -m pytest tests/test_gate_framework.py tests/test_gate_registry.py tests
 | Test file | Coverage |
 |---|---|
 | `test_gate_framework.py` | Severity, GateIssue, remediation registry, build_report_envelope, wrap_legacy_report, validate_input_files, format_issue_line, load_gate_report |
-| `test_gate_registry.py` | Registry integrity (28 gates), DAG validation, topological sort, execution layers, dependencies, runnable subset |
+| `test_gate_registry.py` | Registry integrity (29 gates), DAG validation, topological sort, execution layers, dependencies, runnable subset |
 | `test_run_dag_pipeline.py` | Gate-specific CLI extras, standard/aggregation command building, checkpoint save/load/integrity, run_gate_subprocess |
 | `test_dag_pipeline_e2e.py` | --show-dag, dry-run behavior, request_contract_gate envelope format, --only flag, pipeline report format, CLI validation |

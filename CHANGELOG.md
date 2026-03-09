@@ -92,7 +92,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - 47 comprehensive unit tests (94% coverage)
 
 - **Evidence Health Check Tool** (`report_health_check.py`)
-  - Scans all 28 gate reports in an evidence directory
+  - Scans all 29 gate reports in an evidence directory
   - Produces completeness percentage, pass rate, per-gate status table
   - Top failure codes across all gates with counts
   - Actionable recommendations (missing gates, failing gates, publication-ready)
@@ -223,7 +223,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Frozen benchmark registry (`benchmark_registry.v1`)
   - Observational diagnostics for non-blocking failures
 
-- **Gate Pipeline (28 gates)**
+- **Gate Pipeline (29 gates)**
   - Request contract validation with publication-policy anti-downgrade
   - Manifest fingerprint locking with baseline comparison
   - Signed execution attestation with witness quorum, timestamp trust,
@@ -255,7 +255,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Self-critique scoring gate
 
 - **Orchestration**
-  - `run_strict_pipeline.py`: sequential 28-gate orchestrator
+  - `run_strict_pipeline.py`: sequential 29-gate orchestrator
   - `run_productized_workflow.py`: doctor → preflight → pipeline → summary
   - `mlgg_onboarding.py`: guided 8-step novice flow with preview mode
   - `mlgg.py`: unified CLI entry point

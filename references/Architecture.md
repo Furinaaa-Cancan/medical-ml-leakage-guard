@@ -160,10 +160,10 @@ All reports are written to the `evidence/` directory. A final
                    │
                    ▼
 ┌─────────────────────────────────────────────────────────┐
-│          28-Gate DAG Pipeline                            │
+│          29-Gate DAG Pipeline                            │
 │  scripts/run_dag_pipeline.py                            │
-│  Orchestrates gates 1–28 via dependency DAG             │
-│  Writes: evidence/*_report.json (28 reports)            │
+│  Orchestrates gates 1–29 via dependency DAG             │
+│  Writes: evidence/*_report.json (29 reports)            │
 │          evidence/dag_pipeline_report.json              │
 │          evidence/publication_gate_report.json           │
 └──────────────────┬──────────────────────────────────────┘
@@ -186,7 +186,7 @@ The pipeline can be invoked at multiple levels of abstraction:
 | Layer | Entry Point | Description |
 |-------|------------|-------------|
 | **Gate scripts** | `scripts/<gate>.py` | Individual validation steps |
-| **Strict pipeline** | `scripts/run_strict_pipeline.py` | Sequential 28-gate orchestrator |
+| **Strict pipeline** | `scripts/run_strict_pipeline.py` | Sequential 29-gate orchestrator |
 | **Productized workflow** | `scripts/run_productized_workflow.py` | Doctor → Preflight → Pipeline → Summary |
 | **Onboarding** | `scripts/mlgg_onboarding.py` | Guided 8-step novice flow |
 | **Unified CLI** | `scripts/mlgg.py` | Single entry point for all commands |
@@ -262,7 +262,7 @@ ml-leakage-guard/
 │   ├── mlgg.py                 # Unified CLI entry point
 │   ├── mlgg_onboarding.py      # Guided onboarding flow
 │   ├── mlgg_interactive.py     # Interactive terminal wizard
-│   ├── run_strict_pipeline.py  # 28-gate orchestrator
+│   ├── run_strict_pipeline.py  # 29-gate orchestrator
 │   ├── run_productized_workflow.py  # Full UX wrapper
 │   ├── train_select_evaluate.py     # Training pipeline
 │   ├── split_data.py           # Safe data splitting

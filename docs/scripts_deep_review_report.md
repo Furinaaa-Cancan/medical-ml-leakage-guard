@@ -101,7 +101,7 @@
 
 ### 优势
 
-- **数据泄漏防线贯穿全栈**: 从 `split_data.py` 的患者级分组到 `train_select_evaluate.py` 的严格 split 隔离，再到 28 道 gate 验证
+- **数据泄漏防线贯穿全栈**: 从 `split_data.py` 的患者级分组到 `train_select_evaluate.py` 的严格 split 隔离，再到 29 道 gate 验证
 - **可复现性**: SHA-256 指纹、种子管理、环境版本捕获、manifest 锁定
 - **临床安全**: 阈值选择受临床约束（敏感性/NPV/特异性/PPV 下限），过拟合回调自动降级
 - **发布级证据链**: 执行证明、见证人机制、透明度日志、吊销列表

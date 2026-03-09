@@ -143,7 +143,7 @@ python3 scripts/mlgg.py benchmark-suite --profile release
 
 ## Architecture Overview
 
-See `references/Architecture.md` for the 28-gate pipeline flowchart,
+See `references/Architecture.md` for the 29-gate pipeline flowchart,
 gate reference table, and data flow diagram.
 
 ---
