@@ -121,6 +121,13 @@
 - **修复**: 添加 `security_audit_gate_report.json` 到列表，更新测试 28→29
 - **教训**: **新增 gate 后必须 `grep -rn` 搜索所有硬编码的 gate 列表和计数**，包括 digest/summary/coverage 等工具
 
+### 错误 13: 文档/UI 中“28 gate”引用未同步更新
+
+- **症状**: CHANGELOG、Architecture、CONTRIBUTING、QUEUE_PROMPTS、mlgg_pixel UI 字符串等 7 个文件仍显示“28 gate”
+- **根因**: 新增 gate 后只更新了代码中的硬编码列表，未搜索文档和 UI 字符串
+- **修复**: `grep -rn "28.gate\|28-gate\|28 gate" --include="*.md" --include="*.py"` 找出并更新所有 17 处引用
+- **教训**: **新增 gate 后的搜索范围必须包括文档 (.md)、UI 字符串、测试文件**，不仅仅是 Python 代码
+
 ---
 
 ## 三、关键设计决策与理由
@@ -197,6 +204,14 @@
 | `scripts/compare_runs.py` | 修改 | 添加 security_audit_gate_report 到 REPORT_FILES |
 | `scripts/report_health_check.py` | 修改 | 添加 security_audit_gate_report 到健康检查列表 |
 | `scripts/remediation_plan.py` | 修改 | 添加 security_audit 到 GATE_REPORTS |
+| `scripts/run_strict_pipeline.py` | 修改 | 添加 Step 29 (security_audit_gate) |
+| `CHANGELOG.md` | 修改 | gate 计数 28→29 (3处) |
+| `CONTRIBUTING.md` | 修改 | gate 计数 28→29 |
+| `references/Architecture.md` | 修改 | gate 计数 28→29 (5处) |
+| `docs/gate-framework-developer-guide.md` | 修改 | gate 计数 28→29 |
+| `docs/scripts_deep_review_report.md` | 修改 | gate 计数 28→29 |
+| `scripts/mlgg_pixel.py` | 修改 | UI 字符串 28→29 (en+zh) |
+| `QUEUE_PROMPTS.md` | 修改 | gate 计数 28→29 (4处) |
 | `docs/security_hardening_skill.md` | 新增 | 本文档：安全加固 Skill 归纳总结 |
 
 ---
@@ -274,6 +289,8 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `0a5ff19` | render_user_summary 添加 security_audit_gate + Skill 错误 12 |
 | `4b3debb` | run_strict_pipeline 添加 Step 29 (security_audit_gate) |
 | `e2e04aa` | compare_runs/report_health_check/remediation_plan 添加 security_audit_gate |
+| `bdeb1ea` | Skill doc 更新文件清单 + commit 记录 |
+| `d5b2e56` | 全代码库 '28 gate'→29 更新 (7文件 17处) |
 
 ---
 
