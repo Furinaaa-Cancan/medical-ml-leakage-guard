@@ -479,6 +479,17 @@ _register(GateSpec(
     category="aggregation",
 ))
 
+_register(GateSpec(
+    name="security_audit_gate",
+    script="security_audit_gate.py",
+    layer=GateLayer.FINAL,
+    description="Security audit: verify model signatures, evidence integrity, dependency authenticity, sensitive data exposure.",
+    depends_on=frozenset({"self_critique_gate"}),
+    report_output="security_audit_gate_report.json",
+    parallelizable=False,
+    category="security",
+))
+
 
 # ---------------------------------------------------------------------------
 # DAG resolution utilities

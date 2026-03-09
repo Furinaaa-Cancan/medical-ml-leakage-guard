@@ -29,8 +29,25 @@ def add_issue(
     bucket.append({"code": code, "message": message, "details": details})
 
 
+_MAX_JSON_FILE_SIZE = 100 * 1024 * 1024  # 100 MB safety limit
+
+
+def _check_json_file_size(path: Path) -> None:
+    """Raise ValueError if a JSON file exceeds the safety size limit."""
+    try:
+        size = path.stat().st_size
+        if size > _MAX_JSON_FILE_SIZE:
+            raise ValueError(
+                f"JSON file too large: {path} is {size} bytes "
+                f"(limit {_MAX_JSON_FILE_SIZE // (1024*1024)} MB)"
+            )
+    except OSError:
+        pass  # File may not exist yet; let caller handle
+
+
 def load_json_from_path(path: Path) -> Dict[str, Any]:
     """Load and validate a JSON object from a Path."""
+    _check_json_file_size(path)
     try:
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
@@ -44,6 +61,7 @@ def load_json_from_path(path: Path) -> Dict[str, Any]:
 def load_json_from_str(path: str) -> Dict[str, Any]:
     """Load and validate a JSON object from a string path."""
     p = Path(path).expanduser().resolve()
+    _check_json_file_size(p)
     try:
         with p.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)

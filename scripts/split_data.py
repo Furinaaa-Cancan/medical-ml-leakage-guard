@@ -173,6 +173,10 @@ def load_csv(path: str) -> pd.DataFrame:
         raise FileNotFoundError(f"Input CSV not found: {p}")
     if not p.is_file():
         raise ValueError(f"Input path is not a file: {p}")
+    # Security: file size check (max 2 GB)
+    file_size = p.stat().st_size
+    if file_size > 2 * 1024 * 1024 * 1024:
+        raise ValueError(f"Input CSV too large: {file_size} bytes (limit 2 GB)")
     df = pd.read_csv(p)
     if df.empty:
         raise ValueError(f"Input CSV is empty: {p}")

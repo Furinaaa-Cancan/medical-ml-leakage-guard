@@ -677,6 +677,11 @@ def load_split(path: str) -> pd.DataFrame:
         ValueError: If the split is empty.
     """
     p = Path(path).expanduser().resolve()
+    # Security: file size check (max 2 GB)
+    if p.exists():
+        file_size = p.stat().st_size
+        if file_size > 2 * 1024 * 1024 * 1024:
+            raise ValueError(f"Split CSV too large: {file_size} bytes (limit 2 GB)")
     df = pd.read_csv(p)
     if df.empty:
         raise ValueError(f"Split is empty: {p}")
@@ -6508,6 +6513,13 @@ def main() -> int:
         else None
     )
     evaluation_metadata["external_cohort_count"] = int(len(external_rows))
+    # Include categorical analysis summary in evaluation report
+    if stage1_report and "categorical_analysis" in stage1_report:
+        cat_analysis = stage1_report["categorical_analysis"]
+        evaluation_metadata["categorical_analysis"] = {
+            "categorical_count": cat_analysis.get("categorical_count", 0),
+            "coercion_warnings": cat_analysis.get("coercion_warnings", []),
+        }
     evaluation_metadata["feature_engineering_report_sha256"] = (
         sha256_file(feature_engineering_out)
         if feature_engineering_out and feature_engineering_out.exists()

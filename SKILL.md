@@ -80,7 +80,7 @@ python3 scripts/mlgg.py doctor
 
 ### 数据泄漏 & 学术诚信检测覆盖
 
-本项目的 28 道 gate 覆盖以下学术诚信风险：
+本项目的 29 道 gate 覆盖以下学术诚信风险：
 
 **数据泄漏检测（4 道 gate）**：
 - `leakage_gate`: 行级重叠、患者 ID 重叠、时序穿越（训练数据晚于测试数据）
@@ -308,7 +308,8 @@ Use this internal sequence in order:
 26. Run permutation falsification gate (`permutation_significance_gate.py`).
 27. Aggregate publication gate (`publication_gate.py`).
 28. Run self-critique scoring gate (`self_critique_gate.py`).
-29. Emit final report only if all strict gates pass.
+29. Run security audit gate (`security_audit_gate.py`).
+30. Emit final report only if all strict gates pass.
 
 Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt/execution-log/witness-quorum/cross-role-authority-distinctness), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
@@ -342,7 +343,8 @@ Produce these deterministic artifacts:
 26. `evidence/permutation_report.json`
 27. `evidence/publication_gate_report.json`
 28. `evidence/self_critique_report.json`
-29. `evidence/dag_pipeline_report.json`
+29. `evidence/security_audit_gate_report.json`
+30. `evidence/dag_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -524,6 +526,7 @@ If orchestration is unavailable, run in this exact order:
 26. `permutation_significance_gate.py`
 27. `publication_gate.py`
 28. `self_critique_gate.py`
+29. `security_audit_gate.py`
 
 If any step returns non-zero, stop and block claim release.
 
@@ -598,6 +601,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/mlgg_pixel.py`: pixel-art interactive CLI wizard (`mlgg.py play`) for guided pipeline setup and execution with bilingual (en/zh) support, dataset-size-aware defaults, small-sample strict mode, and play-mode quick-readiness card.
 - `scripts/_gate_utils.py`: shared utility functions (`add_issue`, `load_json`, `write_json`, `to_float`) for gate scripts.
 - `scripts/_security.py`: security hardening module — HMAC model signing, path traversal protection, secure JSON loading, artifact integrity manifest, membership inference defense, dependency verification, security audit CLI.
+- `scripts/security_audit_gate.py`: 29th pipeline gate — verifies model HMAC signatures, evidence manifest integrity, dependency authenticity, file permissions, sensitive data exposure, artifact sizes.
 - `scripts/policy_generator.py`: generate recommended `performance_policy.json` from evidence reports with configurable margin and presets.
 - `scripts/gate_timeline.py`: analyze gate execution timeline, identify bottleneck gates, compute wall-clock span.
 - `scripts/gate_coverage_matrix.py`: scan evidence directory against full gate registry to produce coverage matrix.

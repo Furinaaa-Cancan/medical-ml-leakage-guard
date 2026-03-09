@@ -245,6 +245,8 @@ def build_gate_command(
         return cmd
     elif spec.name in ("publication_gate", "self_critique_gate"):
         cmd.extend(_build_aggregation_cmd(spec.name, report_paths, args))
+    elif spec.name == "security_audit_gate":
+        cmd.extend(["--evidence-dir", str(evidence_dir)])
     else:
         cmd.extend(_build_standard_gate_cmd(spec, normalized, split_paths, report_paths))
 

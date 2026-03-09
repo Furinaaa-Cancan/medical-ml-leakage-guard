@@ -50,7 +50,7 @@ class TestRegistryIntegrity:
             assert gate in GATE_REGISTRY, f"Expected gate '{gate}' not in registry"
 
     def test_expected_gate_count(self):
-        assert len(GATE_REGISTRY) == 28
+        assert len(GATE_REGISTRY) == 29
 
 
 # ────────────────────────────────────────────────────────
@@ -85,8 +85,11 @@ class TestDAGValidation:
 
     def test_self_critique_depends_on_all_gates(self):
         sc = GATE_REGISTRY["self_critique_gate"]
+        # Gates that depend on self_critique are excluded from this check
+        post_critique = {name for name, spec in GATE_REGISTRY.items()
+                         if "self_critique_gate" in spec.depends_on}
         for name in GATE_REGISTRY:
-            if name != "self_critique_gate":
+            if name != "self_critique_gate" and name not in post_critique:
                 assert name in sc.depends_on, (
                     f"self_critique_gate missing dependency on {name}"
                 )
@@ -114,9 +117,9 @@ class TestTopologicalSort:
         order = topological_sort()
         assert order[0] == "request_contract_gate"
 
-    def test_self_critique_is_last(self):
+    def test_security_audit_gate_is_last(self):
         order = topological_sort()
-        assert order[-1] == "self_critique_gate"
+        assert order[-1] == "security_audit_gate"
 
 
 # ────────────────────────────────────────────────────────
@@ -185,7 +188,7 @@ class TestDependencies:
         assert "manifest_lock" in dependents
 
     def test_get_dependents_leaf_gate(self):
-        dependents = get_dependents("self_critique_gate")
+        dependents = get_dependents("security_audit_gate")
         assert len(dependents) == 0
 
 
