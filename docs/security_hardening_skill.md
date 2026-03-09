@@ -31,6 +31,7 @@
 | L17 管线执行回执 | 执行结果伪造/否认 | `--sign-receipt` flag 自动生成 HMAC 签名回执 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
 | L18 管线安全清理 | 临时文件残留 | `--secure-cleanup` flag 零填充删除 *.tmp/*.log | `run_dag_pipeline.py` | — |
 | L19 管线 RBAC 入口 | 未授权执行管线 | `--require-role` flag 检查用户权限 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
+| L20 CSRF 防护 | 跨站请求伪造 | 每次渲染表单生成 token，POST 验证后销毁 | `mlgg_web.py` | — |
 
 ---
 
@@ -242,7 +243,8 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `f247b45` | --secure-cleanup/--require-role 管线集成 + Skill L18-L19 |
 | `ee85885` | README English security section (6.1) |
 | `430d3bd` | Skill doc commit log 最终化 |
-| `(pending)` | run_strict_pipeline 安全 flags + DRY 敏感 pattern + Skill 陷阱表 |
+| `dfb9e67` | run_strict_pipeline 安全 flags + DRY 敏感 pattern + Skill 陷阱表 |
+| `(pending)` | CSRF token 防护 + L20 + Skill 最终更新 |
 
 ---
 

@@ -20,6 +20,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import shlex
 import subprocess
 import sys
@@ -57,6 +58,26 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB upload limit
 
 _ALLOWED_UPLOAD_EXTENSIONS = {".csv"}
 _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.\-]{0,200}\.csv$")
+
+# ---------------------------------------------------------------------------
+# CSRF token protection
+# ---------------------------------------------------------------------------
+_csrf_tokens: Dict[str, str] = {}
+
+
+def _generate_csrf_token(sid: str) -> str:
+    """Generate and store a CSRF token for a session."""
+    token = secrets.token_hex(32)
+    _csrf_tokens[sid] = token
+    return token
+
+
+def _validate_csrf_token(sid: str, token: str) -> bool:
+    """Validate a CSRF token for a session."""
+    expected = _csrf_tokens.get(sid)
+    if not expected or not token:
+        return False
+    return secrets.compare_digest(expected, token)
 
 # ---------------------------------------------------------------------------
 # In-memory rate limiter (no external dependency required)
@@ -229,6 +250,7 @@ PAGE_HTML = r"""<!DOCTYPE html>
     <h2>Step 1 — Project Setup</h2>
     <form method="post" action="/step/1">
       <input type="hidden" name="sid" value="{{ sid }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Project Root Directory</label>
       <input name="project_root" value="{{ session.project_root or '' }}"
              placeholder="/path/to/project">
@@ -243,6 +265,7 @@ PAGE_HTML = r"""<!DOCTYPE html>
     <h2>Step 2 — Upload CSV Data</h2>
     <form method="post" action="/step/2" enctype="multipart/form-data">
       <input type="hidden" name="sid" value="{{ sid }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>CSV File</label>
       <input type="file" name="csv_file" accept=".csv">
       <label>Or enter path</label>
@@ -258,6 +281,7 @@ PAGE_HTML = r"""<!DOCTYPE html>
     <h2>Step 3 — Column Configuration</h2>
     <form method="post" action="/step/3">
       <input type="hidden" name="sid" value="{{ sid }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Target Column</label>
       <input name="target_col" value="{{ session.target_col }}">
       <label>Patient ID Column</label>
@@ -275,6 +299,7 @@ PAGE_HTML = r"""<!DOCTYPE html>
     <h2>Step 4 — Model Pool</h2>
     <form method="post" action="/step/4">
       <input type="hidden" name="sid" value="{{ sid }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Model Families (comma-separated)</label>
       <input name="model_pool" value="{{ session.model_pool }}">
       <label>CV Splits</label>
@@ -299,6 +324,7 @@ CV Splits:  {{ session.cv_splits }}
     </pre>
     <form method="post" action="/step/5">
       <input type="hidden" name="sid" value="{{ sid }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="btn-group">
         <button type="submit" class="btn-primary">Confirm &amp; Split Data &rarr;</button>
         <a href="/reset?sid={{ sid }}" class="btn-secondary"
@@ -396,9 +422,11 @@ def index():
     """Render the main wizard page for the current session."""
     sid = request.cookies.get("sid") or str(uuid.uuid4())
     session = get_session(sid)
+    csrf_token = _generate_csrf_token(sid)
     resp = Response(
         render_template_string(
-            PAGE_HTML, step=session["step"], session=session, sid=sid
+            PAGE_HTML, step=session["step"], session=session, sid=sid,
+            csrf_token=csrf_token,
         )
     )
     resp.set_cookie("sid", sid, httponly=True, samesite="Strict")
@@ -409,6 +437,9 @@ def index():
 def handle_step(step_num: int):
     """Process form submission for a wizard step."""
     sid = request.form.get("sid") or request.cookies.get("sid", "")
+    csrf_token = request.form.get("csrf_token", "")
+    if not _validate_csrf_token(sid, csrf_token):
+        return "CSRF token validation failed.", 403
     session = get_session(sid)
 
     if step_num == 1:
