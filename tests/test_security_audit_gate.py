@@ -68,7 +68,7 @@ class TestSecurityAuditGateBasic:
         (models / "model.pkl").write_bytes(b"unsigned-model")
 
         report, rc = _run_gate(str(evidence), str(tmp_path / "report.json"))
-        assert rc == 1
+        assert rc == 2
         assert report["status"] == "fail"
         unsigned = [f for f in report["failures"] if f["code"] == "unsigned_model"]
         assert len(unsigned) == 1
@@ -89,7 +89,7 @@ class TestSecurityAuditGateBasic:
         _write_json(evidence / "eval.json", {"ok": True})
 
         report, rc = _run_gate(str(evidence), str(tmp_path / "report.json"), strict=True)
-        assert rc == 1
+        assert rc == 2
         assert report["status"] == "fail"
         assert report["strict_mode"] is True
         # Warnings promoted to failures
@@ -188,7 +188,7 @@ class TestSecurityAuditGateModelSignatures:
         model.write_bytes(b"tampered-model-data")
 
         report, rc = _run_gate(str(evidence), str(tmp_path / "report.json"))
-        assert rc == 1
+        assert rc == 2
         critical = [f for f in report["failures"]
                     if f["code"] == "model_signature_invalid" and f["severity"] == "critical"]
         assert len(critical) == 1

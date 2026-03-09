@@ -27,9 +27,9 @@
 | L13 权限控制 | 未授权操作 | RBAC 4 角色：admin/operator/auditor/viewer | `_security.py` | `test_rbac_receipts.py` |
 | L14 不可否认 | 执行结果伪造 | HMAC 签名执行回执 `.execution_receipt.json` | `_security.py` | `test_rbac_receipts.py` |
 | L15 Gate 审计 | 安全检查遗漏 | 第 29 道 gate `security_audit_gate` | `security_audit_gate.py` | `test_security_audit_gate.py` |
-| L16 管线自动加密 | 证据完成后未加密 | `--encrypt` flag 自动 AES 加密所有 JSON | `run_dag_pipeline.py` | — |
-| L17 管线执行回执 | 执行结果伪造/否认 | `--sign-receipt` flag 自动生成 HMAC 签名回执 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
-| L18 管线安全清理 | 临时文件残留 | `--secure-cleanup` flag 零填充删除 *.tmp/*.log | `run_dag_pipeline.py` | — |
+| L16 管线自动加密 | 证据完成后未加密 | `--encrypt` flag 自动 AES 加密所有 JSON | `run_dag_pipeline.py`, `run_strict_pipeline.py` | — |
+| L17 管线执行回执 | 执行结果伪造/否认 | `--sign-receipt` flag 自动生成 HMAC 签名回执 | `run_dag_pipeline.py`, `run_strict_pipeline.py` | `test_rbac_receipts.py` |
+| L18 管线安全清理 | 临时文件残留 | `--secure-cleanup` flag 零填充删除 *.tmp/*.log | `run_dag_pipeline.py`, `run_strict_pipeline.py` | — |
 | L19 管线 RBAC 入口 | 未授权执行管线 | `--require-role` flag 检查用户权限 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
 | L20 CSRF 防护 | 跨站请求伪造 | 每次渲染表单生成 token，POST 验证后销毁 | `mlgg_web.py` | — |
 
@@ -107,6 +107,13 @@
 - **修复**: 用 `try/except` 包裹加密和签名逻辑，失败时仅打印 `[WARN]`，不改变 exit code
 - **教训**: **安全增强功能应该 best-effort**，不能因为增强功能失败而破坏核心功能
 
+### 错误 11: `security_audit_gate` exit code 不一致
+
+- **症状**: `security_audit_gate` 失败时返回 exit code `1`，而其余 29 个 gate 返回 `2`
+- **根因**: 手动编写 `return 1 if status == "fail" else 0`，未参考其他 gate 的惯例
+- **修复**: 改为 `return 2 if status == "fail" else 0`
+- **教训**: **新增 gate 的 exit code 必须与框架约定一致**（0=pass, 2=fail）。DAG pipeline 依赖 exit code 2 判定失败
+
 ---
 
 ## 三、关键设计决策与理由
@@ -177,6 +184,7 @@
 | `README.md` | 修改 | 安全章节扩展 |
 | `SKILL.md` | 修改 | Gate 计数、序列、输出合约更新 |
 | `.gitignore` | 修改 | 新增安全工件排除项 |
+| `docs/security_hardening_skill.md` | 新增 | 本文档：安全加固 Skill 归纳总结 |
 
 ---
 
@@ -225,6 +233,7 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | 手写二进制协议 | pickle/protobuf payload 字节错误 | 用库提供的常量/builder 构造 |
 | 增强功能阻塞核心 | 加密失败导致管线报错 | 增强层用 `try/except` + `[WARN]` best-effort |
 | 多处定义同一 pattern | `_security.py` 和 `security_audit_gate.py` 敏感词不一致 | 抽取为共享常量或单一来源（已修复→`SENSITIVE_DATA_PATTERNS`） |
+| 非标准 exit code | 新 gate 用 `return 1` 而非 `return 2` | 对照框架 `_finish()` 确认 exit code 约定 |
 
 ---
 
@@ -245,11 +254,12 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `430d3bd` | Skill doc commit log 最终化 |
 | `dfb9e67` | run_strict_pipeline 安全 flags + DRY 敏感 pattern + Skill 陷阱表 |
 | `84c3506` | CSRF token 防护 + L20 |
-| `(pending)` | CSRF session cleanup fix + Skill 最终更新 |
+| `eb7e1b6` | CSRF session cleanup fix + Skill 最终更新 |
+| `(pending)` | security_audit_gate exit code 修正 (1→2) + Skill 错误记录 |
 
 ---
 
-## 七、后续可选加固方向
+## 八、后续可选加固方向
 
 1. **mTLS 通信**: 如果 mlgg_web.py 需要对外暴露，添加双向 TLS 认证
 2. **HSM 密钥管理**: 将 HMAC/AES 密钥存入硬件安全模块（如 AWS KMS/Azure Key Vault）
