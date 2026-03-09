@@ -51,6 +51,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run independent gates concurrently within each dependency layer.",
     )
+
+    security_group = parser.add_argument_group("Security")
+    security_group.add_argument(
+        "--encrypt", action="store_true",
+        help="Encrypt evidence JSON files after pipeline completion (AES-256-GCM).",
+    )
+    security_group.add_argument(
+        "--sign-receipt", action="store_true",
+        help="Generate HMAC-signed execution receipt for non-repudiation.",
+    )
+    security_group.add_argument(
+        "--secure-cleanup", action="store_true",
+        help="Securely delete temporary files after pipeline (zero-fill + unlink).",
+    )
+
     return parser.parse_args()
 
 
@@ -1101,6 +1116,47 @@ def finalize(
         for s in timed[:5]:
             print(f"  {s['execution_time_seconds']:7.1f}s  {s['name']}")
     print(f"Pipeline report: {out_path}")
+
+    # --- Security post-processing ---
+    evidence_dir = out_path.parent
+
+    if getattr(args, "sign_receipt", False):
+        try:
+            from _security import sign_execution_receipt
+            gate_results = {
+                s["name"]: ("pass" if s.get("exit_code") == 0 else "fail")
+                for s in steps if "name" in s
+            }
+            receipt_path = sign_execution_receipt(
+                evidence_dir, gate_results,
+                "pass" if success else "fail",
+            )
+            print(f"Execution receipt: {receipt_path}")
+        except Exception as exc:
+            print(f"[WARN] Failed to sign execution receipt: {exc}", file=sys.stderr)
+
+    if getattr(args, "encrypt", False):
+        try:
+            from _security import encrypt_file
+            enc_count = 0
+            for fpath in sorted(evidence_dir.glob("*.json")):
+                if fpath.is_file() and not fpath.name.startswith("."):
+                    encrypt_file(fpath)
+                    enc_count += 1
+            print(f"Encrypted {enc_count} evidence file(s) in {evidence_dir}")
+        except Exception as exc:
+            print(f"[WARN] Failed to encrypt evidence: {exc}", file=sys.stderr)
+
+    if getattr(args, "secure_cleanup", False):
+        try:
+            from _security import secure_cleanup_dir
+            cleaned = secure_cleanup_dir(evidence_dir, "*.tmp")
+            cleaned += secure_cleanup_dir(evidence_dir, "*.log")
+            if cleaned:
+                print(f"Securely deleted {cleaned} temporary file(s)")
+        except Exception as exc:
+            print(f"[WARN] Failed to secure-cleanup: {exc}", file=sys.stderr)
+
     return 0 if success else 2
 
 

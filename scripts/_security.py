@@ -39,6 +39,16 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 _HMAC_HEADER = b"MLGG-SIGNED-v1\x00"
 _HMAC_ALGO = "sha256"
+
+# Shared sensitive data patterns — single source of truth for _security.py
+# and security_audit_gate.py. Use compound keywords to avoid false positives
+# in ML contexts (e.g. "token" would match "tokenizer").
+SENSITIVE_DATA_PATTERNS: Tuple[str, ...] = (
+    "password", "api_key", "secret_key", "private_key",
+    "access_key", "credential", "ssn", "social_security",
+    "credit_card", "auth_token", "bearer_token",
+    "api_secret", "client_secret",
+)
 _KEY_ENV_VAR = "MLGG_MODEL_SECRET"
 _KEY_FILE_NAME = ".mlgg_model_key"
 
@@ -1193,16 +1203,10 @@ def run_security_audit(evidence_dir: Path) -> Dict[str, Any]:
             pass
 
     # Check 5: Sensitive data scan in JSON reports
-    sensitive_patterns = [
-        "password", "api_key", "secret_key", "private_key",
-        "access_key", "credential", "ssn", "social_security",
-        "credit_card", "auth_token", "bearer_token",
-        "api_secret", "secret_access",
-    ]
     for fpath in evidence_dir.glob("*.json"):
         try:
             content = fpath.read_text(encoding="utf-8").lower()
-            for pattern in sensitive_patterns:
+            for pattern in SENSITIVE_DATA_PATTERNS:
                 if pattern in content:
                     issues.append({
                         "severity": "high",

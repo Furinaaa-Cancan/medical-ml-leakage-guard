@@ -163,7 +163,8 @@
 | `scripts/_gate_utils.py` | 修改 | JSON 大小限制, 审计日志, resolve_path 加固 |
 | `scripts/_gate_framework.py` | 修改 | CLI 参数长度验证 |
 | `scripts/_gate_registry.py` | 修改 | 注册 security_audit_gate |
-| `scripts/run_dag_pipeline.py` | 修改 | 审计日志集成, security_audit_gate 命令构建, --encrypt/--sign-receipt 安全后处理 |
+| `scripts/run_dag_pipeline.py` | 修改 | 审计日志集成, security_audit_gate 命令构建, --encrypt/--sign-receipt/--secure-cleanup/--require-role 安全后处理 |
+| `scripts/run_strict_pipeline.py` | 修改 | --encrypt/--sign-receipt/--secure-cleanup 安全后处理对齐 |
 | `scripts/mlgg_web.py` | 修改 | CSP headers, rate limiting, 文件名清洗, 路径防护 |
 | `scripts/split_data.py` | 修改 | CSV 大小限制 |
 | `scripts/train_select_evaluate.py` | 修改 | CSV 大小限制, categorical_analysis 嵌入 |
@@ -203,11 +204,30 @@ python3 scripts/_security.py secure-delete evidence/ --pattern "*.tmp"
 
 # 审计日志链验证
 python3 scripts/_security.py verify-audit evidence/
+
+# 管线安全 flags（可组合使用）
+python3 scripts/run_dag_pipeline.py --request request.json --strict \
+  --encrypt --sign-receipt --secure-cleanup --require-role operator
 ```
 
 ---
 
-## 六、Commit 记录
+## 六、常见陷阱速查（从错误记录提炼）
+
+| 陷阱 | 触发场景 | 规避方法 |
+|------|----------|----------|
+| 硬编码计数 | 新增/删除 gate 后忘记更新 | `grep -rn "28\|29" tests/ README.md SKILL.md` |
+| DAG 尾节点变更 | 新增尾部 gate 后叶子节点/拓扑排序测试失败 | 检查所有 `order[-1]`、`get_dependents` 测试 |
+| 非标准 gate 状态 | 使用 `"warn"` 等非二元状态 | 只用 `"pass"`/`"fail"`，warnings 放 report 数组 |
+| 宽泛敏感 pattern | `"token"` 匹配 `"tokenizer"` | 用复合词 `"auth_token"` 代替单词 `"token"` |
+| 安全组件未集成 | 实现了沙盒但实际调用点仍用旧方法 | 实现后立即 grep 所有调用点确认替换 |
+| 手写二进制协议 | pickle/protobuf payload 字节错误 | 用库提供的常量/builder 构造 |
+| 增强功能阻塞核心 | 加密失败导致管线报错 | 增强层用 `try/except` + `[WARN]` best-effort |
+| 多处定义同一 pattern | `_security.py` 和 `security_audit_gate.py` 敏感词不一致 | 抽取为共享常量或单一来源（已修复→`SENSITIVE_DATA_PATTERNS`） |
+
+---
+
+## 七、Commit 记录
 
 | SHA | 说明 |
 |-----|------|
@@ -221,6 +241,8 @@ python3 scripts/_security.py verify-audit evidence/
 | `a999c05` | --encrypt/--sign-receipt 管线集成 + Skill 文档更新 |
 | `f247b45` | --secure-cleanup/--require-role 管线集成 + Skill L18-L19 |
 | `ee85885` | README English security section (6.1) |
+| `430d3bd` | Skill doc commit log 最终化 |
+| `(pending)` | run_strict_pipeline 安全 flags + DRY 敏感 pattern + Skill 陷阱表 |
 
 ---
 

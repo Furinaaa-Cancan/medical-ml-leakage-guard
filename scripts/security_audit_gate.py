@@ -47,12 +47,7 @@ register_remediations({
 GATE_NAME = "security_audit_gate"
 GATE_VERSION = "1.0.0"
 
-_SENSITIVE_PATTERNS = [
-    "password", "api_key", "secret_key", "private_key",
-    "access_key", "credential", "ssn", "social_security",
-    "credit_card", "auth_token", "bearer_token",
-    "api_secret", "secret_access",
-]
+from _security import SENSITIVE_DATA_PATTERNS as _SENSITIVE_PATTERNS
 
 _MAX_ARTIFACT_SIZE_MB = 500
 
