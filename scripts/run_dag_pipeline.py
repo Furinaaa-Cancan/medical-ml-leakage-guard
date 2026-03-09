@@ -174,6 +174,14 @@ Examples:
         "--sign-receipt", action="store_true",
         help="Generate HMAC-signed execution receipt for non-repudiation.",
     )
+    security_group.add_argument(
+        "--secure-cleanup", action="store_true",
+        help="Securely delete temporary files after pipeline (zero-fill + unlink).",
+    )
+    security_group.add_argument(
+        "--require-role", metavar="ROLE",
+        help="Require the current user to have this RBAC role (admin/operator/auditor/viewer).",
+    )
 
     return parser.parse_args()
 
@@ -642,6 +650,20 @@ def main() -> int:
         print("[FAIL] --request is required.", file=sys.stderr)
         return 2
 
+    # RBAC role check (optional)
+    if getattr(args, "require_role", None):
+        try:
+            from _security import AccessControl, get_current_user, SecurityError as _SE
+            ac = AccessControl()
+            user = get_current_user()
+            ac.require_permission(user, "pipeline.run")
+            print(f"[RBAC] User '{user}' authorized (role: {ac.get_role(user)})")
+        except _SE as exc:
+            print(f"[FAIL] {exc}", file=sys.stderr)
+            return 2
+        except ImportError:
+            print("[WARN] _security module not available; skipping RBAC check.", file=sys.stderr)
+
     if not args.strict:
         print(
             "[FAIL] run_dag_pipeline.py requires --strict for publication-grade. "
@@ -1004,6 +1026,16 @@ def _finalize(
             print(f"Encrypted {enc_count} evidence file(s) in {evidence_dir}")
         except Exception as exc:
             print(f"[WARN] Failed to encrypt evidence: {exc}", file=sys.stderr)
+
+    if getattr(args, "secure_cleanup", False):
+        try:
+            from _security import secure_cleanup_dir
+            cleaned = secure_cleanup_dir(evidence_dir, "*.tmp")
+            cleaned += secure_cleanup_dir(evidence_dir, "*.log")
+            if cleaned:
+                print(f"Securely deleted {cleaned} temporary file(s)")
+        except Exception as exc:
+            print(f"[WARN] Failed to secure-cleanup: {exc}", file=sys.stderr)
 
     return 0 if success else 2
 

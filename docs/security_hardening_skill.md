@@ -29,6 +29,8 @@
 | L15 Gate 审计 | 安全检查遗漏 | 第 29 道 gate `security_audit_gate` | `security_audit_gate.py` | `test_security_audit_gate.py` |
 | L16 管线自动加密 | 证据完成后未加密 | `--encrypt` flag 自动 AES 加密所有 JSON | `run_dag_pipeline.py` | — |
 | L17 管线执行回执 | 执行结果伪造/否认 | `--sign-receipt` flag 自动生成 HMAC 签名回执 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
+| L18 管线安全清理 | 临时文件残留 | `--secure-cleanup` flag 零填充删除 *.tmp/*.log | `run_dag_pipeline.py` | — |
+| L19 管线 RBAC 入口 | 未授权执行管线 | `--require-role` flag 检查用户权限 | `run_dag_pipeline.py` | `test_rbac_receipts.py` |
 
 ---
 
@@ -216,7 +218,8 @@ python3 scripts/_security.py verify-audit evidence/
 | `b59918c` | CLI 新命令 + README 安全文档扩展 |
 | `051e545` | RBAC + 签名执行回执 + RestrictedUnpickler 集成到 SecureModelLoader |
 | `3d68469` | 安全加固 Skill 归纳总结文档 |
-| `(pending)` | --encrypt/--sign-receipt 管线集成 + Skill 文档更新 |
+| `a999c05` | --encrypt/--sign-receipt 管线集成 + Skill 文档更新 |
+| `(pending)` | --secure-cleanup/--require-role + RBAC 入口 + Skill 最终更新 |
 
 ---
 
