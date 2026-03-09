@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue
+from _gate_utils import _check_json_file_size, add_issue
 from _gate_framework import (
     GateIssue,
     Severity,
@@ -98,6 +98,7 @@ def load_json(path: Path, failures: List[Dict[str, Any]]) -> Optional[Dict[str, 
         )
         return None
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
     except Exception as exc:
