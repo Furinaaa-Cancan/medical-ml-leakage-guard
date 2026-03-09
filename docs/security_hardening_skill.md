@@ -219,7 +219,8 @@ python3 scripts/_security.py verify-audit evidence/
 | `051e545` | RBAC + 签名执行回执 + RestrictedUnpickler 集成到 SecureModelLoader |
 | `3d68469` | 安全加固 Skill 归纳总结文档 |
 | `a999c05` | --encrypt/--sign-receipt 管线集成 + Skill 文档更新 |
-| `(pending)` | --secure-cleanup/--require-role + RBAC 入口 + Skill 最终更新 |
+| `f247b45` | --secure-cleanup/--require-role 管线集成 + Skill L18-L19 |
+| `ee85885` | README English security section (6.1) |
 
 ---
 
