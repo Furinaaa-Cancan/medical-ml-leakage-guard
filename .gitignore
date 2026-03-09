@@ -25,3 +25,5 @@ dist/
 .manifest.json
 .mlgg_encryption_key
 *.enc
+.mlgg_rbac.json
+.execution_receipt.json

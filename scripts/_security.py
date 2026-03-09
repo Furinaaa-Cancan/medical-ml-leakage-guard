@@ -514,7 +514,16 @@ class SecureModelLoader:
                 f"model_too_large: {file_size} bytes exceeds {max_model_size} limit"
             )
 
-        bundle = joblib.load(model_path)
+        # Use restricted unpickler to block arbitrary code execution
+        with model_path.open("rb") as fh:
+            try:
+                bundle = safe_pickle_load(fh)
+            except SecurityError:
+                raise
+            except Exception:
+                # Fallback for joblib-compressed formats (zlib/lz4)
+                import joblib
+                bundle = joblib.load(model_path)
 
         # Validate expected structure
         if not isinstance(bundle, dict):
@@ -754,7 +763,213 @@ def decrypt_file(enc_path: Path, key: Optional[bytes] = None) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# 9. Secure file cleanup
+# 9. Role-Based Access Control (RBAC)
+# ---------------------------------------------------------------------------
+
+class Role:
+    """Pipeline operation roles with associated permissions."""
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    AUDITOR = "auditor"
+    VIEWER = "viewer"
+
+
+_ROLE_PERMISSIONS: Dict[str, frozenset] = {
+    Role.ADMIN: frozenset({
+        "pipeline.run", "pipeline.configure", "pipeline.abort",
+        "gate.run", "gate.override",
+        "model.sign", "model.load", "model.delete",
+        "evidence.read", "evidence.write", "evidence.encrypt", "evidence.decrypt",
+        "evidence.delete",
+        "audit.read", "audit.verify",
+        "security.audit", "security.configure",
+        "user.manage",
+    }),
+    Role.OPERATOR: frozenset({
+        "pipeline.run", "pipeline.configure",
+        "gate.run",
+        "model.sign", "model.load",
+        "evidence.read", "evidence.write", "evidence.encrypt",
+        "audit.read",
+        "security.audit",
+    }),
+    Role.AUDITOR: frozenset({
+        "evidence.read", "evidence.decrypt",
+        "audit.read", "audit.verify",
+        "security.audit",
+    }),
+    Role.VIEWER: frozenset({
+        "evidence.read",
+        "audit.read",
+    }),
+}
+
+_RBAC_CONFIG_FILE = ".mlgg_rbac.json"
+
+
+class AccessControl:
+    """RBAC access control manager for pipeline operations."""
+
+    def __init__(self, config_path: Optional[Path] = None) -> None:
+        self._user_roles: Dict[str, str] = {}
+        self._config_path = config_path
+        if config_path and config_path.exists():
+            try:
+                with config_path.open("r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                self._user_roles = data.get("user_roles", {})
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    def assign_role(self, username: str, role: str) -> None:
+        """Assign a role to a user."""
+        if role not in _ROLE_PERMISSIONS:
+            raise ValueError(f"Unknown role: {role}. Valid: {list(_ROLE_PERMISSIONS.keys())}")
+        self._user_roles[username] = role
+        self._save()
+
+    def get_role(self, username: str) -> str:
+        """Get the role assigned to a user (default: viewer)."""
+        return self._user_roles.get(username, Role.VIEWER)
+
+    def check_permission(self, username: str, permission: str) -> bool:
+        """Check if a user has a specific permission."""
+        role = self.get_role(username)
+        return permission in _ROLE_PERMISSIONS.get(role, frozenset())
+
+    def require_permission(self, username: str, permission: str) -> None:
+        """Raise SecurityError if user lacks the required permission."""
+        if not self.check_permission(username, permission):
+            role = self.get_role(username)
+            raise SecurityError(
+                f"Access denied: user '{username}' (role={role}) "
+                f"lacks permission '{permission}'"
+            )
+
+    def list_permissions(self, username: str) -> List[str]:
+        """List all permissions for a user."""
+        role = self.get_role(username)
+        return sorted(_ROLE_PERMISSIONS.get(role, frozenset()))
+
+    def _save(self) -> None:
+        if self._config_path:
+            payload = {"user_roles": self._user_roles, "schema_version": 1}
+            try:
+                self._config_path.parent.mkdir(parents=True, exist_ok=True)
+                with self._config_path.open("w", encoding="utf-8") as fh:
+                    json.dump(payload, fh, indent=2)
+                    fh.write("\n")
+                self._config_path.chmod(0o600)
+            except OSError:
+                pass
+
+
+def get_current_user() -> str:
+    """Get the current system username for RBAC lookups."""
+    return os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
+
+
+# ---------------------------------------------------------------------------
+# 10. Signed pipeline execution receipts (non-repudiation)
+# ---------------------------------------------------------------------------
+
+
+def sign_execution_receipt(
+    evidence_dir: Path,
+    gate_results: Dict[str, str],
+    final_status: str,
+    key: Optional[bytes] = None,
+) -> Path:
+    """Create a signed execution receipt for non-repudiation.
+
+    The receipt records who ran the pipeline, when, what the results were,
+    and signs it with HMAC-SHA256 so it cannot be forged.
+
+    Args:
+        evidence_dir: Directory to write the receipt.
+        gate_results: Dict mapping gate names to pass/fail status.
+        final_status: Overall pipeline status.
+        key: HMAC key (uses model signing key if None).
+
+    Returns:
+        Path to the signed receipt file.
+    """
+    if key is None:
+        key = _derive_key()
+
+    import platform
+    receipt: Dict[str, Any] = {
+        "schema_version": 1,
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "executor": get_current_user(),
+        "hostname": platform.node(),
+        "pid": os.getpid(),
+        "final_status": final_status,
+        "gate_results": gate_results,
+        "gate_count": len(gate_results),
+        "passed": sum(1 for s in gate_results.values() if s == "pass"),
+        "failed": sum(1 for s in gate_results.values() if s == "fail"),
+    }
+
+    receipt_json = json.dumps(receipt, ensure_ascii=True, sort_keys=True)
+    signature = hmac.new(key, receipt_json.encode("utf-8"), hashlib.sha256).hexdigest()
+    receipt["hmac_signature"] = signature
+
+    receipt_path = evidence_dir / ".execution_receipt.json"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    with receipt_path.open("w", encoding="utf-8") as fh:
+        json.dump(receipt, fh, indent=2)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+    return receipt_path
+
+
+def verify_execution_receipt(
+    receipt_path: Path,
+    key: Optional[bytes] = None,
+) -> Dict[str, Any]:
+    """Verify a signed execution receipt.
+
+    Returns:
+        Dict with 'valid' (bool) and receipt metadata.
+    """
+    if key is None:
+        key = _derive_key()
+
+    if not receipt_path.exists():
+        return {"valid": False, "reason": "receipt_not_found"}
+
+    try:
+        with receipt_path.open("r", encoding="utf-8") as fh:
+            receipt = json.load(fh)
+    except (json.JSONDecodeError, OSError) as exc:
+        return {"valid": False, "reason": f"receipt_corrupt: {exc}"}
+
+    stored_sig = receipt.pop("hmac_signature", None)
+    if stored_sig is None:
+        return {"valid": False, "reason": "missing_signature"}
+
+    receipt_json = json.dumps(receipt, ensure_ascii=True, sort_keys=True)
+    expected_sig = hmac.new(key, receipt_json.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(stored_sig, expected_sig):
+        return {"valid": False, "reason": "signature_mismatch"}
+
+    return {
+        "valid": True,
+        "executor": receipt.get("executor"),
+        "timestamp": receipt.get("timestamp_utc"),
+        "final_status": receipt.get("final_status"),
+        "gate_count": receipt.get("gate_count"),
+        "passed": receipt.get("passed"),
+        "failed": receipt.get("failed"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 11. Secure file cleanup
 # ---------------------------------------------------------------------------
 
 
