@@ -1135,7 +1135,7 @@ python3 scripts/quick_summary.py --json ~/Desktop/MLGG_Output/heart_disease
 
 ### 6.1 Security Hardening
 
-The pipeline automatically enforces 19 layers of defense-in-depth:
+The pipeline automatically enforces 21 layers of defense-in-depth:
 
 - **HMAC model signing**: Model artifacts (`.pkl`) auto-generate HMAC-SHA256 signatures (`.pkl.sig`)
 - **Evidence integrity manifest**: All evidence files generate SHA256 checksums (`.manifest.json`)
@@ -1146,6 +1146,7 @@ The pipeline automatically enforces 19 layers of defense-in-depth:
 - **RBAC access control**: 4 roles (admin/operator/auditor/viewer) with fine-grained permissions
 - **Signed execution receipts**: HMAC-signed `.execution_receipt.json` for non-repudiation
 - **Web hardening**: CSP/X-Frame-Options/nosniff headers, upload filename regex, per-IP rate limiting (30 req/min)
+- **CSRF token protection**: Per-render token generation with `secrets.compare_digest` validation on POST
 - **Path traversal protection**: null byte rejection, forbidden system path prefixes, optional sandbox enforcement
 
 ```bash

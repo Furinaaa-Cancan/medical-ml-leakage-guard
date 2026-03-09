@@ -255,7 +255,7 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `dfb9e67` | run_strict_pipeline 安全 flags + DRY 敏感 pattern + Skill 陷阱表 |
 | `84c3506` | CSRF token 防护 + L20 |
 | `eb7e1b6` | CSRF session cleanup fix + Skill 最终更新 |
-| `(pending)` | security_audit_gate exit code 修正 (1→2) + Skill 错误记录 |
+| `087fee5` | security_audit_gate exit code 修正 (1→2) + Skill 错误记录 |
 
 ---
 
