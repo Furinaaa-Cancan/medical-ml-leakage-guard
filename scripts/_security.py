@@ -708,8 +708,10 @@ def run_security_audit(evidence_dir: Path) -> Dict[str, Any]:
 
     # Check 5: Sensitive data scan in JSON reports
     sensitive_patterns = [
-        "password", "api_key", "secret", "token", "private_key",
+        "password", "api_key", "secret_key", "private_key",
         "access_key", "credential", "ssn", "social_security",
+        "credit_card", "auth_token", "bearer_token",
+        "api_secret", "secret_access",
     ]
     for fpath in evidence_dir.glob("*.json"):
         try:

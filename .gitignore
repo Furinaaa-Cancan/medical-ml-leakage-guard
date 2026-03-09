@@ -21,3 +21,5 @@ dist/
 .coverage
 .mlgg_model_key
 *.pkl.sig
+.gate_audit.jsonl
+.manifest.json
