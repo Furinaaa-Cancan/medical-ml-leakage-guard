@@ -22,7 +22,7 @@ from _gate_framework import (
     print_gate_summary,
     register_remediations,
 )
-from _gate_utils import add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, resolve_path, to_float, to_int as _shared_to_int
+from _gate_utils import _check_json_file_size, add_issue, canonical_metric_token as _shared_canonical_metric_token, is_finite_number as _shared_is_finite_number, resolve_path, to_float, to_int as _shared_to_int
 
 
 register_remediations({
@@ -333,6 +333,7 @@ def validate_evaluation_report_shape(
 ) -> None:
     path = Path(evaluation_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -554,6 +555,7 @@ def validate_model_selection_report_shape(
 ) -> None:
     path = Path(model_selection_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -637,6 +639,7 @@ def validate_seed_sensitivity_report_shape(
 ) -> None:
     path = Path(seed_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -684,6 +687,7 @@ def validate_robustness_report_shape(
 ) -> None:
     path = Path(robustness_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -747,6 +751,7 @@ def validate_execution_attestation_shape(
 ) -> None:
     path = Path(attestation_spec_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -797,6 +802,7 @@ def validate_external_cohort_spec_shape(
 ) -> None:
     path = Path(external_cohort_spec_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -900,6 +906,7 @@ def validate_external_validation_report_shape(
 ) -> None:
     path = Path(external_validation_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -982,6 +989,7 @@ def validate_feature_group_spec_shape(
 ) -> None:
     path = Path(feature_group_spec_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -1048,6 +1056,7 @@ def validate_distribution_report_shape(
 ) -> None:
     path = Path(distribution_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -1084,6 +1093,7 @@ def validate_feature_engineering_report_shape(
 ) -> None:
     path = Path(feature_engineering_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -1128,6 +1138,7 @@ def validate_ci_matrix_report_shape(
 ) -> None:
     path = Path(ci_matrix_report_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -1162,6 +1173,7 @@ def validate_ci_matrix_report_shape(
 def load_json_object(path: str) -> Optional[Dict[str, Any]]:
     p = Path(path).expanduser().resolve()
     try:
+        _check_json_file_size(p)
         with p.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
     except Exception as exc:
@@ -1469,6 +1481,7 @@ def validate_performance_policy_spec(
 ) -> None:
     path = Path(policy_path).expanduser().resolve()
     try:
+        _check_json_file_size(path)
         with path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
         if not isinstance(payload, dict):
@@ -2719,6 +2732,7 @@ def main() -> int:
         return finish(args, failures, warnings, normalized)
 
     try:
+        _check_json_file_size(request_path)
         with request_path.open("r", encoding="utf-8") as fh:
             request = json.load(fh)
     except Exception as exc:
