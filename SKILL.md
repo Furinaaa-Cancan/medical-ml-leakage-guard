@@ -137,6 +137,35 @@ python3 scripts/mlgg.py doctor
 
 以上全部是 fail-closed 检查——违反任何一条即判定失败。
 
+### 安全加固（Security Hardening）
+
+本项目内置多层防御机制，覆盖以下攻击面：
+
+**模型工件安全**：
+- HMAC-SHA256 签名：训练完成后自动对 `.pkl` 文件生成签名（`.pkl.sig`）
+- 安全加载：`SecureModelLoader` 在反序列化前验证签名，拒绝加载被篡改的模型
+- 大小限制：模型文件超过 500MB 自动拒绝（防止 zip bomb 攻击）
+
+**证据完整性**：
+- 训练结束自动生成 SHA256 清单（`.manifest.json`），记录每个证据文件的哈希值和大小
+- 可随时验证：`python3 scripts/_security.py audit evidence/`
+- 检测篡改、缺失、敏感数据暴露
+
+**输入验证**：
+- `safe_path()`: 路径穿越防护（null byte 注入、`..` 逃逸、系统目录封锁、沙箱强制）
+- `safe_load_json()`: JSON 大小限制（100MB）+ 嵌套深度限制（50层）防止栈溢出/内存耗尽
+- `check_csv_row_limit()`: CSV 行数限制防止内存耗尽 DoS
+
+**隐私防护**：
+- `perturb_predictions()`: Laplace 机制扰动预测概率，防御成员推理攻击
+- 敏感数据扫描：审计工具自动扫描证据文件中的 API key / password / token 等
+
+**供应链验证**：
+- `verify_critical_imports()`: 运行时验证 sklearn/numpy/pandas 是否为真实库（非 monkey-patch）
+- `.mlgg_model_key` 自动生成、权限 600、已加入 `.gitignore`
+
+**CLI 工具**：`python3 scripts/_security.py [sign|verify|manifest|audit|check-deps]`
+
 ### 能力边界
 
 **能做的**：
@@ -144,6 +173,7 @@ python3 scripts/mlgg.py doctor
 - 自动防泄漏分割 + 模型训练 + 评估 + 出版级审计
 - 9 个真实数据集 + 自定义 CSV（支持中文列名）
 - 20 个 sklearn 模型族 + 4 个可选后端
+- 安全加固：HMAC 签名 + 证据清单 + 路径穿越防护 + 成员推理防御
 
 **做不了的**：
 - 图像/文本/时序等非表格数据
@@ -567,6 +597,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/mlgg_interactive.py`: terminal interactive wizard for core commands (`init/workflow/train/authority`) with command preview, confirm-before-run, and profile save/load.
 - `scripts/mlgg_pixel.py`: pixel-art interactive CLI wizard (`mlgg.py play`) for guided pipeline setup and execution with bilingual (en/zh) support, dataset-size-aware defaults, small-sample strict mode, and play-mode quick-readiness card.
 - `scripts/_gate_utils.py`: shared utility functions (`add_issue`, `load_json`, `write_json`, `to_float`) for gate scripts.
+- `scripts/_security.py`: security hardening module — HMAC model signing, path traversal protection, secure JSON loading, artifact integrity manifest, membership inference defense, dependency verification, security audit CLI.
 - `scripts/policy_generator.py`: generate recommended `performance_policy.json` from evidence reports with configurable margin and presets.
 - `scripts/gate_timeline.py`: analyze gate execution timeline, identify bottleneck gates, compute wall-clock span.
 - `scripts/gate_coverage_matrix.py`: scan evidence directory against full gate registry to produce coverage matrix.

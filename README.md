@@ -14,6 +14,7 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 - **9 个真实医学数据集**（UCI/PhysioNet/GitHub，297-14,980 行）一键下载训练
 - **交互式 CLI 向导**（中英双语，EPV 提示/类别分布/数据质量警告）
 - **自动评估报告**（ROC-AUC/PR-AUC/Brier + 95% CI + 过拟合检测）
+- **安全加固**（HMAC 模型签名/证据清单完整性校验/路径穿越防护/成员推理防御）
 
 ---
 
@@ -478,7 +479,34 @@ python3 scripts/quick_summary.py ~/Desktop/MLGG_Output/breast_cancer
 python3 scripts/quick_summary.py --json ~/Desktop/MLGG_Output/heart_disease
 ```
 
-### 6.1 交互式终端向导（高级）
+### 6.1 安全加固
+
+训练管线自动执行以下安全措施：
+
+- **HMAC 模型签名**：模型工件（`.pkl`）自动生成 HMAC-SHA256 签名（`.pkl.sig`），防止篡改
+- **证据完整性清单**：所有证据文件自动生成 SHA256 清单（`.manifest.json`），可验证是否被修改
+- **安全审计工具**：一键扫描模型签名、证据完整性、依赖真实性、敏感数据泄露、文件权限
+
+```bash
+# 签名模型
+python3 scripts/_security.py sign models/model.pkl
+
+# 验证模型签名
+python3 scripts/_security.py verify models/model.pkl
+
+# 创建证据清单
+python3 scripts/_security.py manifest evidence/
+
+# 运行安全审计
+python3 scripts/_security.py audit evidence/
+
+# 验证依赖完整性
+python3 scripts/_security.py check-deps
+```
+
+**防御覆盖**：路径穿越注入 | Pickle 反序列化 RCE | JSON 炸弹 | 成员推理攻击 | 供应链篡改 | 资源耗尽 DoS
+
+### 6.2 交互式终端向导（高级）
 
 支持核心命令：`init` / `workflow` / `train` / `authority`
 

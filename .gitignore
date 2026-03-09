@@ -19,3 +19,5 @@ output/
 build/
 dist/
 .coverage
+.mlgg_model_key
+*.pkl.sig

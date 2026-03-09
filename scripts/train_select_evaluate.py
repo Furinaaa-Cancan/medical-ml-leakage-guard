@@ -844,6 +844,48 @@ def select_features_by_filter(
     return kept, report
 
 
+def detect_categorical_features(
+    X: pd.DataFrame,
+    features: Sequence[str],
+    max_cardinality: int = 20,
+) -> Dict[str, Any]:
+    """Detect features that appear categorical based on cardinality and dtype.
+
+    Args:
+        X: Feature DataFrame (training set only).
+        features: Feature names to analyze.
+        max_cardinality: Features with unique values <= this are flagged.
+
+    Returns:
+        Dict with categorical feature report (feature names, cardinalities,
+        coercion warnings for non-numeric categoricals).
+    """
+    categorical: List[Dict[str, Any]] = []
+    coercion_warnings: List[str] = []
+    for feat in features:
+        if feat not in X.columns:
+            continue
+        series = X[feat]
+        nunique = int(series.nunique(dropna=True))
+        if nunique <= max_cardinality:
+            is_numeric = pd.api.types.is_numeric_dtype(series)
+            entry: Dict[str, Any] = {
+                "feature": feat,
+                "cardinality": nunique,
+                "is_numeric": is_numeric,
+            }
+            if nunique <= 10:
+                entry["values"] = sorted([str(v) for v in series.dropna().unique()])[:10]
+            categorical.append(entry)
+            if not is_numeric:
+                coercion_warnings.append(feat)
+    return {
+        "categorical_count": len(categorical),
+        "categorical_features": categorical,
+        "coercion_warnings": coercion_warnings,
+    }
+
+
 def impute_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Impute all columns with median after coercing to numeric.
 
@@ -5046,6 +5088,9 @@ def main() -> int:
     if not stage1_features:
         stage1_features = list(stage0_features)
 
+    categorical_report = detect_categorical_features(X_train_stage0, stage1_features)
+    stage1_report["categorical_analysis"] = categorical_report
+
     stability_frequency = feature_stability_frequency(
         X_train=X_train_stage0,
         y_train=y_train,
@@ -6516,6 +6561,12 @@ def main() -> int:
             "schema_version": 2,
         }
         joblib.dump(model_bundle, model_out)
+        # Security: HMAC-sign the model artifact
+        try:
+            from _security import sign_model_artifact, ArtifactManifest
+            sign_model_artifact(model_out)
+        except Exception:
+            pass  # Signing is advisory; do not block pipeline
 
     if args.permutation_null_out:
         rng = np.random.default_rng(args.random_seed)
@@ -6548,6 +6599,21 @@ def main() -> int:
         print(f"DistributionReport: {distribution_out}")
     if ci_matrix_out is not None:
         print(f"CIMatrixReport: {ci_matrix_out}")
+
+    # Security: create evidence integrity manifest
+    try:
+        from _security import ArtifactManifest
+        manifest = ArtifactManifest()
+        for epath in [evaluation_out, model_selection_out, ci_matrix_out,
+                      feature_engineering_out, distribution_out,
+                      external_validation_out, prediction_trace_out]:
+            if epath is not None and Path(epath).exists():
+                manifest.add_file(Path(epath))
+        manifest_out = evaluation_out.parent / ".manifest.json"
+        manifest.save(manifest_out)
+    except Exception:
+        pass  # Manifest is advisory; do not block pipeline
+
     return 0
 
 
