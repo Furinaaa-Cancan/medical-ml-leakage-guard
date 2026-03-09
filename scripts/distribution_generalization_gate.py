@@ -516,7 +516,16 @@ def main() -> int:
         ("test", "internal", test_df),
     ]
     for entry in external_refs:
-        ext_df = load_split(entry["path"])
+        try:
+            ext_df = load_split(entry["path"])
+        except Exception as exc:
+            add_issue(
+                failures,
+                "distribution_report_schema_invalid",
+                "Unable to load external cohort CSV.",
+                {"cohort_id": entry["cohort_id"], "path": entry["path"], "error": str(exc)},
+            )
+            continue
         datasets.append((entry["split_name"], entry["cohort_type"], ext_df))
 
     matrix_rows: List[Dict[str, Any]] = []
