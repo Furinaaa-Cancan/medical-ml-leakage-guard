@@ -1054,6 +1054,25 @@ def main() -> int:
     # check-deps
     deps_p = sub.add_parser("check-deps", help="Verify critical dependency integrity")
 
+    # encrypt
+    enc_p = sub.add_parser("encrypt", help="Encrypt evidence files at rest")
+    enc_p.add_argument("evidence_dir", help="Path to evidence directory")
+    enc_p.add_argument("--pattern", default="*.json", help="Glob pattern for files to encrypt (default: *.json)")
+
+    # decrypt
+    dec_p = sub.add_parser("decrypt", help="Decrypt .enc evidence files")
+    dec_p.add_argument("file", help="Path to .enc file to decrypt")
+    dec_p.add_argument("--output", help="Output path (default: strip .enc suffix)")
+
+    # secure-delete
+    sdel_p = sub.add_parser("secure-delete", help="Securely delete files (zero-fill + unlink)")
+    sdel_p.add_argument("path", help="File or directory to securely delete")
+    sdel_p.add_argument("--pattern", default="*", help="Glob pattern if path is a directory")
+
+    # verify-audit
+    va_p = sub.add_parser("verify-audit", help="Verify gate audit log chain integrity")
+    va_p.add_argument("evidence_dir", help="Path to evidence directory")
+
     args = parser.parse_args()
 
     if args.command == "audit":
@@ -1090,6 +1109,53 @@ def main() -> int:
         result = verify_critical_imports()
         print(json.dumps(result, indent=2))
         return 0 if result["verified"] else 1
+
+    elif args.command == "encrypt":
+        evidence_dir = Path(args.evidence_dir).expanduser().resolve()
+        pattern = args.pattern
+        count = 0
+        for fpath in sorted(evidence_dir.glob(pattern)):
+            if fpath.is_file() and not fpath.name.endswith(".enc"):
+                enc_path = encrypt_file(fpath)
+                print(f"Encrypted: {fpath.name} → {enc_path.name}")
+                count += 1
+        print(f"\n{count} file(s) encrypted.")
+        return 0
+
+    elif args.command == "decrypt":
+        enc_path = Path(args.file).expanduser().resolve()
+        if not enc_path.exists():
+            print(f"Error: file not found: {enc_path}", file=sys.stderr)
+            return 1
+        plaintext = decrypt_file(enc_path)
+        if args.output:
+            out = Path(args.output).expanduser().resolve()
+        else:
+            out = enc_path.with_suffix("")  # strip .enc
+        out.write_bytes(plaintext)
+        print(f"Decrypted: {enc_path.name} → {out.name}")
+        return 0
+
+    elif args.command == "secure-delete":
+        target = Path(args.path).expanduser().resolve()
+        if target.is_file():
+            secure_delete(target)
+            print(f"Securely deleted: {target}")
+        elif target.is_dir():
+            count = secure_cleanup_dir(target, args.pattern)
+            print(f"Securely deleted {count} file(s) in {target}")
+        else:
+            print(f"Error: path not found: {target}", file=sys.stderr)
+            return 1
+        return 0
+
+    elif args.command == "verify-audit":
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _gate_utils import verify_audit_chain
+        evidence_dir = Path(args.evidence_dir).expanduser().resolve()
+        result = verify_audit_chain(evidence_dir)
+        print(json.dumps(result, indent=2))
+        return 0 if result.get("valid", False) else 1
 
     else:
         parser.print_help()

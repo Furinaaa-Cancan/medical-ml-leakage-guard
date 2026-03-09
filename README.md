@@ -486,6 +486,11 @@ python3 scripts/quick_summary.py --json ~/Desktop/MLGG_Output/heart_disease
 - **HMAC 模型签名**：模型工件（`.pkl`）自动生成 HMAC-SHA256 签名（`.pkl.sig`），防止篡改
 - **证据完整性清单**：所有证据文件自动生成 SHA256 清单（`.manifest.json`），可验证是否被修改
 - **安全审计工具**：一键扫描模型签名、证据完整性、依赖真实性、敏感数据泄露、文件权限
+- **受限反序列化沙盒**：`RestrictedUnpickler` 仅允许白名单模块（sklearn/numpy/scipy/pandas），阻止 `os.system`/`subprocess.Popen` 等任意代码执行
+- **AES-256-GCM 证据加密**：敏感证据文件加密存储，自动密钥管理（`.mlgg_encryption_key`，0o600 权限）
+- **防篡改审计日志**：HMAC-SHA256 链式日志（`.gate_audit.jsonl`），每条记录链接前一条，篡改即检出
+- **安全文件清理**：零填充后删除敏感临时文件，防止数据恢复
+- **Web 安全加固**：CSP/X-Frame-Options/nosniff headers，上传文件名正则清洗，Per-IP 速率限制（30 req/min）
 
 ```bash
 # 签名模型
@@ -502,9 +507,21 @@ python3 scripts/_security.py audit evidence/
 
 # 验证依赖完整性
 python3 scripts/_security.py check-deps
+
+# 加密证据文件
+python3 scripts/_security.py encrypt evidence/
+
+# 解密证据文件
+python3 scripts/_security.py decrypt evidence/report.json.enc
+
+# 安全删除敏感文件
+python3 scripts/_security.py secure-delete evidence/ --pattern "*.tmp"
+
+# 验证审计日志链完整性
+python3 scripts/_security.py verify-audit evidence/
 ```
 
-**防御覆盖**：路径穿越注入 | Pickle 反序列化 RCE | JSON 炸弹 | 成员推理攻击 | 供应链篡改 | 资源耗尽 DoS
+**防御覆盖**：路径穿越注入 | Pickle 反序列化 RCE | JSON 炸弹 | 成员推理攻击 | 供应链篡改 | 资源耗尽 DoS | 证据篡改 | 敏感数据泄露 | Web CSRF/XSS/Clickjacking | DDoS 速率限制
 
 ### 6.2 交互式终端向导（高级）
 
