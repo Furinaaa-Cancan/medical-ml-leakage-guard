@@ -191,6 +191,9 @@
 | `README.md` | 修改 | 安全章节扩展 |
 | `SKILL.md` | 修改 | Gate 计数、序列、输出合约更新 |
 | `.gitignore` | 修改 | 新增安全工件排除项 |
+| `scripts/evidence_digest.py` | 修改 | 添加 security_audit_gate_report 到 gate_files 列表 |
+| `scripts/render_user_summary.py` | 修改 | 添加 security_audit_gate 到用户摘要 |
+| `tests/test_evidence_digest.py` | 修改 | gate 计数 28→29 |
 | `docs/security_hardening_skill.md` | 新增 | 本文档：安全加固 Skill 归纳总结 |
 
 ---
@@ -265,6 +268,7 @@ python3 scripts/run_dag_pipeline.py --request request.json --strict \
 | `087fee5` | security_audit_gate exit code 修正 (1→2) + Skill 错误记录 |
 | `fb912f0` | load_json_optional 添加 JSON 大小检查 + README 层数 19→21 |
 | `79449c9` | evidence_digest 添加 security_audit_gate_report + 硬编码 28→29 |
+| `0a5ff19` | render_user_summary 添加 security_audit_gate + Skill 错误 12 |
 
 ---
 

@@ -180,6 +180,7 @@ def main() -> int:
         "permutation_report": evidence_dir / "permutation_report.json",
         "publication_report": evidence_dir / "publication_gate_report.json",
         "self_critique_report": evidence_dir / "self_critique_report.json",
+        "security_audit_gate_report": evidence_dir / "security_audit_gate_report.json",
     }
 
     steps: List[Dict[str, Any]] = []
@@ -1073,6 +1074,21 @@ def main() -> int:
             "--report",
             str(reports["self_critique_report"]),
             *(["--allow-missing-comparison"] if args.allow_missing_compare else []),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 29: security audit gate
+    if not execute(
+        "security_audit_gate",
+        [
+            args.python,
+            str(scripts_dir / "security_audit_gate.py"),
+            "--evidence-dir",
+            str(evidence_dir),
+            "--report",
+            str(reports["security_audit_gate_report"]),
             *strict_flag,
         ],
     ):
