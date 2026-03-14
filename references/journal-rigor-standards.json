@@ -1,0 +1,129 @@
+{
+  "contract_version": "journal_rigor_standards.v1",
+  "description": "Top-tier medical journal requirements mapped to ml-leakage-guard gates. Use for gap analysis when targeting specific journals.",
+  "last_updated": "2026-03-14",
+  "journals": {
+    "nature_medicine": {
+      "full_name": "Nature Medicine",
+      "impact_factor_approx": 82.9,
+      "ml_prediction_requirements": {
+        "mandatory": [
+          {"requirement": "Independent external validation on geographically/temporally distinct cohort", "gate": "external_validation_gate", "dimension": 6},
+          {"requirement": "Complete TRIPOD+AI checklist", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "Bootstrap confidence intervals for all reported metrics", "gate": "ci_matrix_gate", "dimension": 5},
+          {"requirement": "Calibration assessment (calibration plot + ECE)", "gate": "calibration_dca_gate", "dimension": 5},
+          {"requirement": "Decision curve analysis demonstrating clinical utility", "gate": "calibration_dca_gate", "dimension": 7},
+          {"requirement": "Comparison with established clinical models/scores", "gate": "evaluation_quality_gate", "dimension": 4},
+          {"requirement": "Subgroup analysis across key demographics", "gate": "robustness_gate", "dimension": 6},
+          {"requirement": "Clear temporal split preventing data leakage", "gate": "leakage_gate", "dimension": 1},
+          {"requirement": "Patient-level data splitting (no patient in multiple splits)", "gate": "split_protocol_gate", "dimension": 1},
+          {"requirement": "Transparent feature selection process", "gate": "feature_engineering_audit_gate", "dimension": 2}
+        ],
+        "strongly_recommended": [
+          {"requirement": "Multi-seed stability analysis", "gate": "seed_stability_gate", "dimension": 6},
+          {"requirement": "Permutation test for statistical significance", "gate": "permutation_significance_gate", "dimension": 5},
+          {"requirement": "Model interpretability (SHAP/feature importance)", "gate": null, "dimension": 7},
+          {"requirement": "Prospective validation or simulation", "gate": null, "dimension": 6}
+        ],
+        "minimum_score": 92
+      }
+    },
+    "lancet_digital_health": {
+      "full_name": "The Lancet Digital Health",
+      "impact_factor_approx": 36.6,
+      "ml_prediction_requirements": {
+        "mandatory": [
+          {"requirement": "TRIPOD+AI adherence", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "External validation", "gate": "external_validation_gate", "dimension": 6},
+          {"requirement": "Calibration metrics", "gate": "calibration_dca_gate", "dimension": 5},
+          {"requirement": "Confidence intervals", "gate": "ci_matrix_gate", "dimension": 5},
+          {"requirement": "Clear data splitting methodology", "gate": "split_protocol_gate", "dimension": 1},
+          {"requirement": "No data leakage evidence", "gate": "leakage_gate", "dimension": 2},
+          {"requirement": "Clinical utility assessment", "gate": "calibration_dca_gate", "dimension": 7},
+          {"requirement": "Fairness/equity analysis across subgroups", "gate": "robustness_gate", "dimension": 6}
+        ],
+        "strongly_recommended": [
+          {"requirement": "PROBAST risk of bias assessment", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "Model comparison with simpler baselines", "gate": "model_selection_audit_gate", "dimension": 4},
+          {"requirement": "Sensitivity analysis", "gate": "seed_stability_gate", "dimension": 6}
+        ],
+        "minimum_score": 88
+      }
+    },
+    "jama": {
+      "full_name": "JAMA (Journal of the American Medical Association)",
+      "impact_factor_approx": 120.7,
+      "ml_prediction_requirements": {
+        "mandatory": [
+          {"requirement": "Rigorous study design with pre-specified analysis plan", "gate": "request_contract_gate", "dimension": 8},
+          {"requirement": "External validation in independent population", "gate": "external_validation_gate", "dimension": 6},
+          {"requirement": "Complete reporting per TRIPOD guidelines", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "Statistical significance testing", "gate": "permutation_significance_gate", "dimension": 5},
+          {"requirement": "Confidence intervals for primary and secondary outcomes", "gate": "ci_matrix_gate", "dimension": 5},
+          {"requirement": "Careful handling of missing data with sensitivity analysis", "gate": "missingness_policy_gate", "dimension": 3},
+          {"requirement": "No data leakage or temporal contamination", "gate": "leakage_gate", "dimension": 2},
+          {"requirement": "Clinical decision support evidence (NRI, DCA)", "gate": "calibration_dca_gate", "dimension": 7}
+        ],
+        "strongly_recommended": [
+          {"requirement": "Multi-center validation", "gate": "external_validation_gate", "dimension": 6},
+          {"requirement": "Algorithmic fairness assessment", "gate": "robustness_gate", "dimension": 6},
+          {"requirement": "Prospective validation plan", "gate": null, "dimension": 6}
+        ],
+        "minimum_score": 90
+      }
+    },
+    "bmj": {
+      "full_name": "BMJ (British Medical Journal)",
+      "impact_factor_approx": 105.7,
+      "ml_prediction_requirements": {
+        "mandatory": [
+          {"requirement": "TRIPOD+AI complete adherence", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "PROBAST risk of bias assessment", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "External validation", "gate": "external_validation_gate", "dimension": 6},
+          {"requirement": "Calibration assessment", "gate": "calibration_dca_gate", "dimension": 5},
+          {"requirement": "Net benefit analysis", "gate": "calibration_dca_gate", "dimension": 7},
+          {"requirement": "Bootstrap confidence intervals", "gate": "ci_matrix_gate", "dimension": 5},
+          {"requirement": "Clear temporal/geographic data splitting", "gate": "split_protocol_gate", "dimension": 1},
+          {"requirement": "Sensitivity analyses for key assumptions", "gate": "seed_stability_gate", "dimension": 6}
+        ],
+        "strongly_recommended": [
+          {"requirement": "Patient and public involvement statement", "gate": null, "dimension": 8},
+          {"requirement": "Health equity impact assessment", "gate": "robustness_gate", "dimension": 6}
+        ],
+        "minimum_score": 88
+      }
+    },
+    "npj_digital_medicine": {
+      "full_name": "npj Digital Medicine",
+      "impact_factor_approx": 15.2,
+      "ml_prediction_requirements": {
+        "mandatory": [
+          {"requirement": "TRIPOD adherence", "gate": "reporting_bias_gate", "dimension": 8},
+          {"requirement": "Train/validation/test split with no leakage", "gate": "leakage_gate", "dimension": 2},
+          {"requirement": "Confidence intervals", "gate": "ci_matrix_gate", "dimension": 5},
+          {"requirement": "Calibration metrics", "gate": "calibration_dca_gate", "dimension": 5},
+          {"requirement": "Feature importance or interpretability", "gate": null, "dimension": 7}
+        ],
+        "strongly_recommended": [
+          {"requirement": "External validation", "gate": "external_validation_gate", "dimension": 6},
+          {"requirement": "Subgroup analysis", "gate": "robustness_gate", "dimension": 6},
+          {"requirement": "Comparison with clinical baselines", "gate": "evaluation_quality_gate", "dimension": 4}
+        ],
+        "minimum_score": 80
+      }
+    }
+  },
+  "dimension_map": {
+    "1": "Data Integrity",
+    "2": "Leakage Prevention",
+    "3": "Pipeline Isolation",
+    "4": "Model Selection Rigor",
+    "5": "Statistical Validity",
+    "6": "Generalization Evidence",
+    "7": "Clinical Completeness",
+    "8": "Reporting Standards",
+    "9": "Reproducibility",
+    "10": "Security & Provenance"
+  },
+  "agent_instructions": "When user specifies a target journal, look up its requirements here and run gap analysis against current gate results. Report which mandatory requirements are not yet met and estimate the project's score against the journal's minimum_score threshold."
+}
