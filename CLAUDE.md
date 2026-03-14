@@ -42,6 +42,26 @@ When user says "这个 gate 失败了" / "fix this failure":
 2. Look up error code in `references/error-knowledge-base.json`
 3. Apply fix → re-run gate → verify pass
 
+### Mode D: Batch Review (批量评审)
+When user says "帮我批量评审这些项目" / "batch review these projects":
+1. Prepare a manifest JSON (see `references/batch-manifest.example.json`)
+2. Run `python3 scripts/mlgg.py batch-review --manifest <manifest.json> --target-journal nature_medicine`
+3. Output: comparison matrix, cross-cutting gap analysis, aggregated remediation priorities
+4. Use `--format markdown` for human-readable or `--summary-csv` for spreadsheet analysis
+
+### Literature Query Protocol
+When you need to find literature support for a review criterion or gate:
+1. Read `references/literature-knowledge-base.json`
+2. Search by `category`, `gates_implementing`, or `dimensions_affected`
+3. Cite entries by their `LIT-NNN` ID in review reports
+4. Only add entries meeting quality criteria: IF>10 journal, EQUATOR/Cochrane guideline, or PRISMA systematic review
+
+### MLGG Review Standard
+When performing structured reviews, reference `references/mlgg-review-standard.json`:
+- **Quick review** (5 min): 15 critical red-line criteria
+- **Standard review** (30 min): 40 criteria for conference/journal submissions
+- **Comprehensive review** (2 hr): 73 criteria for Nature Medicine / JAMA / BMJ level
+
 ## 10-Dimension Scoring Rubric (100-point scale)
 
 Used for quantitative evaluation of any medical ML project:

@@ -1,0 +1,1099 @@
+{
+  "contract_version": "mlgg_review_standard.v1",
+  "standard_name": "MLGG Medical ML Review Standard",
+  "version": "1.0",
+  "last_updated": "2026-03-14",
+  "description": "Independent quantitative review standard for medical ML prediction models. Covers 10 dimensions with 73 criteria across 3 review levels. Each criterion maps to specific gates, literature references, and pass conditions.",
+  "review_levels": {
+    "quick": {
+      "estimated_time": "5 minutes",
+      "criteria_count": 15,
+      "description": "Critical red-line checks — catches fatal flaws that invalidate all results"
+    },
+    "standard": {
+      "estimated_time": "30 minutes",
+      "criteria_count": 40,
+      "description": "Standard review coverage for conference/journal submissions"
+    },
+    "comprehensive": {
+      "estimated_time": "2 hours",
+      "criteria_count": 73,
+      "description": "Top-journal-grade full review — Nature Medicine / JAMA / BMJ / Lancet level"
+    }
+  },
+  "dimensions": {
+    "data_integrity": {
+      "id": 1,
+      "name": "Data Integrity",
+      "name_zh": "数据完整性",
+      "weight": 12,
+      "criteria": [
+        {
+          "id": "D1.1",
+          "text": "Train/validation/test datasets are physically separate files (no path reuse)",
+          "text_zh": "训练/验证/测试数据集为物理分离的文件（无路径复用）",
+          "level": "quick",
+          "pass_condition": "Three distinct CSV/Parquet files exist with no shared file paths",
+          "evidence_required": "split_protocol_report.json with status=pass",
+          "gate": "split_protocol_gate",
+          "literature": ["LIT-001", "LIT-002"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D1.2",
+          "text": "Patient-level disjointness — no patient appears in multiple splits",
+          "text_zh": "患者级别不重叠（同一患者不出现在多个分割中）",
+          "level": "quick",
+          "pass_condition": "Entity overlap count = 0 across all split pairs",
+          "evidence_required": "split_protocol_report.json entity_overlap_audit.overlap_count = 0",
+          "gate": "split_protocol_gate",
+          "literature": ["LIT-001", "LIT-009"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D1.3",
+          "text": "Row-level overlap audit passes (no duplicate rows across splits)",
+          "text_zh": "行级别重叠审计通过（分割间无重复行）",
+          "level": "quick",
+          "pass_condition": "row_overlap_audit.overlap_count = 0",
+          "evidence_required": "split_protocol_report.json row_overlap_audit",
+          "gate": "split_protocol_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D1.4",
+          "text": "Temporal ordering preserved (test data is chronologically after training)",
+          "text_zh": "时间顺序保持（测试数据在时间上晚于训练数据）",
+          "level": "standard",
+          "pass_condition": "Out-of-time split with max(train_date) < min(test_date)",
+          "evidence_required": "split_protocol_report.json temporal_validation section",
+          "gate": "split_protocol_gate",
+          "literature": ["LIT-001", "LIT-009"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D1.5",
+          "text": "Exclusion criteria documented with patient flow diagram",
+          "text_zh": "排除标准已记录，附患者流程图",
+          "level": "standard",
+          "pass_condition": "Exclusion criteria section present in study protocol or report",
+          "evidence_required": "Documentation artifact or reporting_bias_checklist",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001", "LIT-003"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D1.6",
+          "text": "Event rate and sample counts documented per split",
+          "text_zh": "每个分割的事件率和样本数已记录",
+          "level": "standard",
+          "pass_condition": "train/valid/test sample_count and event_rate present in evidence",
+          "evidence_required": "split_protocol_report.json or evaluation_report.json",
+          "gate": "split_protocol_gate",
+          "literature": ["LIT-001", "LIT-005"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D1.7",
+          "text": "Covariate shift audit between train and holdout splits",
+          "text_zh": "训练集与保留集之间的协变量漂移审计",
+          "level": "comprehensive",
+          "pass_condition": "covariate_shift_report.json with no critical drift flags",
+          "evidence_required": "covariate_shift_report.json",
+          "gate": "covariate_shift_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "leakage_prevention": {
+      "id": 2,
+      "name": "Leakage Prevention",
+      "name_zh": "防泄漏",
+      "weight": 15,
+      "criteria": [
+        {
+          "id": "D2.1",
+          "text": "No target leakage — target variable not used as feature",
+          "text_zh": "无目标泄漏——目标变量未用作特征",
+          "level": "quick",
+          "pass_condition": "Leakage gate passes with no target_in_features flag",
+          "evidence_required": "leakage_audit_report.json status=pass",
+          "gate": "leakage_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D2.2",
+          "text": "No definition variable leak — disease-defining variables excluded from predictors",
+          "text_zh": "无定义变量泄漏——疾病定义变量已从预测因子中排除",
+          "level": "quick",
+          "pass_condition": "definition_variable_guard passes",
+          "evidence_required": "definition_variable_report.json",
+          "gate": "definition_variable_guard",
+          "literature": ["LIT-009", "LIT-010"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D2.3",
+          "text": "No feature lineage leakage — derived features do not descend from forbidden ancestors",
+          "text_zh": "无特征谱系泄漏——派生特征不来自禁止的祖先变量",
+          "level": "quick",
+          "pass_condition": "feature_lineage_gate passes with no forbidden ancestors",
+          "evidence_required": "feature_lineage_report.json",
+          "gate": "feature_lineage_gate",
+          "literature": ["LIT-009", "LIT-010"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D2.4",
+          "text": "All features available at or before t_index (no post-outcome features)",
+          "text_zh": "所有特征在 t_index 时或之前可用（无结局后特征）",
+          "level": "quick",
+          "pass_condition": "No features with availability_time > t_index",
+          "evidence_required": "leakage_audit_report.json temporal_check",
+          "gate": "leakage_gate",
+          "literature": ["LIT-001", "LIT-009", "LIT-010"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D2.5",
+          "text": "ICD/diagnosis code timestamp audit against t_index",
+          "text_zh": "ICD/诊断代码时间戳与 t_index 的审计",
+          "level": "standard",
+          "pass_condition": "All diagnosis codes timestamped before t_index",
+          "evidence_required": "leakage_audit_report.json or manual audit documentation",
+          "gate": "leakage_gate",
+          "literature": ["LIT-010"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D2.6",
+          "text": "As-of joins used for all external/relational table lookups",
+          "text_zh": "所有外部/关系表查找使用 as-of 连接",
+          "level": "standard",
+          "pass_condition": "Code review confirms temporal-aware joins",
+          "evidence_required": "Code audit or feature_lineage_report.json",
+          "gate": "feature_lineage_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D2.7",
+          "text": "Feature definitions versioned with generation code",
+          "text_zh": "特征定义已版本化，附生成代码",
+          "level": "comprehensive",
+          "pass_condition": "Feature generation code tracked in version control",
+          "evidence_required": "Git history or feature_engineering_audit_report.json",
+          "gate": "feature_engineering_audit_gate",
+          "literature": ["LIT-001", "LIT-025"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D2.8",
+          "text": "No label leakage via ICD code co-occurrence patterns",
+          "text_zh": "无通过 ICD 编码共现模式的标签泄漏",
+          "level": "comprehensive",
+          "pass_condition": "ICD code temporal analysis shows no post-outcome encoding",
+          "evidence_required": "Manual audit or leakage_audit_report.json icd_check",
+          "gate": "leakage_gate",
+          "literature": ["LIT-010", "LIT-012"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        }
+      ]
+    },
+    "pipeline_isolation": {
+      "id": 3,
+      "name": "Pipeline Isolation",
+      "name_zh": "流水线隔离",
+      "weight": 12,
+      "criteria": [
+        {
+          "id": "D3.1",
+          "text": "Preprocessors (scalers, encoders) fitted on training folds only",
+          "text_zh": "预处理器（标准化器、编码器）仅在训练折上拟合",
+          "level": "quick",
+          "pass_condition": "No fit() calls on validation/test data",
+          "evidence_required": "Code audit or pipeline isolation evidence",
+          "gate": "leakage_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D3.2",
+          "text": "Imputers fitted on training folds only, transform applied forward",
+          "text_zh": "插补器仅在训练折上拟合，变换向前应用",
+          "level": "quick",
+          "pass_condition": "Imputation fit only on train, transform on valid/test",
+          "evidence_required": "missingness_policy_report.json or code audit",
+          "gate": "missingness_policy_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D3.3",
+          "text": "SMOTE/resampling applied only on training folds (never valid/test)",
+          "text_zh": "SMOTE/重采样仅在训练折上应用（不在验证/测试上）",
+          "level": "quick",
+          "pass_condition": "Resampling code only within training loop/fold",
+          "evidence_required": "imbalance_policy_report.json or code audit",
+          "gate": "imbalance_policy_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D3.4",
+          "text": "Feature selection performed inside CV loops only",
+          "text_zh": "特征选择仅在交叉验证循环内执行",
+          "level": "standard",
+          "pass_condition": "Feature selection not applied globally before CV",
+          "evidence_required": "feature_engineering_audit_report.json",
+          "gate": "feature_engineering_audit_gate",
+          "literature": ["LIT-009", "LIT-025"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D3.5",
+          "text": "No target/outcome values used in feature imputation",
+          "text_zh": "特征插补中未使用目标/结局值",
+          "level": "standard",
+          "pass_condition": "Imputation pipeline does not access y_train",
+          "evidence_required": "missingness_policy_report.json",
+          "gate": "missingness_policy_gate",
+          "literature": ["LIT-009"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D3.6",
+          "text": "Preprocessing + model kept in one fold-aware pipeline object",
+          "text_zh": "预处理和模型保持在一个感知折的管道对象中",
+          "level": "standard",
+          "pass_condition": "sklearn Pipeline or equivalent encapsulates full flow",
+          "evidence_required": "Code audit",
+          "gate": "leakage_gate",
+          "literature": ["LIT-011", "LIT-025"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D3.7",
+          "text": "MICE imputation uses scale guard and audited fallback for oversized data",
+          "text_zh": "MICE 插补使用缩放保护和大数据审计回退",
+          "level": "comprehensive",
+          "pass_condition": "mice_with_scale_guard enforced when MICE is used",
+          "evidence_required": "missingness_policy_report.json mice_scale_guard section",
+          "gate": "missingness_policy_gate",
+          "literature": ["LIT-009"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "model_selection_rigor": {
+      "id": 4,
+      "name": "Model Selection Rigor",
+      "name_zh": "模型选择严谨性",
+      "weight": 10,
+      "criteria": [
+        {
+          "id": "D4.1",
+          "text": "Candidate model pool ≥ 3 families including interpretable baseline (logistic regression)",
+          "text_zh": "候选模型池 ≥ 3 个家族，包含可解释基线（逻辑回归）",
+          "level": "quick",
+          "pass_condition": "model_selection_report shows ≥3 families with logistic baseline",
+          "evidence_required": "model_selection_report.json",
+          "gate": "model_selection_audit_gate",
+          "literature": ["LIT-001", "LIT-024"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D4.2",
+          "text": "No test set peeking during architecture selection or hyperparameter tuning",
+          "text_zh": "架构选择和超参数调优期间未窥视测试集",
+          "level": "quick",
+          "pass_condition": "All test_used_* flags are false in tuning protocol",
+          "evidence_required": "model_selection_report.json test_used flags",
+          "gate": "tuning_leakage_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D4.3",
+          "text": "Hyperparameters tuned using inner CV or validation set only",
+          "text_zh": "超参数仅使用内层交叉验证或验证集调优",
+          "level": "standard",
+          "pass_condition": "Tuning protocol specifies inner_cv or validation scope",
+          "evidence_required": "model_selection_report.json tuning_scope",
+          "gate": "tuning_leakage_gate",
+          "literature": ["LIT-001", "LIT-009"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D4.4",
+          "text": "One-SE rule or simplicity preference documented in model selection",
+          "text_zh": "模型选择中记录了 one-SE 规则或简约偏好",
+          "level": "standard",
+          "pass_condition": "Selection report documents simplicity/one-SE consideration",
+          "evidence_required": "model_selection_report.json",
+          "gate": "model_selection_audit_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D4.5",
+          "text": "Threshold/calibration selected without final test outcomes",
+          "text_zh": "阈值/校准在不使用最终测试结局的情况下选择",
+          "level": "standard",
+          "pass_condition": "Threshold selection split is validation or inner-CV, not test",
+          "evidence_required": "model_selection_report.json threshold_feasibility",
+          "gate": "model_selection_audit_gate",
+          "literature": ["LIT-001", "LIT-009"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D4.6",
+          "text": "Model pool policy explicitly declared (families, max trials, search strategy)",
+          "text_zh": "模型池策略明确声明（家族、最大试验数、搜索策略）",
+          "level": "comprehensive",
+          "pass_condition": "Model selection report includes pool policy section",
+          "evidence_required": "model_selection_report.json model_pool_policy",
+          "gate": "model_selection_audit_gate",
+          "literature": ["LIT-001"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D4.7",
+          "text": "Regularization evidence documented per model family (L1/L2/tree complexity)",
+          "text_zh": "每个模型家族的正则化证据已记录（L1/L2/树复杂度）",
+          "level": "comprehensive",
+          "pass_condition": "Regularization parameters documented in selection artifacts",
+          "evidence_required": "model_selection_report.json regularization_evidence",
+          "gate": "model_selection_audit_gate",
+          "literature": ["LIT-024"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "statistical_validity": {
+      "id": 5,
+      "name": "Statistical Validity",
+      "name_zh": "统计有效性",
+      "weight": 12,
+      "criteria": [
+        {
+          "id": "D5.1",
+          "text": "Bootstrap or repeated-resampling confidence intervals for all primary metrics",
+          "text_zh": "所有主要指标的 Bootstrap 或重复重采样置信区间",
+          "level": "quick",
+          "pass_condition": "CI reported for ROC-AUC, PR-AUC, and primary metric",
+          "evidence_required": "evaluation_report.json confidence_intervals section",
+          "gate": "ci_matrix_gate",
+          "literature": ["LIT-001", "LIT-002"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D5.2",
+          "text": "Label permutation test with chance-level expectation",
+          "text_zh": "标签排列检验，预期为随机水平",
+          "level": "standard",
+          "pass_condition": "Permutation p-value < 0.05 and permuted metrics near chance",
+          "evidence_required": "robustness_report.json permutation_test section",
+          "gate": "permutation_significance_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D5.3",
+          "text": "Calibration metrics reported (ECE, calibration slope, calibration intercept)",
+          "text_zh": "校准指标已报告（ECE、校准斜率、校准截距）",
+          "level": "standard",
+          "pass_condition": "ECE < 0.10 and calibration slope within [0.8, 1.2]",
+          "evidence_required": "evaluation_report.json calibration section",
+          "gate": "calibration_dca_gate",
+          "literature": ["LIT-001", "LIT-002", "LIT-022"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D5.4",
+          "text": "Decision curve analysis demonstrating net benefit over treat-all/treat-none",
+          "text_zh": "决策曲线分析证明净收益优于全治疗/不治疗策略",
+          "level": "standard",
+          "pass_condition": "Net benefit > treat-all in clinically relevant threshold range",
+          "evidence_required": "evaluation_report.json dca section or dca_report.json",
+          "gate": "calibration_dca_gate",
+          "literature": ["LIT-022"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D5.5",
+          "text": "No non-finite metric values (NaN, Inf) in any evidence file",
+          "text_zh": "任何证据文件中无非有限指标值（NaN, Inf）",
+          "level": "quick",
+          "pass_condition": "All numeric values in evidence files are finite",
+          "evidence_required": "All JSON evidence files",
+          "gate": "metric_consistency_gate",
+          "literature": ["LIT-009"],
+          "severity": "CRITICAL",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D5.6",
+          "text": "Prediction trace replay matches evaluation report metrics within tolerance",
+          "text_zh": "预测轨迹重放与评估报告指标在容差范围内一致",
+          "level": "standard",
+          "pass_condition": "Replayed PR-AUC/ROC-AUC/Brier match within policy tolerance",
+          "evidence_required": "prediction_trace.csv + evaluation_report.json",
+          "gate": "prediction_replay_gate",
+          "literature": ["LIT-009", "LIT-011"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D5.7",
+          "text": "Metric consistency validated — precision==PPV, formulas match confusion matrix",
+          "text_zh": "指标一致性已验证——precision==PPV，公式与混淆矩阵一致",
+          "level": "comprehensive",
+          "pass_condition": "All metric cross-checks pass within numerical tolerance",
+          "evidence_required": "evaluation_report.json metric_consistency section",
+          "gate": "metric_consistency_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D5.8",
+          "text": "DeLong test for AUC comparison between candidate and baseline models",
+          "text_zh": "DeLong 检验用于候选模型与基线模型的 AUC 比较",
+          "level": "comprehensive",
+          "pass_condition": "DeLong p-value reported for primary model vs baseline",
+          "evidence_required": "evaluation_report.json model_comparison.delong section",
+          "gate": "evaluation_quality_gate",
+          "literature": ["LIT-021"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "generalization_evidence": {
+      "id": 6,
+      "name": "Generalization Evidence",
+      "name_zh": "泛化证据",
+      "weight": 10,
+      "criteria": [
+        {
+          "id": "D6.1",
+          "text": "Train-test generalization gap within policy thresholds (fail-closed)",
+          "text_zh": "训练-测试泛化差距在策略阈值内（失败即关闭）",
+          "level": "quick",
+          "pass_condition": "gap_thresholds for train-valid, valid-test, train-test all pass",
+          "evidence_required": "evaluation_report.json gap_analysis section",
+          "gate": "generalization_gap_gate",
+          "literature": ["LIT-009"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D6.2",
+          "text": "At least one external validation cohort (cross-period or cross-institution)",
+          "text_zh": "至少一个外部验证队列（跨时间段或跨机构）",
+          "level": "standard",
+          "pass_condition": "external_validation_report.json present with transport_gap metrics",
+          "evidence_required": "external_validation_report.json",
+          "gate": "external_validation_gate",
+          "literature": ["LIT-001", "LIT-002", "LIT-003"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D6.3",
+          "text": "Multi-seed stability analysis across ≥5 random seeds",
+          "text_zh": "多种子稳定性分析，跨 ≥5 个随机种子",
+          "level": "standard",
+          "pass_condition": "seed_stability_report.json passes gate thresholds",
+          "evidence_required": "seed_stability_report.json",
+          "gate": "seed_stability_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D6.4",
+          "text": "Subgroup robustness analysis across demographic/clinical variables",
+          "text_zh": "跨人口统计/临床变量的亚组稳健性分析",
+          "level": "standard",
+          "pass_condition": "robustness_report.json subgroup analysis present",
+          "evidence_required": "robustness_report.json or evaluation_report.json subgroup section",
+          "gate": "robustness_gate",
+          "literature": ["LIT-001", "LIT-013", "LIT-016"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D6.5",
+          "text": "Transport gap acceptable on external cohort (primary metric drop < 15%)",
+          "text_zh": "外部队列上的传输差距可接受（主要指标下降 < 15%）",
+          "level": "comprehensive",
+          "pass_condition": "Transport gap < 0.15 absolute for primary metric",
+          "evidence_required": "external_validation_report.json transport_gap section",
+          "gate": "external_validation_gate",
+          "literature": ["LIT-001", "LIT-002"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D6.6",
+          "text": "Time-slice robustness analysis across different temporal windows",
+          "text_zh": "跨不同时间窗口的时间切片稳健性分析",
+          "level": "comprehensive",
+          "pass_condition": "Performance stable across temporal slices",
+          "evidence_required": "robustness_report.json time_slice section",
+          "gate": "robustness_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D6.7",
+          "text": "Ablation study for suspect/high-impact features",
+          "text_zh": "对可疑/高影响特征进行消融研究",
+          "level": "comprehensive",
+          "pass_condition": "Ablation results documented showing feature contribution",
+          "evidence_required": "robustness_report.json ablation section or separate ablation report",
+          "gate": "robustness_gate",
+          "literature": ["LIT-009", "LIT-025"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "clinical_completeness": {
+      "id": 7,
+      "name": "Clinical Completeness",
+      "name_zh": "临床完整性",
+      "weight": 8,
+      "criteria": [
+        {
+          "id": "D7.1",
+          "text": "Full clinical metric panel: accuracy, precision/PPV, NPV, sensitivity, specificity, F1, F2, ROC-AUC, PR-AUC, Brier",
+          "text_zh": "完整临床指标面板：准确率、精确率/PPV、NPV、灵敏度、特异度、F1、F2、ROC-AUC、PR-AUC、Brier",
+          "level": "standard",
+          "pass_condition": "All 10 metrics present in evaluation report for test split",
+          "evidence_required": "evaluation_report.json metrics section",
+          "gate": "clinical_metrics_gate",
+          "literature": ["LIT-001", "LIT-002"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D7.2",
+          "text": "Confusion matrix provided for train/valid/test with consistency validation",
+          "text_zh": "训练/验证/测试的混淆矩阵已提供，附一致性验证",
+          "level": "standard",
+          "pass_condition": "Confusion matrix present and consistent with reported metrics",
+          "evidence_required": "evaluation_report.json confusion_matrix section",
+          "gate": "clinical_metrics_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D7.3",
+          "text": "Threshold feasibility documented with selection/guard split flags",
+          "text_zh": "阈值可行性已记录，附选择/保护分割标志",
+          "level": "standard",
+          "pass_condition": "threshold_feasibility with selection_split and guard_split flags",
+          "evidence_required": "model_selection_report.json threshold_feasibility",
+          "gate": "model_selection_audit_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D7.4",
+          "text": "NRI (Net Reclassification Improvement) vs clinical baseline reported",
+          "text_zh": "报告了 NRI（净重分类改善）与临床基线的对比",
+          "level": "comprehensive",
+          "pass_condition": "NRI with CI reported vs prevalence and logistic baselines",
+          "evidence_required": "evaluation_report.json model_comparison.nri section",
+          "gate": "evaluation_quality_gate",
+          "literature": ["LIT-020"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D7.5",
+          "text": "IDI (Integrated Discrimination Improvement) vs baseline reported",
+          "text_zh": "报告了 IDI（综合判别改善）与基线的对比",
+          "level": "comprehensive",
+          "pass_condition": "IDI value and p-value reported vs baselines",
+          "evidence_required": "evaluation_report.json model_comparison.idi section",
+          "gate": "evaluation_quality_gate",
+          "literature": ["LIT-020"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D7.6",
+          "text": "McNemar test for classification comparison at operating threshold",
+          "text_zh": "在操作阈值处进行 McNemar 分类比较检验",
+          "level": "comprehensive",
+          "pass_condition": "McNemar test reported for primary model vs baseline",
+          "evidence_required": "evaluation_report.json model_comparison section",
+          "gate": "evaluation_quality_gate",
+          "literature": ["LIT-020"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "reporting_standards": {
+      "id": 8,
+      "name": "Reporting Standards",
+      "name_zh": "报告标准",
+      "weight": 8,
+      "criteria": [
+        {
+          "id": "D8.1",
+          "text": "TRIPOD+AI 2024 checklist completed with ≥80% items satisfied",
+          "text_zh": "TRIPOD+AI 2024 清单已完成，≥80% 条目满足",
+          "level": "quick",
+          "pass_condition": "reporting_bias_checklist.json tripod_ai pass rate ≥ 0.80",
+          "evidence_required": "reporting_bias_checklist.json",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D8.2",
+          "text": "PROBAST+AI risk of bias assessment completed",
+          "text_zh": "PROBAST+AI 偏倚风险评估已完成",
+          "level": "standard",
+          "pass_condition": "PROBAST signalling questions answered in checklist",
+          "evidence_required": "reporting_bias_checklist.json probast section",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-002"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D8.3",
+          "text": "Exclusion criteria and missing data handling documented",
+          "text_zh": "排除标准和缺失数据处理已记录",
+          "level": "standard",
+          "pass_condition": "Documentation present in study protocol or report",
+          "evidence_required": "reporting_bias_checklist.json or study_protocol",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001", "LIT-003"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D8.4",
+          "text": "Failure modes and known limitations documented",
+          "text_zh": "失败模式和已知局限性已记录",
+          "level": "standard",
+          "pass_condition": "Limitations section present in final report",
+          "evidence_required": "reporting_bias_checklist.json limitations_documented",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D8.5",
+          "text": "Predictive claims clearly separated from causal claims",
+          "text_zh": "预测性主张与因果性主张明确分离",
+          "level": "standard",
+          "pass_condition": "No causal language used for prediction model results",
+          "evidence_required": "Manual review of manuscript/report",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D8.6",
+          "text": "Model availability / code sharing statement provided",
+          "text_zh": "模型可用性/代码共享声明已提供",
+          "level": "comprehensive",
+          "pass_condition": "Code/model availability statement in checklist",
+          "evidence_required": "reporting_bias_checklist.json model_availability",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001", "LIT-026"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D8.7",
+          "text": "Data availability statement provided",
+          "text_zh": "数据可用性声明已提供",
+          "level": "comprehensive",
+          "pass_condition": "Data availability statement in checklist or manuscript",
+          "evidence_required": "reporting_bias_checklist.json data_availability",
+          "gate": "reporting_bias_gate",
+          "literature": ["LIT-001", "LIT-030"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "reproducibility": {
+      "id": 9,
+      "name": "Reproducibility",
+      "name_zh": "可重复性",
+      "weight": 8,
+      "criteria": [
+        {
+          "id": "D9.1",
+          "text": "Random seeds fixed and logged for all stochastic components",
+          "text_zh": "所有随机组件的随机种子已固定并记录",
+          "level": "quick",
+          "pass_condition": "Seed values present in training config and evidence",
+          "evidence_required": "training_config.json or evaluation_report.json",
+          "gate": "seed_stability_gate",
+          "literature": ["LIT-001"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D9.2",
+          "text": "Software versions and hardware constraints logged",
+          "text_zh": "软件版本和硬件约束已记录",
+          "level": "standard",
+          "pass_condition": "Version info in training config or attestation",
+          "evidence_required": "execution_attestation.json or training_config.json",
+          "gate": "execution_attestation_gate",
+          "literature": ["LIT-001", "LIT-023"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D9.3",
+          "text": "Full training/evaluation config files saved as artifacts",
+          "text_zh": "完整的训练/评估配置文件已保存为工件",
+          "level": "standard",
+          "pass_condition": "Config JSON files present in evidence directory",
+          "evidence_required": "training_config.json in evidence directory",
+          "gate": "execution_attestation_gate",
+          "literature": ["LIT-001", "LIT-023"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D9.4",
+          "text": "Signed execution attestation with payload covering critical artifact hashes",
+          "text_zh": "签名执行证明，有效载荷覆盖关键工件哈希",
+          "level": "comprehensive",
+          "pass_condition": "execution_attestation.json with valid signature and hash bindings",
+          "evidence_required": "execution_attestation.json",
+          "gate": "execution_attestation_gate",
+          "literature": ["LIT-023"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D9.5",
+          "text": "Manifest lock against baseline with exact match before publication claim",
+          "text_zh": "清单锁定与基线精确匹配后方可发表",
+          "level": "comprehensive",
+          "pass_condition": "manifest_lock_report.json with baseline_match=true",
+          "evidence_required": "manifest_lock_report.json",
+          "gate": "manifest_lock",
+          "literature": ["LIT-023"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D9.6",
+          "text": "End-to-end rerun reproduces results within tolerance",
+          "text_zh": "端到端重跑在容差范围内重现结果",
+          "level": "comprehensive",
+          "pass_condition": "Rerun metrics match original within declared tolerance",
+          "evidence_required": "Rerun evidence or attestation comparison",
+          "gate": "execution_attestation_gate",
+          "literature": ["LIT-001", "LIT-023"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "security_provenance": {
+      "id": 10,
+      "name": "Security & Provenance",
+      "name_zh": "安全与溯源",
+      "weight": 5,
+      "criteria": [
+        {
+          "id": "D10.1",
+          "text": "Artifact integrity verification (hash-based tamper detection)",
+          "text_zh": "工件完整性验证（基于哈希的篡改检测）",
+          "level": "standard",
+          "pass_condition": "SHA-256 hashes computed and verified for all evidence files",
+          "evidence_required": "manifest_lock_report.json or security_audit_report.json",
+          "gate": "security_audit_gate",
+          "literature": ["LIT-023"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D10.2",
+          "text": "No sensitive data (PII/PHI) in model artifacts or evidence files",
+          "text_zh": "模型工件或证据文件中无敏感数据（PII/PHI）",
+          "level": "standard",
+          "pass_condition": "Security scan shows no PII/PHI patterns",
+          "evidence_required": "security_audit_report.json",
+          "gate": "security_audit_gate",
+          "literature": ["LIT-026", "LIT-030"],
+          "severity": "HIGH",
+          "fail_action": "block_all_claims"
+        },
+        {
+          "id": "D10.3",
+          "text": "Witness quorum and independent key custody for signing authorities",
+          "text_zh": "见证人法定人数和签名机构的独立密钥保管",
+          "level": "comprehensive",
+          "pass_condition": "Witness records present with independent key verification",
+          "evidence_required": "witness_records in attestation artifacts",
+          "gate": "execution_attestation_gate",
+          "literature": ["LIT-023"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D10.4",
+          "text": "Dependency verification and supply chain integrity",
+          "text_zh": "依赖项验证和供应链完整性",
+          "level": "comprehensive",
+          "pass_condition": "Requirements/lockfile present with hash verification",
+          "evidence_required": "requirements.txt or pyproject.toml with lockfile",
+          "gate": "security_audit_gate",
+          "literature": ["LIT-023"],
+          "severity": "LOW",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "fairness_equity": {
+      "id": 11,
+      "name": "Fairness & Equity",
+      "name_zh": "公平性与公正性",
+      "weight": 0,
+      "weight_note": "Scored as part of generalization_evidence (D6) and reporting_standards (D8) weights. Listed separately for structured assessment per TRIPOD+AI/PROBAST+AI requirements.",
+      "criteria": [
+        {
+          "id": "D11.1",
+          "text": "Subgroup performance reported across key demographic/clinical variables",
+          "text_zh": "报告跨关键人口统计/临床变量的亚组表现",
+          "level": "standard",
+          "pass_condition": "Performance metrics reported per subgroup",
+          "evidence_required": "evaluation_report.json subgroup_performance section",
+          "gate": "robustness_gate",
+          "literature": ["LIT-001", "LIT-013", "LIT-016"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D11.2",
+          "text": "Equalized odds gap < 0.15 across demographic subgroups",
+          "text_zh": "人口统计亚组间的均等化赔率差距 < 0.15",
+          "level": "standard",
+          "pass_condition": "Max equalized odds gap < 0.15",
+          "evidence_required": "fairness_equity_report.json equalized_odds section",
+          "gate": "fairness_equity_gate",
+          "literature": ["LIT-013", "LIT-015", "LIT-029"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D11.3",
+          "text": "Disparate impact ratio > 0.80 (four-fifths rule)",
+          "text_zh": "差异影响比 > 0.80（四分之五规则）",
+          "level": "standard",
+          "pass_condition": "Disparate impact ratio > 0.80 for all subgroup pairs",
+          "evidence_required": "fairness_equity_report.json disparate_impact section",
+          "gate": "fairness_equity_gate",
+          "literature": ["LIT-013", "LIT-028"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D11.4",
+          "text": "Minimum subgroup size documented and underpowered subgroups flagged",
+          "text_zh": "最小亚组大小已记录，统计效力不足的亚组已标记",
+          "level": "comprehensive",
+          "pass_condition": "All subgroups ≥ 20 samples or flagged as underpowered",
+          "evidence_required": "fairness_equity_report.json subgroup_sizes",
+          "gate": "fairness_equity_gate",
+          "literature": ["LIT-013", "LIT-029"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D11.5",
+          "text": "Disparity mitigation strategy documented if bias detected",
+          "text_zh": "如检测到偏差，已记录差异缓解策略",
+          "level": "comprehensive",
+          "pass_condition": "Mitigation documentation present when disparity exceeds thresholds",
+          "evidence_required": "fairness_equity_report.json or study report",
+          "gate": "fairness_equity_gate",
+          "literature": ["LIT-014", "LIT-015", "LIT-028"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    },
+    "sample_size_adequacy": {
+      "id": 12,
+      "name": "Sample Size Adequacy",
+      "name_zh": "样本量充足性",
+      "weight": 0,
+      "weight_note": "Scored as part of data_integrity (D1) and statistical_validity (D5) weights. Listed separately for structured assessment per Riley et al. criteria.",
+      "criteria": [
+        {
+          "id": "D12.1",
+          "text": "Events per variable (EPV) ≥ 10 (minimum) or ≥ 20 (recommended)",
+          "text_zh": "每变量事件数 (EPV) ≥ 10（最低）或 ≥ 20（推荐）",
+          "level": "standard",
+          "pass_condition": "EPV ≥ 10 (pass), EPV ≥ 20 (no warnings)",
+          "evidence_required": "sample_size_report.json or training evidence",
+          "gate": "sample_size_gate",
+          "literature": ["LIT-005", "LIT-006", "LIT-007"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D12.2",
+          "text": "Shrinkage factor ≥ 0.90 or pmsampsize calculation cited",
+          "text_zh": "收缩因子 ≥ 0.90 或引用 pmsampsize 计算",
+          "level": "standard",
+          "pass_condition": "Estimated shrinkage ≥ 0.90",
+          "evidence_required": "sample_size_report.json shrinkage section",
+          "gate": "sample_size_gate",
+          "literature": ["LIT-005", "LIT-006"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        },
+        {
+          "id": "D12.3",
+          "text": "Minimum 100 events and 100 non-events for model development",
+          "text_zh": "模型开发至少 100 个事件和 100 个非事件",
+          "level": "quick",
+          "pass_condition": "n_events ≥ 100 and n_non_events ≥ 100 in training data",
+          "evidence_required": "sample_size_report.json or split_protocol_report.json",
+          "gate": "sample_size_gate",
+          "literature": ["LIT-005", "LIT-008"],
+          "severity": "HIGH",
+          "fail_action": "downgrade_to_preliminary"
+        },
+        {
+          "id": "D12.4",
+          "text": "Test set has ≥ 50 events for reliable performance estimation",
+          "text_zh": "测试集有 ≥ 50 个事件以进行可靠的性能评估",
+          "level": "standard",
+          "pass_condition": "Test split event count ≥ 50",
+          "evidence_required": "sample_size_report.json or evaluation_report.json",
+          "gate": "sample_size_gate",
+          "literature": ["LIT-005", "LIT-027"],
+          "severity": "MEDIUM",
+          "fail_action": "flag_gap"
+        }
+      ]
+    }
+  },
+  "scoring": {
+    "method": "weighted_sum",
+    "total_possible": 100,
+    "dimension_scoring": "Each dimension scored as percentage of checks passed × weight",
+    "pass_thresholds": {
+      "publication_grade": {
+        "min_score": 90,
+        "label": "Publication-grade",
+        "label_zh": "顶刊级",
+        "additional_requirement": "No CRITICAL severity failures"
+      },
+      "solid": {
+        "min_score": 75,
+        "label": "Solid but gaps remain",
+        "label_zh": "基本合格但有缺口",
+        "additional_requirement": "No more than 2 CRITICAL failures"
+      },
+      "major_issues": {
+        "min_score": 60,
+        "label": "Major issues",
+        "label_zh": "重大缺陷",
+        "additional_requirement": null
+      },
+      "not_publishable": {
+        "min_score": 0,
+        "label": "Not publishable",
+        "label_zh": "不可发表",
+        "additional_requirement": null
+      }
+    }
+  },
+  "fail_actions": {
+    "block_all_claims": "Fatal flaw — all performance claims are invalid until resolved. Maps to checklist sections B-E, J.",
+    "downgrade_to_preliminary": "Significant gap — downgrade from publication-grade to preliminary. Maps to checklist sections F-I, K-M.",
+    "flag_gap": "Minor gap — document and address if targeting top-tier journal."
+  },
+  "decision_rule": {
+    "description": "Fail-closed policy: any CRITICAL failure blocks publication-grade claims regardless of total score.",
+    "steps": [
+      "1. Count CRITICAL severity failures → if any, cap grade at 'Major issues' maximum",
+      "2. Count HIGH severity failures → if >3, cap grade at 'Solid but gaps remain' maximum",
+      "3. Compute weighted score across 10 primary dimensions (D1-D10)",
+      "4. Apply score threshold to determine grade",
+      "5. Apply cap from steps 1-2 if lower than score-based grade",
+      "6. Supplementary dimensions D11-D12 provide structured assessment but do not add to total score"
+    ]
+  },
+  "journal_mapping": {
+    "description": "Minimum review level and score for top-tier journals",
+    "journals": {
+      "nature_medicine": {"min_level": "comprehensive", "min_score": 92},
+      "jama": {"min_level": "comprehensive", "min_score": 90},
+      "bmj": {"min_level": "comprehensive", "min_score": 88},
+      "lancet_digital_health": {"min_level": "comprehensive", "min_score": 88},
+      "npj_digital_medicine": {"min_level": "standard", "min_score": 80}
+    }
+  },
+  "agent_instructions": {
+    "on_review": "Apply criteria at the requested level (quick/standard/comprehensive). For each criterion, check evidence_required against the project's evidence directory. Score pass/fail per criterion, compute dimension scores, then total.",
+    "on_gap_found": "Map the gap to its criterion ID, severity, and fail_action. Provide remediation priority ordered by: CRITICAL > HIGH > MEDIUM > LOW, then by dimension weight.",
+    "on_journal_target": "Look up journal_mapping to determine minimum level and score. Run at least that level. Cross-reference with journal-rigor-standards.json for journal-specific requirements.",
+    "on_batch_review": "Apply same standard to all projects. Output comparison matrix with per-project scores and per-criterion pass/fail status."
+  }
+}

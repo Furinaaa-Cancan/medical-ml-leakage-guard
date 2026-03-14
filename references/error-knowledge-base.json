@@ -209,8 +209,7 @@
       "affected_files": ["scripts/calibration_dca_gate.py"],
       "first_seen": "2025-09",
       "resolved": true
-    }
-  ],
+    },
     {
       "id": "ERR-016",
       "code": "fairness_gate_missing",
@@ -312,6 +311,32 @@
       "category": "leakage",
       "severity": "CRITICAL",
       "affected_files": ["scripts/definition_variable_guard.py", "scripts/feature_lineage_gate.py"],
+      "first_seen": "2026-03",
+      "resolved": true
+    },
+    {
+      "id": "ERR-024",
+      "code": "batch_manifest_invalid",
+      "symptom": "batch_journal_review.py fails with JSON parse error or missing required fields in manifest",
+      "root_cause": "Batch manifest file does not conform to batch_manifest.v1 contract (missing 'projects' array or invalid project entries)",
+      "fix": "Validate manifest against references/batch-manifest.example.json template. Each project entry requires 'id' and 'path' fields.",
+      "prevention": "Use batch-manifest.example.json as template. Validate JSON before running batch review.",
+      "category": "config",
+      "severity": "ERROR",
+      "affected_files": ["scripts/batch_journal_review.py"],
+      "first_seen": "2026-03",
+      "resolved": true
+    },
+    {
+      "id": "ERR-025",
+      "code": "batch_project_not_found",
+      "symptom": "Batch review reports 'Project directory not found' for one or more projects in manifest",
+      "root_cause": "Project path in manifest does not exist on disk or is not accessible",
+      "fix": "Verify all project paths in manifest exist and are absolute paths. Use expanduser() for ~ paths.",
+      "prevention": "Validate project paths before running batch review. Use absolute paths in manifest.",
+      "category": "config",
+      "severity": "ERROR",
+      "affected_files": ["scripts/batch_journal_review.py"],
       "first_seen": "2026-03",
       "resolved": true
     }

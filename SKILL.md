@@ -626,6 +626,7 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/audit_external_project.py`: 10-dimension quantitative audit tool for evaluating medical ML projects (100-point scale) with journal-specific gap analysis.
 - `scripts/fairness_equity_gate.py`: fail-closed fairness and equity gate — equalized odds gap, disparate impact ratio (four-fifths rule), per-subgroup PR-AUC validation.
 - `scripts/sample_size_gate.py`: fail-closed sample size adequacy gate — EPV (Riley et al. 2019/2025), shrinkage factor, min events/non-events.
+- `scripts/batch_journal_review.py`: batch audit N projects in parallel with comparison matrix, cross-cutting analysis, and aggregated remediation priorities.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### examples/
@@ -673,8 +674,11 @@ If any step returns non-zero, stop and block claim release.
 - `references/external-benchmark-comparison.md`: external tool/guideline comparison and gap map.
 - `references/release-benchmark-suite.md`: structured benchmark profile matrix and pass contract.
 - `references/report-template.md`: reporting template for methods/results/robustness.
-- `references/error-knowledge-base.json`: self-improving error pattern database with 15+ known patterns, agent-appendable.
+- `references/error-knowledge-base.json`: self-improving error pattern database with 25 known patterns, agent-appendable.
 - `references/journal-rigor-standards.json`: top-tier journal requirements mapped to gates (Nature Medicine, Lancet DH, JAMA, BMJ, npj DM).
+- `references/literature-knowledge-base.json`: curated top-journal literature database (30 entries, LIT-001–LIT-030), searchable by category/gate/dimension.
+- `references/mlgg-review-standard.json`: independent MLGG Medical ML Review Standard — 10 dimensions × 73 criteria across 3 review levels (quick/standard/comprehensive).
+- `references/batch-manifest.example.json`: batch manifest template for multi-project review.
 
 ## Authority E2E Execution Notes
 - Recommended single-entry CLI:
@@ -850,6 +854,36 @@ python3 scripts/remediation_plan.py --evidence-dir <dir>/evidence
 4. 重跑失败的 gate → 验证通过
 5. 重跑 publication_gate → 验证全链路通过
 ```
+
+#### 模式 D：批量评审 (Batch Review)
+当用户说"帮我批量评审"或"review these projects"时：
+
+```bash
+# 1. 准备评审清单 (参考 references/batch-manifest.example.json)
+# 2. 运行批量评审
+python3 scripts/mlgg.py batch-review \
+  --manifest batch_manifest.json \
+  --target-journal nature_medicine \
+  --workers 4 \
+  --format json \
+  --output batch_report.json
+
+# 3. 可选：输出 CSV 摘要
+python3 scripts/mlgg.py batch-review \
+  --manifest batch_manifest.json \
+  --summary-csv batch_summary.csv
+```
+
+**批量评审输出**：
+- 对比矩阵：每个项目的 10 维度评分 + 总分 + 等级
+- 跨项目分析：最常失败的维度 + 最普遍的差距
+- 聚合修复优先级：去重后按严重性 × 影响项目数排序
+
+**文献检索协议**：
+- 查询 `references/literature-knowledge-base.json`（30 条顶刊文献）
+- 按类别 (`category`)、实现的门控 (`gates_implementing`)、影响维度 (`dimensions_affected`) 搜索
+- 在评审报告中引用 `LIT-NNN` 编号
+- 新增文献须符合：IF>10 期刊 / EQUATOR 指南 / PRISMA 系统评价
 
 ### 10 维度量化评分标准 (100分制)
 

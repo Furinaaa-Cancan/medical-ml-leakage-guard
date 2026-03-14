@@ -77,6 +77,10 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         SCRIPTS_ROOT / "sample_size_gate.py",
         "Validate sample size adequacy (EPV, shrinkage factor, Riley criteria).",
     ),
+    "batch-review": (
+        SCRIPTS_ROOT / "batch_journal_review.py",
+        "Batch audit N projects against journal standards with comparison matrix.",
+    ),
 }
 INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
 COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {

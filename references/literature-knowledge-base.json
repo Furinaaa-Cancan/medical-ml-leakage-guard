@@ -1,0 +1,609 @@
+{
+  "contract_version": "literature_knowledge_base.v1",
+  "description": "Curated top-journal literature database for medical ML prediction methodology. Only includes publications from high-impact journals (IF>10), authoritative guidelines (EQUATOR/Cochrane/FDA), or foundational statistical methods papers. Agents should query this database when evaluating methodology or justifying gate requirements.",
+  "last_updated": "2026-03-14",
+  "categories": {
+    "reporting_guideline": "报告指南 — TRIPOD+AI, STARD-AI, CONSORT-AI, SPIRIT-AI",
+    "risk_of_bias": "偏倚风险评估 — PROBAST+AI, risk of bias tools",
+    "sample_size": "样本量方法学 — Riley EPV, pmsampsize, minimum sample size",
+    "leakage": "数据泄漏研究 — split contamination, label leakage, preprocessing leakage",
+    "fairness": "公平性与公正性 — algorithmic fairness, equalized odds, disparate impact",
+    "calibration": "校准与决策曲线 — ECE, DCA, NRI, IDI, DeLong",
+    "validation": "外部验证方法学 — external validation, transport, generalization",
+    "reproducibility": "可重复性与透明性 — SLSA, attestation, open science",
+    "systematic_review": "系统评价方法学 — ML vs regression, data quality, meta-analysis"
+  },
+  "quality_criteria": {
+    "inclusion": [
+      "Published in journal with IF > 10 OR domain-leading specialty journal",
+      "Authoritative guideline from EQUATOR Network, Cochrane, FDA, MHRA, EMA",
+      "Foundational methodology paper with >500 citations",
+      "Systematic review following PRISMA"
+    ],
+    "exclusion": [
+      "Preprints without peer review (exception: arXiv with subsequent journal acceptance)",
+      "Conference abstracts without full paper",
+      "Single-center validation studies without methodological contribution"
+    ]
+  },
+  "entries": [
+    {
+      "id": "LIT-001",
+      "doi": "10.1136/bmj-2023-078378",
+      "title": "TRIPOD+AI statement: updated guidance for reporting clinical prediction models that use regression or machine learning methods",
+      "authors": "Collins GS, Moons KGM, Dhiman P, et al.",
+      "journal": "BMJ",
+      "year": 2024,
+      "category": "reporting_guideline",
+      "impact_factor": 105.7,
+      "key_requirements": [
+        "27-item checklist supersedes TRIPOD 2015",
+        "Fairness assessment now explicitly recommended",
+        "Open science practices (code/data sharing) required",
+        "Model availability and reproducibility documentation",
+        "Harmonized terminology between ML and clinical research",
+        "Abstract checklist (TRIPOD+AI for Abstracts)"
+      ],
+      "gates_implementing": ["reporting_bias_gate"],
+      "dimensions_affected": [8],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/38626948/"
+    },
+    {
+      "id": "LIT-002",
+      "doi": "10.1136/bmj-2024-081284",
+      "title": "PROBAST+AI: an updated quality, risk of bias, and applicability assessment tool for prediction models using regression or artificial intelligence methods",
+      "authors": "Moons KGM, Damen JAA, Kaul T, et al.",
+      "journal": "BMJ",
+      "year": 2025,
+      "category": "risk_of_bias",
+      "impact_factor": 105.7,
+      "key_requirements": [
+        "Two-part structure: model development (16 signalling questions) + model evaluation (18 signalling questions)",
+        "Four domains: participants/data sources, predictors, outcome, analysis",
+        "Applicability assessment across subpopulations",
+        "Aligned with TRIPOD+AI for consistent reporting",
+        "High interrater reliability demonstrated"
+      ],
+      "gates_implementing": ["reporting_bias_gate"],
+      "dimensions_affected": [8],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/40127903/"
+    },
+    {
+      "id": "LIT-003",
+      "doi": "10.1038/s41591-025-03953-8",
+      "title": "The STARD-AI reporting guideline for diagnostic accuracy studies using artificial intelligence",
+      "authors": "Sounderajah V, Guni A, Liu X, Collins GS, et al.",
+      "journal": "Nature Medicine",
+      "year": 2025,
+      "category": "reporting_guideline",
+      "impact_factor": 82.9,
+      "key_requirements": [
+        "18 new or modified items beyond STARD 2015",
+        "Dataset practices documentation",
+        "AI index test evaluation methodology",
+        "Algorithmic bias and fairness considerations",
+        "Applicability and generalizability assessment"
+      ],
+      "gates_implementing": ["reporting_bias_gate"],
+      "dimensions_affected": [8],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/40954311/"
+    },
+    {
+      "id": "LIT-004",
+      "doi": "10.1038/s41591-024-03425-5",
+      "title": "The TRIPOD-LLM reporting guideline for studies using large language models",
+      "authors": "Gallifant J, Afshar M, et al.",
+      "journal": "Nature Medicine",
+      "year": 2025,
+      "category": "reporting_guideline",
+      "impact_factor": 82.9,
+      "key_requirements": [
+        "19 main items and 50 subitems for LLM studies",
+        "Modular format for various LLM research designs",
+        "Living guideline with planned updates",
+        "Transparency and human oversight emphasis"
+      ],
+      "gates_implementing": [],
+      "dimensions_affected": [8],
+      "url": "https://www.nature.com/articles/s41591-024-03425-5"
+    },
+    {
+      "id": "LIT-005",
+      "doi": "10.1002/sim.7992",
+      "title": "Minimum sample size for developing a multivariable prediction model: PART II - binary and time-to-event outcomes",
+      "authors": "Riley RD, Snell KIE, Ensor J, et al.",
+      "journal": "Statistics in Medicine",
+      "year": 2019,
+      "category": "sample_size",
+      "impact_factor": 2.0,
+      "key_requirements": [
+        "EPV >= 10 as minimum for binary outcomes",
+        "Target shrinkage factor >= 0.9 (max 10% overfitting)",
+        "Cox-Snell R² criterion for sample size adequacy",
+        "pmsampsize R package for calculation",
+        "Four criteria: small optimism, small absolute difference, precise overall risk, precise CI"
+      ],
+      "gates_implementing": ["sample_size_gate"],
+      "dimensions_affected": [5],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/30357870/"
+    },
+    {
+      "id": "LIT-006",
+      "doi": "10.48550/arXiv.2504.18730",
+      "title": "A general sample size framework for developing or updating a clinical prediction model",
+      "authors": "Riley RD, et al.",
+      "journal": "arXiv (preprint)",
+      "year": 2025,
+      "category": "sample_size",
+      "impact_factor": null,
+      "key_requirements": [
+        "Simulation-based sample size framework for any ML method",
+        "Reference model approach for anticipated performance",
+        "Synthetic dataset for joint predictor distribution",
+        "Assurance-based targeting of predictive performance"
+      ],
+      "gates_implementing": ["sample_size_gate"],
+      "dimensions_affected": [5],
+      "url": "https://arxiv.org/abs/2504.18730"
+    },
+    {
+      "id": "LIT-007",
+      "doi": "10.1016/j.jclinepi.2024.111599",
+      "title": "Larger sample sizes are needed when developing a clinical prediction model using machine learning in oncology: methodological systematic review",
+      "authors": "Tsegaye S, Snell KIE, Riley RD, et al.",
+      "journal": "Journal of Clinical Epidemiology",
+      "year": 2025,
+      "category": "sample_size",
+      "impact_factor": 9.0,
+      "key_requirements": [
+        "Only 1/36 ML studies justified sample size",
+        "5/17 met minimum required sample size",
+        "ML models likely require larger sample than regression",
+        "Median deficit of 302 event participants"
+      ],
+      "gates_implementing": ["sample_size_gate"],
+      "dimensions_affected": [5],
+      "url": "https://www.sciencedirect.com/science/article/pii/S0895435625000083"
+    },
+    {
+      "id": "LIT-008",
+      "doi": "10.1016/S2589-7500(25)00021-4",
+      "title": "Importance of sample size on the quality and utility of AI-based prediction models for healthcare",
+      "authors": "Riley RD, et al.",
+      "journal": "The Lancet Digital Health",
+      "year": 2025,
+      "category": "sample_size",
+      "impact_factor": 36.6,
+      "key_requirements": [
+        "Most AI studies do not justify sample size",
+        "Inadequate datasets are common",
+        "Good Machine Learning Practice (FDA/MHRA/HC) principles apply",
+        "Sample size considerations critical for model reliability"
+      ],
+      "gates_implementing": ["sample_size_gate"],
+      "dimensions_affected": [5],
+      "url": "https://www.thelancet.com/journals/landig/article/PIIS2589-7500(25)00021-4/fulltext"
+    },
+    {
+      "id": "LIT-009",
+      "doi": "10.1038/s41467-024-46150-w",
+      "title": "Data leakage inflates prediction performance in connectome-based machine learning models",
+      "authors": "Rosenblatt M, et al.",
+      "journal": "Nature Communications",
+      "year": 2024,
+      "category": "leakage",
+      "impact_factor": 16.6,
+      "key_requirements": [
+        "Feature selection leakage and repeated subjects drastically inflate performance",
+        "Other leakage forms have more minor effects",
+        "Small samples amplify leakage effects",
+        "Must account for all leakage sources before claiming performance"
+      ],
+      "gates_implementing": ["leakage_gate", "split_protocol_gate", "feature_engineering_audit_gate"],
+      "dimensions_affected": [1, 2],
+      "url": "https://www.nature.com/articles/s41467-024-46150-w"
+    },
+    {
+      "id": "LIT-010",
+      "doi": "10.1001/jamanetworkopen.2024.53956",
+      "title": "Diagnostic Codes in AI Prediction Models and Label Leakage of Same-Admission Clinical Outcomes",
+      "authors": "Various",
+      "journal": "JAMA Network Open",
+      "year": 2025,
+      "category": "leakage",
+      "impact_factor": 13.8,
+      "key_requirements": [
+        "ICD diagnostic codes can leak same-admission outcomes",
+        "Label leakage inflates in-hospital mortality prediction performance",
+        "Temporal awareness needed for diagnosis code predictors",
+        "Codes assigned during encounter may encode the predicted outcome"
+      ],
+      "gates_implementing": ["definition_variable_guard", "feature_lineage_gate"],
+      "dimensions_affected": [2],
+      "url": "https://jamanetwork.com/journals/jamanetworkopen/fullarticle/2843179"
+    },
+    {
+      "id": "LIT-011",
+      "doi": "10.1016/j.patter.2023.100804",
+      "title": "Leakage and the reproducibility crisis in machine-learning-based science",
+      "authors": "Kapoor S, Narayanan A",
+      "journal": "Patterns (Cell Press)",
+      "year": 2023,
+      "category": "leakage",
+      "impact_factor": 6.7,
+      "key_requirements": [
+        "294 studies across 17 fields affected by data leakage",
+        "Eight types of leakage errors classified",
+        "When corrected, ML models did not outperform older methods",
+        "Proposed model info sheets for prevention"
+      ],
+      "gates_implementing": ["leakage_gate", "tuning_leakage_gate"],
+      "dimensions_affected": [2, 3],
+      "url": "https://www.cell.com/patterns/fulltext/S2666-3899(23)00159-9"
+    },
+    {
+      "id": "LIT-012",
+      "doi": "10.1038/s41380-025-03336-y",
+      "title": "Data leakage in machine learning studies creep into meta-analytic estimates of predictive performance",
+      "authors": "Various",
+      "journal": "Molecular Psychiatry",
+      "year": 2025,
+      "category": "leakage",
+      "impact_factor": 11.0,
+      "key_requirements": [
+        "High percentage of peer-reviewed studies have apparent data leakage",
+        "Biased studies inflate pooled meta-analytic performance estimates",
+        "REFORMS and PROBAST-AI quality assessment recommended",
+        "Careful exclusion of biased studies needed in meta-analyses"
+      ],
+      "gates_implementing": ["leakage_gate", "publication_gate"],
+      "dimensions_affected": [2],
+      "url": "https://www.nature.com/articles/s41380-025-03336-y"
+    },
+    {
+      "id": "LIT-013",
+      "doi": "10.1038/s41551-023-01056-8",
+      "title": "Algorithm fairness in artificial intelligence for medicine and healthcare",
+      "authors": "Chen IY, Pierson E, Rose S, et al.",
+      "journal": "Nature Biomedical Engineering",
+      "year": 2023,
+      "category": "fairness",
+      "impact_factor": 28.1,
+      "key_requirements": [
+        "Biases from data acquisition, genetic variation, labelling variability",
+        "Inequalities in diagnosis, treatment, and billing",
+        "Mitigation via disentanglement, federated learning, explainability",
+        "Framework for assessing AI fairness in clinical workflows"
+      ],
+      "gates_implementing": ["fairness_equity_gate", "robustness_gate"],
+      "dimensions_affected": [6, 7],
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10632090/"
+    },
+    {
+      "id": "LIT-014",
+      "doi": "10.1038/s41591-024-02838-6",
+      "title": "Generative models improve fairness of medical classifiers under distribution shifts",
+      "authors": "Various",
+      "journal": "Nature Medicine",
+      "year": 2024,
+      "category": "fairness",
+      "impact_factor": 82.9,
+      "key_requirements": [
+        "Diffusion models learn realistic augmentations for underrepresented groups",
+        "Synthetic samples improve fairness without sacrificing accuracy",
+        "Applicable across multiple medical disciplines",
+        "Label-efficient approach for fairness improvement"
+      ],
+      "gates_implementing": ["fairness_equity_gate"],
+      "dimensions_affected": [6],
+      "url": "https://www.nature.com/articles/s41591-024-02838-6"
+    },
+    {
+      "id": "LIT-015",
+      "doi": "10.1038/s41746-025-01503-7",
+      "title": "Bias recognition and mitigation strategies in artificial intelligence healthcare applications",
+      "authors": "Various",
+      "journal": "npj Digital Medicine",
+      "year": 2025,
+      "category": "fairness",
+      "impact_factor": 15.2,
+      "key_requirements": [
+        "Demographic parity, equal opportunity, equalized odds metrics",
+        "Fairness-accuracy tradeoff is central challenge",
+        "Data collection must reflect population diversity",
+        "Special consideration for subgroup nuances"
+      ],
+      "gates_implementing": ["fairness_equity_gate"],
+      "dimensions_affected": [6],
+      "url": "https://www.nature.com/articles/s41746-025-01503-7"
+    },
+    {
+      "id": "LIT-016",
+      "doi": "10.1038/s41746-025-01667-2",
+      "title": "A scoping review and evidence gap analysis of clinical AI fairness",
+      "authors": "Various",
+      "journal": "npj Digital Medicine",
+      "year": 2025,
+      "category": "fairness",
+      "impact_factor": 15.2,
+      "key_requirements": [
+        "Significant disconnects between technical solutions and clinical applications",
+        "Evidence gaps in clinical AI fairness implementation",
+        "Need for standardized fairness assessment frameworks"
+      ],
+      "gates_implementing": ["fairness_equity_gate"],
+      "dimensions_affected": [6],
+      "url": "https://www.nature.com/articles/s41746-025-01667-2"
+    },
+    {
+      "id": "LIT-017",
+      "doi": "10.1038/s41746-025-01732-w",
+      "title": "Identifying and mitigating algorithmic bias in the safety net",
+      "authors": "NYC Health + Hospitals",
+      "journal": "npj Digital Medicine",
+      "year": 2025,
+      "category": "fairness",
+      "impact_factor": 15.2,
+      "key_requirements": [
+        "Equal opportunity difference (EOD) threshold: absolute subgroup EOD <5%",
+        "Threshold adjustment and reject option classification for mitigation",
+        "Accuracy reduction must be <10% after mitigation",
+        "Alert rate change must be <20% after mitigation"
+      ],
+      "gates_implementing": ["fairness_equity_gate"],
+      "dimensions_affected": [6],
+      "url": "https://www.nature.com/articles/s41746-025-01732-w"
+    },
+    {
+      "id": "LIT-018",
+      "doi": "10.1016/S2589-7500(20)30218-1",
+      "title": "Reporting guidelines for clinical trial reports for interventions involving artificial intelligence: the CONSORT-AI extension",
+      "authors": "Liu X, Rivera SC, Moher D, et al.",
+      "journal": "The Lancet Digital Health",
+      "year": 2020,
+      "category": "reporting_guideline",
+      "impact_factor": 36.6,
+      "key_requirements": [
+        "Minimum reporting for AI clinical trial reports",
+        "Extension of CONSORT for AI interventions",
+        "Complements TRIPOD-ML and STARD-AI for non-trial studies"
+      ],
+      "gates_implementing": [],
+      "dimensions_affected": [8],
+      "url": "https://www.thelancet.com/journals/landig/article/PIIS2589-7500(20)30218-1/fulltext"
+    },
+    {
+      "id": "LIT-019",
+      "doi": "10.1016/S2589-7500(20)30219-3",
+      "title": "Guidelines for clinical trial protocols for interventions involving artificial intelligence: the SPIRIT-AI extension",
+      "authors": "Rivera SC, Liu X, et al.",
+      "journal": "The Lancet Digital Health",
+      "year": 2020,
+      "category": "reporting_guideline",
+      "impact_factor": 36.6,
+      "key_requirements": [
+        "Protocol-level reporting for AI clinical trials",
+        "Pre-specification of AI intervention details",
+        "Complements CONSORT-AI"
+      ],
+      "gates_implementing": [],
+      "dimensions_affected": [8],
+      "url": "https://www.thelancet.com/journals/landig/article/PIIS2589-7500(20)30219-3/fulltext"
+    },
+    {
+      "id": "LIT-020",
+      "doi": "10.1002/sim.3250",
+      "title": "Evaluating the added predictive ability of a new marker: from area under the ROC curve to reclassification and beyond",
+      "authors": "Pencina MJ, D'Agostino RB Sr, D'Agostino RB Jr, Vasan RS",
+      "journal": "Statistics in Medicine",
+      "year": 2008,
+      "category": "calibration",
+      "impact_factor": 2.0,
+      "key_requirements": [
+        "Net Reclassification Improvement (NRI) definition",
+        "Integrated Discrimination Improvement (IDI) definition",
+        "Category-based and category-free (continuous) NRI",
+        "Standard method for comparing prediction models"
+      ],
+      "gates_implementing": ["evaluation_quality_gate"],
+      "dimensions_affected": [5, 7],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/17907247/"
+    },
+    {
+      "id": "LIT-021",
+      "doi": "10.2307/2531595",
+      "title": "Comparing the areas under two or more correlated receiver operating characteristic curves: a nonparametric approach",
+      "authors": "DeLong ER, DeLong DM, Clarke-Pearson DL",
+      "journal": "Biometrics",
+      "year": 1988,
+      "category": "calibration",
+      "impact_factor": 1.7,
+      "key_requirements": [
+        "Nonparametric test for comparing two correlated AUC values",
+        "Standard method for model comparison in medical prediction",
+        "Required by Nature Medicine, JAMA, Lancet for model comparisons"
+      ],
+      "gates_implementing": ["evaluation_quality_gate"],
+      "dimensions_affected": [5],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/3203132/"
+    },
+    {
+      "id": "LIT-022",
+      "doi": "10.1177/0272989X06295361",
+      "title": "Decision curve analysis: a novel method for evaluating prediction models",
+      "authors": "Vickers AJ, Elkin EB",
+      "journal": "Medical Decision Making",
+      "year": 2006,
+      "category": "calibration",
+      "impact_factor": 4.4,
+      "key_requirements": [
+        "Net benefit calculation across threshold probabilities",
+        "Clinical utility assessment beyond discrimination",
+        "Standard for demonstrating model value in clinical practice",
+        "Required by BMJ, Lancet DH for prediction model studies"
+      ],
+      "gates_implementing": ["calibration_dca_gate"],
+      "dimensions_affected": [5, 7],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/16818232/"
+    },
+    {
+      "id": "LIT-023",
+      "doi": null,
+      "title": "SLSA Supply-chain Levels for Software Artifacts: Requirements v1.0",
+      "authors": "Google / OpenSSF",
+      "journal": "slsa.dev (standard)",
+      "year": 2023,
+      "category": "reproducibility",
+      "impact_factor": null,
+      "key_requirements": [
+        "Build provenance and integrity verification",
+        "Multi-level attestation framework (L0-L4)",
+        "Platform-trust-boundary guarantees",
+        "Standardized attestation envelope format"
+      ],
+      "gates_implementing": ["execution_attestation_gate", "security_audit_gate"],
+      "dimensions_affected": [9, 10],
+      "url": "https://slsa.dev/spec/v1.0/requirements"
+    },
+    {
+      "id": "LIT-024",
+      "doi": "10.2196/77721",
+      "title": "Beyond Comparing Machine Learning and Logistic Regression in Clinical Prediction Modelling: Shifting from Model Debate to Data Quality",
+      "authors": "Various",
+      "journal": "Journal of Medical Internet Research",
+      "year": 2025,
+      "category": "systematic_review",
+      "impact_factor": 7.4,
+      "key_requirements": [
+        "ML performance gains in structured/tabular clinical data remain inconsistent",
+        "Data quality, not model complexity, drives clinical utility",
+        "No single algorithm excels across all metrics",
+        "Fairness, accuracy, generalizability, stability, parsimony must be balanced"
+      ],
+      "gates_implementing": ["model_selection_audit_gate"],
+      "dimensions_affected": [4],
+      "url": "https://www.jmir.org/2025/1/e77721"
+    },
+    {
+      "id": "LIT-025",
+      "doi": null,
+      "title": "Deepchecks: Testing and Validating ML Models & Data",
+      "authors": "Deepchecks team",
+      "journal": "GitHub (open-source)",
+      "year": 2023,
+      "category": "leakage",
+      "impact_factor": null,
+      "key_requirements": [
+        "Automated leakage detection for tabular data",
+        "Train/test distribution drift checks",
+        "Feature drift monitoring"
+      ],
+      "gates_implementing": ["covariate_shift_gate", "leakage_gate"],
+      "dimensions_affected": [1, 2],
+      "url": "https://github.com/deepchecks/deepchecks"
+    },
+    {
+      "id": "LIT-026",
+      "doi": null,
+      "title": "Good Machine Learning Practice for Medical Device Development: Guiding Principles",
+      "authors": "FDA, Health Canada, MHRA",
+      "journal": "FDA.gov (regulatory guidance)",
+      "year": 2021,
+      "category": "reporting_guideline",
+      "impact_factor": null,
+      "key_requirements": [
+        "10 guiding principles for ML medical device development",
+        "Multi-disciplinary expertise required",
+        "Good software engineering and security practices",
+        "Representative data for intended patient population",
+        "Focus on model performance on clinically relevant subgroups"
+      ],
+      "gates_implementing": ["reporting_bias_gate", "fairness_equity_gate"],
+      "dimensions_affected": [6, 8],
+      "url": "https://www.fda.gov/medical-devices/software-medical-device-samd/good-machine-learning-practice-medical-device-development-guiding-principles"
+    },
+    {
+      "id": "LIT-027",
+      "doi": "10.1093/ejcts/ezaf142",
+      "title": "Statistical primer: sample size considerations for developing and validating clinical prediction models",
+      "authors": "Martin GP, Riley RD, et al.",
+      "journal": "European Journal of Cardio-Thoracic Surgery",
+      "year": 2025,
+      "category": "sample_size",
+      "impact_factor": 4.4,
+      "key_requirements": [
+        "Nagelkerke R² of 0.15 as default if no prior information",
+        "Target shrinkage factor >= 0.9",
+        "ML algorithms likely require even larger samples than regression",
+        "Sample size applies to penalized regression and ML alike"
+      ],
+      "gates_implementing": ["sample_size_gate"],
+      "dimensions_affected": [5],
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12106283/"
+    },
+    {
+      "id": "LIT-028",
+      "doi": "10.1038/s42256-023-00697-3",
+      "title": "Algorithmic fairness and bias mitigation for clinical machine learning with deep reinforcement learning",
+      "authors": "Yang J, et al.",
+      "journal": "Nature Machine Intelligence",
+      "year": 2023,
+      "category": "fairness",
+      "impact_factor": 23.8,
+      "key_requirements": [
+        "Reinforcement learning for algorithmic bias mitigation",
+        "Demonstrated on COVID-19 screening and discharge prediction",
+        "Addresses fairness-accuracy tradeoff"
+      ],
+      "gates_implementing": ["fairness_equity_gate"],
+      "dimensions_affected": [6],
+      "url": "https://www.nature.com/articles/s42256-023-00697-3"
+    },
+    {
+      "id": "LIT-029",
+      "doi": "10.1016/S2589-7500(25)00098-6",
+      "title": "Evaluation of performance measures in predictive artificial intelligence models to support medical decisions: overview and guidance",
+      "authors": "Various",
+      "journal": "The Lancet Digital Health",
+      "year": 2025,
+      "category": "calibration",
+      "impact_factor": 36.6,
+      "key_requirements": [
+        "Classic and contemporary performance measures assessed",
+        "Focus on models estimating probabilities for binary outcomes",
+        "Calibration alongside discrimination is essential",
+        "Multi-metric evaluation framework for medical AI"
+      ],
+      "gates_implementing": ["calibration_dca_gate", "clinical_metrics_gate"],
+      "dimensions_affected": [5, 7],
+      "url": "https://www.thelancet.com/journals/landig/article/PIIS2589-7500(25)00098-6/fulltext"
+    },
+    {
+      "id": "LIT-030",
+      "doi": null,
+      "title": "Regulation (EU) 2024/1689 — Artificial Intelligence Act",
+      "authors": "European Parliament and Council",
+      "journal": "Official Journal of the European Union",
+      "year": 2024,
+      "category": "reporting_guideline",
+      "impact_factor": null,
+      "key_requirements": [
+        "Risk-based classification of AI systems",
+        "High-risk AI (including medical devices) requires conformity assessment",
+        "Transparency obligations for AI providers",
+        "Data governance and bias prevention requirements",
+        "Post-market monitoring obligations"
+      ],
+      "gates_implementing": ["security_audit_gate"],
+      "dimensions_affected": [8, 10],
+      "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj"
+    }
+  ],
+  "agent_instructions": {
+    "on_query": "Search entries by: (1) category for topic-specific literature, (2) dimensions_affected for scoring-related literature, (3) gates_implementing for gate-justification literature, (4) journal for journal-specific methodology",
+    "on_new_finding": "Append entry with next sequential LIT-NNN ID. Verify: (1) DOI is valid, (2) Journal meets quality criteria, (3) key_requirements extracted accurately, (4) gates_implementing mapped correctly",
+    "on_update": "If a guideline is updated (e.g., TRIPOD 2015 → TRIPOD+AI 2024), mark the old entry with 'superseded_by' field pointing to new entry ID",
+    "quality_gate": "Only include: (1) Published in IF>10 journal OR domain-leading specialty, (2) Guidelines from EQUATOR/Cochrane/FDA/MHRA/EMA, (3) Foundational methodology papers (>500 citations), (4) Systematic reviews following PRISMA",
+    "id_format": "LIT-NNN where NNN is zero-padded sequential number"
+  }
+}
