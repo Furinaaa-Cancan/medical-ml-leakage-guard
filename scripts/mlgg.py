@@ -69,6 +69,14 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         SCRIPTS_ROOT / "audit_external_project.py",
         "Quantitative 10-dimension audit of a medical ML project (100-point scale).",
     ),
+    "fairness": (
+        SCRIPTS_ROOT / "fairness_equity_gate.py",
+        "Validate subgroup fairness and equity metrics (equalized odds, disparate impact).",
+    ),
+    "sample-size": (
+        SCRIPTS_ROOT / "sample_size_gate.py",
+        "Validate sample size adequacy (EPV, shrinkage factor, Riley criteria).",
+    ),
 }
 INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
 COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {

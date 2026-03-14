@@ -38,6 +38,7 @@ register_remediations({
 })
 
 TRIPOD_REQUIRED_TRUE = [
+    # Original 11 items
     "title_identifies_prediction_model",
     "target_population_defined",
     "outcome_definition_prespecified",
@@ -49,6 +50,13 @@ TRIPOD_REQUIRED_TRUE = [
     "full_model_specification_reported",
     "performance_measures_with_ci_reported",
     "limitations_and_clinical_use_reported",
+    # TRIPOD+AI 2024 additions (BMJ 2024;385:e078378)
+    "study_design_and_data_source_described",
+    "outcome_prevalence_or_event_rate_reported",
+    "calibration_metrics_reported",
+    "fairness_assessment_reported",
+    "model_availability_or_code_sharing_reported",
+    "data_availability_statement_provided",
 ]
 
 PROBAST_REQUIRED_TRUE = [

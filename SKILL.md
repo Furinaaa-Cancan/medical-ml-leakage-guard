@@ -309,7 +309,9 @@ Use this internal sequence in order:
 27. Aggregate publication gate (`publication_gate.py`).
 28. Run self-critique scoring gate (`self_critique_gate.py`).
 29. Run security audit gate (`security_audit_gate.py`).
-30. Emit final report only if all strict gates pass.
+30. Run fairness & equity gate (`fairness_equity_gate.py`).
+31. Run sample size adequacy gate (`sample_size_gate.py`).
+32. Emit final report only if all strict gates pass.
 
 Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt/execution-log/witness-quorum/cross-role-authority-distinctness), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
@@ -344,7 +346,9 @@ Produce these deterministic artifacts:
 27. `evidence/publication_gate_report.json`
 28. `evidence/self_critique_report.json`
 29. `evidence/security_audit_gate_report.json`
-30. `evidence/dag_pipeline_report.json`
+30. `evidence/fairness_equity_report.json`
+31. `evidence/sample_size_report.json`
+32. `evidence/dag_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -556,6 +560,11 @@ If any step returns non-zero, stop and block claim release.
 - Never include post-index features for pre-index prediction tasks.
 - Never report point estimates without uncertainty and robustness checks.
 - Never claim causality from predictive associations.
+- Never publish subgroup predictions without fairness/equity assessment (equalized odds, disparate impact).
+- Never claim adequate sample size without EPV ≥ 10 justification (Riley et al. 2019).
+- Never omit IDI/NRI when comparing against baseline models for top-tier journals.
+- Never use ICD diagnostic codes from the same admission as predictors without verifying temporal precedence.
+- Never claim TRIPOD+AI adherence without the 2024 expanded 27-item checklist (BMJ 2024;385:e078378).
 
 ## Resources
 
@@ -615,6 +624,8 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/explain_gate.py`: explain a single gate result in human-readable form.
 - `scripts/quick_summary.py`: one-command training results viewer with key metrics, overfitting risk, model selection top-10.
 - `scripts/audit_external_project.py`: 10-dimension quantitative audit tool for evaluating medical ML projects (100-point scale) with journal-specific gap analysis.
+- `scripts/fairness_equity_gate.py`: fail-closed fairness and equity gate — equalized odds gap, disparate impact ratio (four-fifths rule), per-subgroup PR-AUC validation.
+- `scripts/sample_size_gate.py`: fail-closed sample size adequacy gate — EPV (Riley et al. 2019/2025), shrinkage factor, min events/non-events.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### examples/
