@@ -104,7 +104,7 @@ def _validate_cwd(value: str) -> Path:
     - Non-existent or file paths being used as working directories.
     """
     if "\x00" in value:
-        print(f"[FAIL] invalid_cwd: --cwd contains NUL byte.", file=sys.stderr)
+        print("[FAIL] invalid_cwd: --cwd contains NUL byte.", file=sys.stderr)
         raise SystemExit(2)
     try:
         cwd = Path(value).expanduser().resolve()

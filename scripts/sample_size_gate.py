@@ -15,16 +15,12 @@ from __future__ import annotations
 
 import argparse
 import math
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from _gate_utils import add_issue, load_json_from_str as load_json_object
 from _gate_framework import (
-    GateIssue,
-    Severity,
     build_report_envelope,
-    get_remediation,
     print_gate_summary,
     register_remediations,
 )

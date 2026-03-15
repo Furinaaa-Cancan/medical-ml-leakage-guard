@@ -26,9 +26,7 @@ import json
 import os
 import pickle
 import secrets
-import struct
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -1271,7 +1269,7 @@ def main() -> int:
     manifest_p.add_argument("evidence_dir", help="Path to evidence directory")
 
     # check-deps
-    deps_p = sub.add_parser("check-deps", help="Verify critical dependency integrity")
+    sub.add_parser("check-deps", help="Verify critical dependency integrity")
 
     # encrypt
     enc_p = sub.add_parser("encrypt", help="Encrypt evidence files at rest")

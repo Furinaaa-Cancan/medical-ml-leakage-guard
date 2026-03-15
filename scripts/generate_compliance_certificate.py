@@ -269,7 +269,6 @@ def determine_conformance_level(
     reasons_not_l2: List[str] = []
 
     passed = {g for g, s in gate_outcomes.items() if s == "pass"}
-    failed = {g for g, s in gate_outcomes.items() if s in ("fail", "missing")}
 
     # Check L1
     l1_missing = L1_REQUIRED_GATES - passed

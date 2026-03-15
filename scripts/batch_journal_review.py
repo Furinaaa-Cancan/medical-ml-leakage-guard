@@ -481,8 +481,8 @@ def format_markdown_report(batch: BatchResult) -> str:
     s = batch.summary
     lines.append("## Summary")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|--------|-------|")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
     lines.append(f"| Audited | {s.get('audited', 0)} |")
     lines.append(f"| Errors | {s.get('errors', 0)} |")
     lines.append(f"| Publication-ready | {s.get('publication_ready', 0)} |")

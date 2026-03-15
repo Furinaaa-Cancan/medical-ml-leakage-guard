@@ -235,7 +235,6 @@ def run_gate_subprocess(
     # Tamper-evident audit log entry
     try:
         from _gate_utils import append_audit_entry
-        evidence_dir_for_audit = Path(cmd[2]) if len(cmd) > 2 else None
         # Try to find evidence dir from --report or --evidence-dir args
         for i, arg in enumerate(cmd):
             if arg in ("--report", "--evidence-dir") and i + 1 < len(cmd):
