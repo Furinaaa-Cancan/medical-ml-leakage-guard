@@ -1,12 +1,48 @@
-# medical-ml-leakage-guard
+# ML Leakage Guard (MLGG) — Medical Prediction Integrity Standard
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+[![CI Security](https://img.shields.io/badge/ci--security-332%20tests-brightgreen)]()
 [![Tests](https://img.shields.io/badge/tests-2905%20passed-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/gate%20coverage-%E2%89%A586%25-blue)]()
+[![TRIPOD+AI 2024](https://img.shields.io/badge/TRIPOD%2BAI-2024-blue)](https://doi.org/10.1136/bmj-2023-078378)
+[![PROBAST+AI 2025](https://img.shields.io/badge/PROBAST%2BAI-2025-blue)](https://doi.org/10.7326/M18-1376)
+[![MLGG Standard v1.0](https://img.shields.io/badge/MLGG%20Standard-v1.0-orange)]()
 
 面向医学预测任务的发布级防泄漏工作流，提供严格门控、可复现实验工件与 fail-closed 审核机制。
 
-Publication-grade medical prediction workflow with strict anti-data-leakage gates, reproducibility evidence, and fail-closed review logic.
+Publication-grade medical prediction integrity standard with 31 anti-leakage gates, TRIPOD+AI 2024 / PROBAST+AI 2025 compliance checking, and machine-verifiable conformance certificates.
+
+> **MLGG Standard v1.0** — A citable, machine-verifiable standard for medical ML prediction model integrity.
+> Conformance levels: **L1** (12 gates, leakage-audited) · **L2** (25 gates, statistically valid) · **L3** (all 31 gates + strict, publication-grade)
+
+---
+
+## Quick Audit: Point at Any ML Project
+
+```bash
+# Audit any medical ML project — no configuration needed
+python3 scripts/generate_audit_report.py --project-dir /path/to/your/project
+
+# Or via mlgg subcommand
+python3 scripts/mlgg.py audit-report -- --project-dir /path/to/your/project \
+    --target-journal nature_medicine
+```
+
+**Output** (in `<project-dir>/audit-reports/`):
+- `audit-report.md` — publication-quality Markdown with TRIPOD+AI item coverage, PROBAST+AI ROB assessment, error root causes, literature citations, and prioritized fixes
+- `audit-report.json` — machine-readable structured report
+
+### What the audit checks
+| Check | Detail |
+|-------|--------|
+| 10-dimension score (0–100) | Data Integrity, Leakage Prevention, Pipeline Isolation, Model Selection Rigor, Statistical Validity, Generalization Evidence, Clinical Completeness, Reporting Standards, Reproducibility, Security |
+| TRIPOD+AI 2024 | 17 required items incl. 4 AI-specific (Collins et al. BMJ 2024;385:e078378) |
+| PROBAST+AI 2025 | Risk-of-bias across 4 domains: Participants, Predictors, Outcome, Analysis |
+| Code anti-patterns | 12 pattern types: fit_on_full_data, test_in_training_loop, global_scaler_leak, missing CI, etc. |
+| Error KB lookup | Each finding enriched with root cause + fix from 56-entry error knowledge base |
+| Literature citations | 44 literature entries automatically cited per finding |
+
+---
 
 **核心能力** | **Core Capabilities**:
 - **20 个模型族**（逻辑回归/SVM/随机森林/XGBoost/KNN/MLP 等）自动训练+超参搜索
