@@ -1,4 +1,7 @@
 # Optional model backends (install separately if needed)
+
+# Paper metadata extraction (scripts/extract_paper_metadata.py)
+anthropic>=0.40.0
 xgboost>=1.7
 catboost>=1.2
 lightgbm>=3.3
