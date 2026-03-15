@@ -708,8 +708,11 @@ def encrypt_evidence(data: bytes, key: Optional[bytes] = None) -> bytes:
         # Fallback: XOR-based obfuscation with HMAC integrity (not true AES)
         # This is a degraded mode when cryptography package is unavailable
         import hashlib as _hl
-        stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(data))
-        ciphertext = bytes(a ^ b for a, b in zip(data, stream_key))
+        if data:
+            stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(data))
+            ciphertext = bytes(a ^ b for a, b in zip(data, stream_key))
+        else:
+            ciphertext = b""
         tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()[:16]
         return _ENC_HEADER + nonce + tag + ciphertext
 
@@ -747,6 +750,8 @@ def decrypt_evidence(blob: bytes, key: Optional[bytes] = None) -> bytes:
         expected_tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()[:16]
         if not hmac.compare_digest(tag, expected_tag):
             raise SecurityError("Evidence integrity check failed: HMAC mismatch")
+        if not ciphertext:
+            return b""
         import hashlib as _hl
         stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(ciphertext))
         return bytes(a ^ b for a, b in zip(ciphertext, stream_key))
