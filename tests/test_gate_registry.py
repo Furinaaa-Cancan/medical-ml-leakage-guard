@@ -50,7 +50,7 @@ class TestRegistryIntegrity:
             assert gate in GATE_REGISTRY, f"Expected gate '{gate}' not in registry"
 
     def test_expected_gate_count(self):
-        assert len(GATE_REGISTRY) == 29
+        assert len(GATE_REGISTRY) == 31
 
 
 # ────────────────────────────────────────────────────────

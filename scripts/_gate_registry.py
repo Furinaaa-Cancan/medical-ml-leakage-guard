@@ -448,6 +448,28 @@ _register(GateSpec(
     category="performance",
 ))
 
+_register(GateSpec(
+    name="fairness_equity_gate",
+    script="fairness_equity_gate.py",
+    layer=GateLayer.METRIC_VALIDATION,
+    description="Fairness and equity: equalized odds gap, disparate impact ratio (four-fifths rule), per-subgroup metric minimums.",
+    depends_on=frozenset({"request_contract_gate"}),
+    report_output="fairness_equity_report.json",
+    parallelizable=True,
+    category="fairness",
+))
+
+_register(GateSpec(
+    name="sample_size_gate",
+    script="sample_size_gate.py",
+    layer=GateLayer.METRIC_VALIDATION,
+    description="Sample size adequacy: EPV (Riley et al. 2019/2025), shrinkage factor, minimum events/non-events.",
+    depends_on=frozenset({"request_contract_gate"}),
+    report_output="sample_size_report.json",
+    parallelizable=True,
+    category="statistical",
+))
+
 # -- Layer 7: Aggregation --
 
 _register(GateSpec(
@@ -488,28 +510,6 @@ _register(GateSpec(
     report_output="security_audit_gate_report.json",
     parallelizable=False,
     category="security",
-))
-
-_register(GateSpec(
-    name="fairness_equity_gate",
-    script="fairness_equity_gate.py",
-    layer=GateLayer.METRIC_VALIDATION,
-    description="Fairness and equity: equalized odds gap, disparate impact ratio (four-fifths rule), per-subgroup metric minimums.",
-    depends_on=frozenset({"request_contract_gate"}),
-    report_output="fairness_equity_report.json",
-    parallelizable=True,
-    category="fairness",
-))
-
-_register(GateSpec(
-    name="sample_size_gate",
-    script="sample_size_gate.py",
-    layer=GateLayer.METRIC_VALIDATION,
-    description="Sample size adequacy: EPV (Riley et al. 2019/2025), shrinkage factor, minimum events/non-events.",
-    depends_on=frozenset({"request_contract_gate"}),
-    report_output="sample_size_report.json",
-    parallelizable=True,
-    category="statistical",
 ))
 
 
