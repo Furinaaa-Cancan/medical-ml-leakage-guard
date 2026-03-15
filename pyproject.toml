@@ -46,6 +46,11 @@ mlgg-pixel = "scripts.mlgg_pixel:main"
 [project.urls]
 Repository = "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard"
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (skipped in ci-smoke with -m 'not slow')",
+]
+
 [tool.setuptools.packages.find]
 include = ["scripts*", "experiments*", "references*"]
 
