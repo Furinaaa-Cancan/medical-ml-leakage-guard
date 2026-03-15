@@ -269,6 +269,10 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         SCRIPTS_ROOT / "batch_journal_review.py",
         "Batch audit N projects against journal standards with comparison matrix.",
     ),
+    "audit-report": (
+        SCRIPTS_ROOT / "generate_audit_report.py",
+        "Generate comprehensive audit report with TRIPOD+AI/PROBAST+AI coverage, error KB lookup, and literature citations.",
+    ),
 }
 INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
 COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {
