@@ -1,45 +1,43 @@
-"""extract_paper_metadata.py — Claude API-powered structured extraction from papers.
+"""extract_paper_metadata.py — LLM-powered structured extraction from medical ML papers.
 
-Reads paper text (abstract, PMC full-text XML, or PDF text) and uses
-Claude claude-opus-4-6 with adaptive thinking to extract structured fields into
-the paper's metadata.json.
+Reads paper text (abstract, PMC full-text XML) and uses an LLM to extract
+structured fields into the paper's metadata.json.  Supports two providers:
+
+  Provider       Model              API key env var      Cost (est.)
+  ─────────────────────────────────────────────────────────────────
+  deepseek       deepseek-chat      DEEPSEEK_API_KEY     ~$0.001/paper
+  claude         claude-opus-4-6    ANTHROPIC_API_KEY    ~$0.05/paper
 
 Extracted fields (automatically filled — no manual work needed):
-  - study_design:   outcome, prediction_horizon, setting, multicenter, external validation
-  - dataset:        source_type/name, n_patients, events, split_strategy, train/val/test sizes
+  - study_design:   outcome, prediction_horizon, setting, multicenter, ext. validation
+  - dataset:        source_type/name, n_patients, events, split_strategy, sizes
   - model:          model_type, n_candidates, hyperparameter tuning, feature selection
-  - performance_metrics: AUROC ± CI, sensitivity, specificity, PPV, NPV, Brier, calibration, DCA
+  - performance_metrics: AUROC±CI, sensitivity, specificity, PPV, NPV, Brier, DCA
   - reporting_standards: TRIPOD+AI, PROBAST+AI, code/data availability
   - leakage_risk_assessment: 8 leakage gate checks from methodology description
 
 Usage:
-    # Extract one paper (streams progress to terminal)
-    python3 scripts/extract_paper_metadata.py \\
-        --paper-dir papers/nature_medicine/cardiovascular/smith_2023_af_ehr
-
-    # Extract all unprocessed papers (inline, fastest if ≤10 papers)
+    # DeepSeek (default, cheapest)
+    export DEEPSEEK_API_KEY=sk-...
+    python3 scripts/extract_paper_metadata.py --paper-dir papers/nature_medicine/cardiovascular/smith_2023_af_ehr
     python3 scripts/extract_paper_metadata.py --all --output-dir papers/
 
-    # Extract all papers via Batch API (50% cost reduction, async)
-    python3 scripts/extract_paper_metadata.py --all --batch --output-dir papers/
+    # Claude (more accurate leakage risk assessment)
+    export ANTHROPIC_API_KEY=sk-ant-...
+    python3 scripts/extract_paper_metadata.py --all --provider claude
 
-    # Limit by journal / disease domain
-    python3 scripts/extract_paper_metadata.py \\
-        --all --journal nature_medicine --domain cardiovascular
+    # Batch API (Claude only, async, half price)
+    python3 scripts/extract_paper_metadata.py --all --provider claude --batch
 
-    # Force re-extract even if already done
-    python3 scripts/extract_paper_metadata.py --all --force
+    # Filter by journal / domain
+    python3 scripts/extract_paper_metadata.py --all --journal nature_medicine --domain cardiovascular
 
-    # Use abstract only (no full-text fetch, faster/cheaper)
-    python3 scripts/extract_paper_metadata.py --all --abstract-only
-
-    # Fetch PMC full-text for richer extraction (default when pmcid available)
-    python3 scripts/extract_paper_metadata.py \\
-        --paper-dir papers/lancet_digital_health/diabetes/jones_2022_cgm_prediction
+    # Force re-extract / abstract only
+    python3 scripts/extract_paper_metadata.py --all --force --abstract-only
 
 Requirements:
-    pip install anthropic>=0.40.0    # Claude API SDK
-    ANTHROPIC_API_KEY env var must be set
+    pip install openai>=1.0.0          # for DeepSeek
+    pip install anthropic>=0.40.0      # for Claude (optional)
 """
 
 from __future__ import annotations
@@ -59,12 +57,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:
-    import anthropic
     from pydantic import BaseModel, Field
-except ImportError as exc:
-    print(f"Missing dependency: {exc}")
-    print("Install with: pip install anthropic>=0.40.0")
+except ImportError:
+    print("Missing dependency: pydantic")
+    print("Install with: pip install pydantic>=2.0")
     sys.exit(1)
+
+# Optional provider SDKs — imported lazily in main()
+_anthropic_mod: Any = None
+_openai_mod: Any = None
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -330,24 +331,159 @@ def assemble_paper_text(metadata: dict[str, Any], abstract_only: bool = False) -
 
 
 # ---------------------------------------------------------------------------
-# Claude extraction
+# JSON schema for DeepSeek prompt injection
 # ---------------------------------------------------------------------------
-def extract_with_claude(
-    client: anthropic.Anthropic,
+def _extraction_schema_text() -> str:
+    """Return a compact JSON schema description for use in the DeepSeek prompt."""
+    return """{
+  "study_design": {
+    "prediction_type": "string|null  (binary_classification/multiclass/regression/survival)",
+    "outcome": "string|null",
+    "prediction_unit": "string|null  (patient/admission/visit/encounter)",
+    "prediction_horizon": "string|null  (e.g. '30-day mortality')",
+    "setting": "string|null  (ICU/ED/inpatient/outpatient/community)",
+    "is_multicenter": "boolean|null",
+    "has_external_validation": "boolean|null",
+    "external_cohort_description": "string|null"
+  },
+  "dataset": {
+    "source_type": "string|null  (EHR_single_center/EHR_multicenter/public_dataset/registry/biobank/claims_data/mixed)",
+    "source_name": "string|null",
+    "n_patients_total": "integer|null",
+    "n_events_positive": "integer|null",
+    "n_events_negative": "integer|null",
+    "prevalence_pct": "number|null  (0-100)",
+    "split_strategy": "string|null  (random/temporal/site_based/not_reported)",
+    "train_n": "integer|null",
+    "valid_n": "integer|null",
+    "test_n": "integer|null",
+    "features_n": "integer|null",
+    "has_missing_data": "boolean|null",
+    "missing_data_strategy": "string|null"
+  },
+  "model": {
+    "model_type": "string|null  (logistic_regression/random_forest/xgboost/lightgbm/deep_learning/ensemble/other)",
+    "n_candidate_models": "integer|null",
+    "selection_criterion": "string|null",
+    "hyperparameter_tuning": "string|null",
+    "tuning_set": "string|null  (validation_only/train_validation/test_used/not_reported)",
+    "feature_selection_method": "string|null",
+    "preprocessing_pipeline": "string|null"
+  },
+  "performance_metrics": {
+    "primary_metric": "string|null",
+    "test_auroc": "number|null  (0-1 scale)",
+    "test_auroc_ci_lower": "number|null",
+    "test_auroc_ci_upper": "number|null",
+    "test_auprc": "number|null",
+    "test_sensitivity": "number|null  (0-1)",
+    "test_specificity": "number|null  (0-1)",
+    "test_ppv": "number|null  (0-1)",
+    "test_npv": "number|null  (0-1)",
+    "test_f1": "number|null  (0-1)",
+    "test_brier_score": "number|null",
+    "calibration_method": "string|null",
+    "calibration_reported": "boolean|null",
+    "dca_reported": "boolean|null",
+    "bootstrap_ci_reported": "boolean|null",
+    "n_bootstrap_resamples": "integer|null",
+    "external_auroc": "number|null",
+    "external_auroc_ci_lower": "number|null",
+    "external_auroc_ci_upper": "number|null"
+  },
+  "reporting_standards": {
+    "tripod_ai_claimed": "boolean|null",
+    "probast_ai_claimed": "boolean|null",
+    "stard_ai_claimed": "boolean|null",
+    "equator_guideline_cited": "string|null",
+    "limitation_section": "boolean|null",
+    "code_availability": "string|null  (public_github/on_request/not_available/not_mentioned)",
+    "data_availability": "string|null  (public/on_request/restricted/not_available/not_mentioned)"
+  },
+  "leakage_risk": {
+    "patient_level_split_confirmed": "boolean|null",
+    "temporal_split_confirmed": "boolean|null",
+    "preprocessing_fit_on_train_only": "boolean|null",
+    "tuning_used_test_data": "boolean|null  (true = BAD, contamination detected)",
+    "target_leakage_risk": "string|null  (low/medium/high/cannot_assess)",
+    "post_index_feature_risk": "string|null  (low/medium/high/cannot_assess)",
+    "phenotype_definition_overlap_risk": "string|null  (low/medium/high/cannot_assess)",
+    "notes": "string  (methodology observations, never null)"
+  },
+  "extraction_confidence": "string  (high/medium/low)",
+  "extraction_notes": "string  (caveats and ambiguities)"
+}"""
+
+
+def _build_user_prompt(paper_text: str) -> str:
+    return (
+        "Please extract structured metadata from the following medical prediction paper.\n\n"
+        f"{paper_text}\n\n"
+        "Extract all fields you can. Return null for fields not stated or unclear.\n"
+        "For leakage_risk fields, base your assessment on the described methodology.\n"
+        "Return ONLY valid JSON matching the schema — no markdown, no prose."
+    )
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek extraction (OpenAI-compatible API)
+# ---------------------------------------------------------------------------
+def extract_with_deepseek(
+    client: Any,  # openai.OpenAI
     paper_text: str,
     paper_id: str,
+    model: str = "deepseek-chat",
 ) -> ExtractionResult | None:
-    """Call Claude claude-opus-4-6 to extract structured metadata. Returns None on failure."""
-    prompt = f"""Please extract structured metadata from the following medical prediction paper.
-
-{paper_text}
-
-Extract all fields you can from the text above. Return null for fields not mentioned or unclear.
-For leakage_risk fields, base your assessment on the described methodology."""
+    """Call DeepSeek via OpenAI-compatible API with JSON mode."""
+    schema_text = _extraction_schema_text()
+    system = (
+        SYSTEM_PROMPT
+        + f"\n\nReturn your answer as a single JSON object matching this schema exactly:\n{schema_text}"
+    )
 
     try:
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": _build_user_prompt(paper_text)},
+            ],
+        )
+        raw_text = response.choices[0].message.content or ""
+        raw = json.loads(raw_text)
+        # leakage_risk.notes must not be None
+        if "leakage_risk" in raw and raw["leakage_risk"].get("notes") is None:
+            raw["leakage_risk"]["notes"] = ""
+        return ExtractionResult(**raw)
+    except json.JSONDecodeError as exc:
+        log.error("[%s] JSON decode failed: %s", paper_id, exc)
+        return None
+    except Exception as exc:
+        msg = str(exc)
+        if "429" in msg or "rate" in msg.lower():
+            log.warning("[%s] Rate limited, waiting 30s…", paper_id)
+            time.sleep(30)
+            return extract_with_deepseek(client, paper_text, paper_id, model)
+        log.error("[%s] DeepSeek extraction failed: %s", paper_id, exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Claude extraction (Anthropic SDK)
+# ---------------------------------------------------------------------------
+def extract_with_claude(
+    client: Any,  # anthropic.Anthropic
+    paper_text: str,
+    paper_id: str,
+    model: str = "claude-opus-4-6",
+) -> ExtractionResult | None:
+    """Call Claude with adaptive thinking + structured output. Returns None on failure."""
+    anthropic = _anthropic_mod
+    try:
         response = client.messages.parse(
-            model="claude-opus-4-6",
+            model=model,
             max_tokens=4096,
             thinking={"type": "adaptive"},
             system=[
@@ -357,7 +493,7 @@ For leakage_risk fields, base your assessment on the described methodology."""
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": _build_user_prompt(paper_text)}],
             output_format=ExtractionResult,
         )
         return response.parsed_output
@@ -367,9 +503,9 @@ For leakage_risk fields, base your assessment on the described methodology."""
     except anthropic.RateLimitError:
         log.warning("[%s] Rate limited, waiting 60s…", paper_id)
         time.sleep(60)
-        return extract_with_claude(client, paper_text, paper_id)
+        return extract_with_claude(client, paper_text, paper_id, model)
     except Exception as exc:
-        log.error("[%s] Extraction failed: %s", paper_id, exc)
+        log.error("[%s] Claude extraction failed: %s", paper_id, exc)
         return None
 
 
@@ -431,7 +567,8 @@ def merge_extraction(
 # ---------------------------------------------------------------------------
 def process_paper(
     paper_dir: Path,
-    client: anthropic.Anthropic,
+    extractor: Any,  # callable(paper_text, paper_id) -> ExtractionResult | None
+    provider_label: str,
     abstract_only: bool,
     force: bool,
     dry_run: bool,
@@ -458,11 +595,11 @@ def process_paper(
         return False
 
     if dry_run:
-        log.info("  [DRY-RUN] Would extract %d chars of text", len(paper_text))
+        log.info("  [DRY-RUN] Would extract %d chars via %s", len(paper_text), provider_label)
         return True
 
-    log.info("  Extracting with Claude (text: %d chars)…", len(paper_text))
-    result = extract_with_claude(client, paper_text, paper_dir.name)
+    log.info("  Extracting via %s (text: %d chars)…", provider_label, len(paper_text))
+    result = extractor(paper_text, paper_dir.name)
     if result is None:
         return False
 
@@ -476,7 +613,8 @@ def process_paper(
     auroc = result.performance_metrics.test_auroc
     risk = result.leakage_risk.target_leakage_risk
     log.info(
-        "  Done. confidence=%s | AUROC=%s | leakage_risk=%s",
+        "  Done [%s]. confidence=%s | AUROC=%s | leakage_risk=%s",
+        provider_label,
         conf,
         f"{auroc:.3f}" if auroc else "n/a",
         risk or "n/a",
@@ -507,7 +645,7 @@ def build_batch_requests(
 
 
 def submit_batch(
-    client: anthropic.Anthropic,
+    client: Any,  # anthropic.Anthropic
     paper_dirs: list[Path],
     abstract_only: bool,
     force: bool,
@@ -553,7 +691,7 @@ def submit_batch(
 
 
 def poll_and_apply_batch(
-    client: anthropic.Anthropic,
+    client: Any,  # anthropic.Anthropic
     batch_id: str,
     paper_dirs: list[Path],
     force: bool,
@@ -677,7 +815,7 @@ def discover_papers(
 # ---------------------------------------------------------------------------
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Claude API-powered structured extraction from medical ML papers.",
+        description="LLM-powered structured extraction from medical ML papers.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="See module docstring for full usage examples.",
     )
@@ -687,30 +825,93 @@ def build_arg_parser() -> argparse.ArgumentParser:
     mode.add_argument(
         "--poll-batch",
         metavar="BATCH_ID",
-        help="Poll a previously submitted batch job and apply results",
+        help="Poll a Claude Batch API job and apply results (Claude provider only)",
     )
 
+    p.add_argument(
+        "--provider",
+        choices=["deepseek", "claude"],
+        default=None,
+        help="LLM provider: deepseek (default, cheap) or claude (accurate)",
+    )
+    p.add_argument(
+        "--model",
+        default=None,
+        help="Override model name (deepseek default: deepseek-chat; claude default: claude-opus-4-6)",
+    )
     p.add_argument("--output-dir", type=Path, default=Path("papers"), help="Root papers/ directory")
     p.add_argument("--journal", help="Filter by journal tier (e.g. nature_medicine)")
     p.add_argument("--domain", help="Filter by disease domain (e.g. cardiovascular)")
     p.add_argument("--abstract-only", action="store_true", help="Use abstract only, skip full-text fetch")
     p.add_argument("--force", action="store_true", help="Re-extract even if already done")
     p.add_argument("--dry-run", action="store_true", help="Print what would be done without calling API")
-    p.add_argument("--batch", action="store_true", help="Use Batch API (async, half-price, results take up to 1h)")
+    p.add_argument("--batch", action="store_true", help="Use Claude Batch API (async, half price, Claude only)")
     p.add_argument("--workers", type=int, default=1, help="Parallel workers for inline mode (default: 1)")
     return p
+
+
+def _setup_provider(args: argparse.Namespace) -> tuple[str, Any, Any, str]:
+    """Resolve provider, build client, return (provider, extractor_fn, label)."""
+    global _anthropic_mod, _openai_mod
+
+    # Auto-detect provider from available env vars
+    provider = args.provider
+    if provider is None:
+        if os.environ.get("DEEPSEEK_API_KEY"):
+            provider = "deepseek"
+        elif os.environ.get("ANTHROPIC_API_KEY"):
+            provider = "claude"
+        else:
+            provider = "deepseek"  # will fail below with clear message
+
+    if provider == "deepseek":
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not api_key and not args.dry_run:
+            print("ERROR: DEEPSEEK_API_KEY not set.")
+            print("  export DEEPSEEK_API_KEY=sk-...")
+            print("  Get it at: https://platform.deepseek.com/api_keys")
+            sys.exit(1)
+        try:
+            import openai as _openai_import
+            _openai_mod = _openai_import
+        except ImportError:
+            print("ERROR: openai package not installed.")
+            print("  pip install openai>=1.0.0")
+            sys.exit(1)
+        model = args.model or "deepseek-chat"
+        client = _openai_mod.OpenAI(
+            api_key=api_key or "dummy",
+            base_url="https://api.deepseek.com",
+        )
+        extractor = lambda text, pid: extract_with_deepseek(client, text, pid, model)
+        label = f"DeepSeek ({model})"
+
+    else:  # claude
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key and not args.dry_run:
+            print("ERROR: ANTHROPIC_API_KEY not set.")
+            print("  export ANTHROPIC_API_KEY=sk-ant-...")
+            sys.exit(1)
+        try:
+            import anthropic as _anthropic_import
+            _anthropic_mod = _anthropic_import
+        except ImportError:
+            print("ERROR: anthropic package not installed.")
+            print("  pip install anthropic>=0.40.0")
+            sys.exit(1)
+        model = args.model or "claude-opus-4-6"
+        client = _anthropic_mod.Anthropic(api_key=api_key or "dummy")
+        extractor = lambda text, pid: extract_with_claude(client, text, pid, model)
+        label = f"Claude ({model})"
+
+    return provider, client, extractor, label
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key and not args.dry_run:
-        print("ERROR: ANTHROPIC_API_KEY environment variable is not set.")
-        print("  export ANTHROPIC_API_KEY=sk-ant-...")
-        return 1
-
-    client = anthropic.Anthropic(api_key=api_key) if api_key else None
+    provider, client, extractor, label = _setup_provider(args)
+    log.info("Provider: %s", label)
 
     # ── Single paper ──────────────────────────────────────────────────────
     if args.paper_dir:
@@ -720,15 +921,19 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Processing: %s", args.paper_dir.name)
         ok = process_paper(
             args.paper_dir,
-            client,
+            extractor,
+            label,
             abstract_only=args.abstract_only,
             force=args.force,
             dry_run=args.dry_run,
         )
         return 0 if ok else 1
 
-    # ── Poll batch ────────────────────────────────────────────────────────
+    # ── Poll batch (Claude only) ──────────────────────────────────────────
     if args.poll_batch:
+        if provider != "claude":
+            log.error("--poll-batch is only supported with --provider claude")
+            return 1
         papers = discover_papers(args.output_dir, args.journal, args.domain, force=True)
         poll_and_apply_batch(client, args.poll_batch, papers, args.force)
         return 0
@@ -740,12 +945,18 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Nothing to do.")
         return 0
 
-    # Batch API mode (async, cheaper)
+    # Batch API mode (Claude only)
     if args.batch and not args.dry_run:
+        if provider != "claude":
+            log.error("--batch requires --provider claude (DeepSeek has no batch API)")
+            return 1
         batch_id = submit_batch(client, papers, args.abstract_only, args.force)
         if batch_id:
             print(f"\nBatch submitted: {batch_id}")
-            print(f"Poll with: python3 scripts/extract_paper_metadata.py --poll-batch {batch_id} --output-dir {args.output_dir}")
+            print(
+                f"Poll with: python3 scripts/extract_paper_metadata.py"
+                f" --poll-batch {batch_id} --provider claude --output-dir {args.output_dir}"
+            )
         return 0
 
     # Inline mode
@@ -755,7 +966,8 @@ def main(argv: list[str] | None = None) -> int:
         log.info("[%d/%d] %s", i, len(papers), paper_dir.name)
         ok = process_paper(
             paper_dir,
-            client,
+            extractor,
+            label,
             abstract_only=args.abstract_only,
             force=args.force,
             dry_run=args.dry_run,
@@ -764,9 +976,8 @@ def main(argv: list[str] | None = None) -> int:
             succeeded += 1
         else:
             failed += 1
-        # Rate limiting: pause between papers
         if not args.dry_run and i < len(papers):
-            time.sleep(1.5)
+            time.sleep(1.0 if provider == "deepseek" else 1.5)
 
     log.info("Done. %d succeeded, %d failed", succeeded, failed)
     return 0 if failed == 0 else 1

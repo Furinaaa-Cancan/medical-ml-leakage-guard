@@ -1,7 +1,8 @@
 # Optional model backends (install separately if needed)
 
 # Paper metadata extraction (scripts/extract_paper_metadata.py)
-anthropic>=0.40.0
+openai>=1.0.0          # DeepSeek provider (default, cheap)
+anthropic>=0.40.0      # Claude provider (optional, more accurate leakage assessment)
 xgboost>=1.7
 catboost>=1.2
 lightgbm>=3.3
