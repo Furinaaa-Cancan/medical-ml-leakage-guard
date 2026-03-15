@@ -1045,7 +1045,22 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
-    # Step 28: self critique
+    # Step 28: security audit gate (D10) — must run before self_critique so its report is available
+    if not execute(
+        "security_audit_gate",
+        [
+            args.python,
+            str(scripts_dir / "security_audit_gate.py"),
+            "--evidence-dir",
+            str(evidence_dir),
+            "--report",
+            str(reports["security_audit_gate_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 29: self critique (scores all 30 gate reports including D10/D11/D12)
     if not execute(
         "self_critique_gate",
         [
@@ -1105,26 +1120,17 @@ def main() -> int:
             str(reports["permutation_report"]),
             "--publication-report",
             str(reports["publication_report"]),
+            "--security-audit-report",
+            str(reports["security_audit_gate_report"]),
+            "--fairness-equity-report",
+            str(reports["fairness_equity_report"]),
+            "--sample-size-report",
+            str(reports["sample_size_report"]),
             "--min-score",
             "95",
             "--report",
             str(reports["self_critique_report"]),
             *(["--allow-missing-comparison"] if args.allow_missing_compare else []),
-            *strict_flag,
-        ],
-    ):
-        return finalize(args, reports, steps, success=False)
-
-    # Step 29: security audit gate
-    if not execute(
-        "security_audit_gate",
-        [
-            args.python,
-            str(scripts_dir / "security_audit_gate.py"),
-            "--evidence-dir",
-            str(evidence_dir),
-            "--report",
-            str(reports["security_audit_gate_report"]),
             *strict_flag,
         ],
     ):
