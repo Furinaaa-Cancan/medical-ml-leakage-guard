@@ -121,7 +121,7 @@ class PTYSession:
 
 # ── test result tracking ────────────────────────────────────────────────────
 
-class TestResult:
+class _ResultTracker:
     def __init__(self):
         self.passed = 0
         self.failed = 0
@@ -151,7 +151,7 @@ class TestResult:
         return self.failed == 0
 
 
-R = TestResult()
+R = _ResultTracker()
 
 
 # ── test cases ───────────────────────────────────────────────────────────────
