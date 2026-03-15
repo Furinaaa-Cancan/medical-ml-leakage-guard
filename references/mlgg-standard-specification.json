@@ -1,0 +1,286 @@
+{
+  "contract_version": "mlgg_standard_specification.v1",
+  "standard_id": "MLGG",
+  "standard_full_name": "Machine Learning Leakage Guard — Prediction Model Integrity Standard",
+  "version": "1.0.0",
+  "version_date": "2026-03-15",
+  "status": "Active",
+  "supersedes": null,
+  "language": "en",
+
+  "citation": {
+    "preferred_citation": "Machine Learning Leakage Guard (MLGG) Standard v1.0. ml-leakage-guard project. 2026. https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard",
+    "note": "When citing this standard in a manuscript, please include the MLGG version number and the conformance level achieved (e.g., 'MLGG v1.0 L3-Publication-Grade')."
+  },
+
+  "scope": {
+    "description": "The MLGG Standard defines a set of machine-verifiable requirements for the development, validation, and reporting of clinical prediction models. It specifies 31 audit gates organized in a directed acyclic graph (DAG) that a model development pipeline must satisfy to achieve a given conformance level.",
+    "in_scope": [
+      "Supervised machine learning models for clinical prediction",
+      "Binary classification (version 1.0)",
+      "Multiclass classification (version 1.1, planned)",
+      "Regression prediction (version 1.1, planned)",
+      "Survival / time-to-event models (version 1.2, planned)",
+      "Tabular structured data (EHR, registry, claims)",
+      "Models intended for publication in peer-reviewed journals"
+    ],
+    "out_of_scope_v1": [
+      "Computer vision / medical imaging models",
+      "Natural language processing / clinical text models",
+      "Genomics and multi-omics models",
+      "Reinforcement learning",
+      "Unsupervised clustering",
+      "Non-clinical AI applications"
+    ],
+    "planned_extensions": {
+      "v1.1": "Multiclass classification; regression prediction",
+      "v1.2": "Survival analysis; time-to-event models",
+      "v2.0": "Imaging, NLP, and genomics domain packs via plugin architecture"
+    }
+  },
+
+  "normative_references": [
+    {
+      "id": "REF-001",
+      "name": "TRIPOD+AI 2024",
+      "citation": "Collins GS, Moons KGM, Dhiman P, et al. BMJ. 2024;385:e078378.",
+      "doi": "10.1136/bmj-2023-078378",
+      "role": "Reporting standard — 27-item checklist requirements",
+      "implementation": "references/tripod-ai-official-checklist.json; gate: reporting_bias_gate"
+    },
+    {
+      "id": "REF-002",
+      "name": "PROBAST+AI 2025",
+      "citation": "Wolff RF, Moons KGM, Riley RD, et al. PROBAST+AI. BMJ. 2025.",
+      "role": "Risk of bias assessment — 34 signalling questions across 4 domains",
+      "implementation": "references/probast-ai-signalling-questions.json; gate: reporting_bias_gate"
+    },
+    {
+      "id": "REF-003",
+      "name": "STARD-AI 2021",
+      "citation": "Sounderajah V, et al. BMJ Open. 2021;11:e047709.",
+      "doi": "10.1136/bmjopen-2020-047709",
+      "role": "Diagnostic accuracy reporting — 18-item checklist (when applicable)",
+      "implementation": "references/stard-ai-checklist.json; gate: reporting_bias_gate"
+    },
+    {
+      "id": "REF-004",
+      "name": "Riley EPV Formula",
+      "citation": "Riley RD, et al. BMJ. 2020;368:m441.",
+      "doi": "10.1136/bmj.m441",
+      "role": "Sample size requirements — events per variable calculation",
+      "implementation": "gate: sample_size_gate"
+    },
+    {
+      "id": "REF-005",
+      "name": "Vickers DCA 2006",
+      "citation": "Vickers AJ, Elkin EB. Med Decis Making. 2006;26:565–574.",
+      "doi": "10.1177/0272989X06295361",
+      "role": "Clinical utility — decision curve analysis requirement",
+      "implementation": "gate: calibration_dca_gate"
+    }
+  ],
+
+  "terminology": {
+    "prediction_model": "A mathematical function that uses participant characteristics (predictors) to estimate the probability or value of a future outcome.",
+    "data_leakage": "Any process by which information from outside the training data is used to create a model, leading to overly optimistic performance estimates.",
+    "gate": "A self-contained audit script that validates a specific aspect of the prediction pipeline. Gates are fail-closed: they exit 0 on pass, 2 on fail.",
+    "strict_mode": "Pipeline execution mode in which warnings are treated as failures. Required for L3-Publication-Grade conformance.",
+    "conformance_level": "A classification of a pipeline's compliance with MLGG requirements. Three levels: L1, L2, L3.",
+    "evidence_artifact": "A machine-generated JSON file (gate report) that constitutes cryptographic evidence of a gate's pass/fail outcome.",
+    "compliance_certificate": "A signed, bundled artifact containing all gate reports and a conformance level declaration, suitable for submission alongside a manuscript.",
+    "index_time": "The time point at which a prediction is made. All predictor values must be available at or before this time.",
+    "fail_closed": "The principle that any ambiguous or error state results in a gate failure rather than a silent pass."
+  },
+
+  "conformance_levels": {
+    "L1": {
+      "id": "L1",
+      "name": "Leakage-Audited",
+      "description": "The pipeline has passed all critical data integrity and anti-leakage gates. Results can be presented at conferences with appropriate caveats.",
+      "required_gates": [
+        "request_contract_gate",
+        "manifest_lock",
+        "leakage_gate",
+        "split_protocol_gate",
+        "definition_variable_guard",
+        "feature_lineage_gate",
+        "imbalance_policy_gate",
+        "missingness_policy_gate",
+        "tuning_leakage_gate",
+        "model_selection_audit_gate",
+        "feature_engineering_audit_gate",
+        "clinical_metrics_gate"
+      ],
+      "gate_count": 12,
+      "strict_mode_required": false,
+      "tripod_ai_coverage_minimum": null,
+      "probast_overall_rob_required": null,
+      "use_context": "Conference papers, preliminary reports, internal validation studies"
+    },
+    "L2": {
+      "id": "L2",
+      "name": "Statistically Valid",
+      "description": "The pipeline has passed all L1 gates plus statistical validation gates. Results can be submitted to specialist journals with the MLGG L2 compliance certificate.",
+      "required_gates": [
+        "request_contract_gate",
+        "manifest_lock",
+        "execution_attestation_gate",
+        "leakage_gate",
+        "split_protocol_gate",
+        "covariate_shift_gate",
+        "reporting_bias_gate",
+        "definition_variable_guard",
+        "feature_lineage_gate",
+        "imbalance_policy_gate",
+        "missingness_policy_gate",
+        "tuning_leakage_gate",
+        "model_selection_audit_gate",
+        "feature_engineering_audit_gate",
+        "clinical_metrics_gate",
+        "calibration_dca_gate",
+        "ci_matrix_gate",
+        "distribution_generalization_gate",
+        "evaluation_quality_gate",
+        "fairness_equity_gate",
+        "generalization_gap_gate",
+        "metric_consistency_gate",
+        "permutation_significance_gate",
+        "sample_size_gate",
+        "seed_stability_gate"
+      ],
+      "gate_count": 25,
+      "strict_mode_required": false,
+      "tripod_ai_coverage_minimum": "17/27",
+      "probast_overall_rob_required": "low_or_unclear",
+      "use_context": "Specialist journals (JAMIA, J Biomed Inform, npj Digital Medicine), internal clinical validation"
+    },
+    "L3": {
+      "id": "L3",
+      "name": "Publication-Grade",
+      "description": "The pipeline has passed all 31 gates in strict mode. Results meet the standards required for top-tier journals including Nature Medicine, Lancet Digital Health, JAMA, and BMJ.",
+      "required_gates": "all_31",
+      "gate_count": 31,
+      "strict_mode_required": true,
+      "tripod_ai_coverage_minimum": "23/27",
+      "probast_overall_rob_required": "low",
+      "score_10dim_minimum": 90,
+      "external_validation_required": true,
+      "use_context": "Nature Medicine, Lancet Digital Health, JAMA, BMJ, New England Journal of Medicine"
+    }
+  },
+
+  "gate_dag": {
+    "description": "The 31 gates are organized in a DAG with 9 execution layers. Gates in the same layer can execute in parallel. Each gate must complete before gates that depend on it.",
+    "layers": {
+      "0_contract": {
+        "gates": ["request_contract_gate"],
+        "description": "Validates and normalizes request.json — all subsequent gates depend on this"
+      },
+      "1_manifest": {
+        "gates": ["manifest_lock"],
+        "depends_on": ["request_contract_gate"],
+        "description": "SHA-256 cryptographic integrity verification of all input files"
+      },
+      "2_attestation": {
+        "gates": ["execution_attestation_gate"],
+        "depends_on": ["manifest_lock"],
+        "description": "Cryptographic execution timestamp and witness verification"
+      },
+      "3_data_validation": {
+        "gates": ["leakage_gate", "split_protocol_gate", "covariate_shift_gate", "reporting_bias_gate"],
+        "depends_on": ["request_contract_gate"],
+        "parallelizable": true,
+        "description": "Core data integrity and leakage detection"
+      },
+      "4_policy_audit": {
+        "gates": ["definition_variable_guard", "feature_lineage_gate", "imbalance_policy_gate", "missingness_policy_gate", "tuning_leakage_gate"],
+        "depends_on": ["request_contract_gate"],
+        "parallelizable": true,
+        "description": "Policy-level compliance verification"
+      },
+      "5_model_audit": {
+        "gates": ["model_selection_audit_gate", "feature_engineering_audit_gate", "clinical_metrics_gate"],
+        "depends_on": ["request_contract_gate"],
+        "parallelizable": true,
+        "description": "Model selection and feature engineering compliance"
+      },
+      "6_metric_validation": {
+        "gates": [
+          "calibration_dca_gate", "ci_matrix_gate", "distribution_generalization_gate",
+          "evaluation_quality_gate", "external_validation_gate", "fairness_equity_gate",
+          "generalization_gap_gate", "metric_consistency_gate", "permutation_significance_gate",
+          "prediction_replay_gate", "robustness_gate", "sample_size_gate", "seed_stability_gate"
+        ],
+        "depends_on": ["request_contract_gate"],
+        "parallelizable": true,
+        "description": "Comprehensive statistical validation"
+      },
+      "7_aggregation": {
+        "gates": ["publication_gate"],
+        "depends_on": ["all_layers_0_to_6"],
+        "description": "Aggregates all gate outcomes into a publication readiness assessment"
+      },
+      "8_final": {
+        "gates": ["self_critique_gate", "security_audit_gate"],
+        "depends_on": ["publication_gate"],
+        "description": "10-dimension quality scoring and cryptographic model signing"
+      }
+    }
+  },
+
+  "scoring_rubric": {
+    "description": "10-dimension scoring rubric for quantitative evaluation. Maximum score: 100 points. Minimum for L3 conformance: 90/100.",
+    "dimensions": {
+      "D1_data_integrity": {"weight": 12, "description": "Split isolation, patient-level disjoint, temporal ordering, row overlap"},
+      "D2_leakage_prevention": {"weight": 15, "description": "Target, definition-variable, lineage, and post-index leakage prevention"},
+      "D3_pipeline_isolation": {"weight": 12, "description": "Preprocessor, imputer, and resampling train-only constraints"},
+      "D4_model_selection": {"weight": 10, "description": "Candidate pool, one-SE rule, no test peeking, baseline comparator"},
+      "D5_statistical_validity": {"weight": 12, "description": "Bootstrap CI, permutation test, calibration, DCA, metric consistency"},
+      "D6_generalization": {"weight": 10, "description": "Train-test gap, external cohort, transport-drop CI, seed stability"},
+      "D7_clinical_completeness": {"weight": 8, "description": "Full metric panel, confusion matrix consistency, threshold feasibility"},
+      "D8_reporting_standards": {"weight": 8, "description": "TRIPOD+AI, PROBAST+AI, exclusion criteria, limitation documentation"},
+      "D9_reproducibility": {"weight": 8, "description": "Seed logging, version tracking, execution attestation, manifest lock"},
+      "D10_security_provenance": {"weight": 5, "description": "Model signing, artifact integrity, sensitive data protection"}
+    },
+    "interpretation": {
+      "90_100": "Publication-Grade (顶刊级) — L3 conformance achievable",
+      "75_89": "Solid but gaps remain (需补充) — L2 conformance achievable",
+      "60_74": "Major issues (重大缺陷) — L1 only; significant remediation required",
+      "below_60": "Not publishable (不可发表) — fundamental methodology failures"
+    }
+  },
+
+  "compliance_certificate": {
+    "description": "A MLGG Compliance Certificate is a machine-readable, HMAC-signed JSON artifact that bundles all gate reports and attests to the conformance level. It can be submitted alongside a manuscript for independent verification.",
+    "schema_file": "references/mlgg-compliance-certificate.schema.json",
+    "generation_script": "scripts/generate_compliance_certificate.py",
+    "verification": "The certificate signature can be verified by running: python3 scripts/generate_compliance_certificate.py --verify <certificate.json>",
+    "format": "JSON-LD compatible, includes ISO 8601 timestamps"
+  },
+
+  "change_management": {
+    "versioning": "Semantic versioning (MAJOR.MINOR.PATCH)",
+    "major_change": "Removal of required gates, reduction of conformance requirements, changes that lower the bar",
+    "minor_change": "Addition of new gates, new conformance levels, new reference standards — backward compatible",
+    "patch_change": "Bug fixes, clarifications, documentation improvements",
+    "deprecation_policy": "Deprecated gates remain functional for 2 minor versions before removal",
+    "change_log": "All changes documented in CHANGELOG.md"
+  },
+
+  "governance": {
+    "maintainer": "ml-leakage-guard project",
+    "repository": "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard",
+    "issue_tracker": "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard/issues",
+    "contribution_process": "See CONTRIBUTING.md for gate contribution guidelines",
+    "review_cycle": "Annual review of normative references; immediate patch for critical bugs"
+  },
+
+  "implementation_guide": {
+    "quick_start": "python3 scripts/mlgg.py play",
+    "full_workflow": "python3 scripts/mlgg.py workflow --request configs/request.json --strict",
+    "external_audit": "python3 scripts/audit_external_project.py --project-dir /path/to/project",
+    "generate_certificate": "python3 scripts/generate_compliance_certificate.py --evidence-dir evidence/ --output certificate.json",
+    "verify_certificate": "python3 scripts/generate_compliance_certificate.py --verify certificate.json"
+  }
+}

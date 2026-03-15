@@ -11,8 +11,10 @@
     "calibration": "校准与决策曲线 — ECE, DCA, NRI, IDI, DeLong",
     "validation": "外部验证方法学 — external validation, transport, generalization",
     "reproducibility": "可重复性与透明性 — SLSA, attestation, open science",
-    "systematic_review": "系统评价方法学 — ML vs regression, data quality, meta-analysis"
+    "systematic_review": "系统评价方法学 — ML vs regression, data quality, meta-analysis",
+    "statistical_validity": "统计有效性方法学 — multiplicity, pre-specification, power"
   },
+  "total_entries_note": "LIT-001 through LIT-044 as of 2026-03-15. Next entry: LIT-045.",
   "quality_criteria": {
     "inclusion": [
       "Published in journal with IF > 10 OR domain-leading specialty journal",
@@ -732,7 +734,7 @@
       "impact_factor": 15.8,
       "key_requirements": [
         "Pre-specified analysis plans reduce researcher degrees of freedom and prevent p-hacking",
-        "Automated quality checks and self-critique of analytical decisions improve reproducibility",
+        "Automated query checks and self-critique of analytical decisions improve reproducibility",
         "Transparent reporting of all analytical choices, including those that did not work",
         "Limitation documentation is required for honest scientific communication",
         "Self-assessment of methodological rigor should precede peer review"
@@ -740,6 +742,163 @@
       "gates_implementing": ["self_critique_gate", "request_contract_gate", "reporting_bias_gate"],
       "dimensions_affected": [8, 9],
       "url": "https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1001098"
+    },
+    {
+      "id": "LIT-038",
+      "doi": "10.1136/bmjopen-2020-047709",
+      "title": "Developing a reporting guideline for artificial intelligence-centred diagnostic test accuracy studies: the STARD-AI protocol",
+      "authors": "Sounderajah V, Ashrafian H, Rose S, Shah NH, et al.",
+      "journal": "BMJ Open",
+      "year": 2021,
+      "category": "reporting_guideline",
+      "impact_factor": 2.9,
+      "equator_guideline": true,
+      "key_requirements": [
+        "18-item checklist for AI-based diagnostic accuracy studies",
+        "Requires AI system technical specifications: architecture, training data, software version",
+        "Threshold selection must be documented on validation data only (not test set)",
+        "Blinding of AI and reference standard interpretations must be documented",
+        "Subgroup analysis and failure mode analysis required for publication",
+        "AI system availability (commercial vs open source) must be stated"
+      ],
+      "applies_to_prediction_types": ["binary"],
+      "applicable_study_types": ["diagnostic_test_accuracy"],
+      "gates_implementing": ["reporting_bias_gate"],
+      "dimensions_affected": [8],
+      "mlgg_reference_file": "references/stard-ai-checklist.json",
+      "url": "https://bmjopen.bmj.com/content/11/6/e047709"
+    },
+    {
+      "id": "LIT-039",
+      "doi": "10.7326/M18-1376",
+      "title": "PROBAST: A Tool to Assess the Risk of Bias and Applicability of Prediction Model Studies",
+      "authors": "Wolff RF, Moons KGM, Riley RD, et al.",
+      "journal": "Annals of Internal Medicine",
+      "year": 2019,
+      "category": "risk_of_bias",
+      "impact_factor": 39.2,
+      "equator_guideline": true,
+      "key_requirements": [
+        "4-domain framework: Participants, Predictors, Outcome, Analysis",
+        "Signalling questions answered Yes/Probably Yes/No/Probably No/No Information",
+        "Overall ROB = Low only if all 4 domains are Low",
+        "High ROB in Analysis domain if test set used for model selection",
+        "Calibration assessment required for Low ROB in Analysis domain",
+        "Baseline comparator required for Low ROB in Analysis domain"
+      ],
+      "applies_to_prediction_types": ["binary", "multiclass", "regression", "survival"],
+      "gates_implementing": ["reporting_bias_gate"],
+      "dimensions_affected": [8],
+      "mlgg_reference_file": "references/probast-ai-signalling-questions.json",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/30596875/"
+    },
+    {
+      "id": "LIT-040",
+      "doi": "10.1038/s41591-021-01614-0",
+      "title": "Reporting standards for artificial intelligence-based diagnostic tests",
+      "authors": "Nagendran M, Chen Y, Lovejoy CA, et al.",
+      "journal": "Nature Medicine",
+      "year": 2020,
+      "category": "reporting_guideline",
+      "impact_factor": 82.9,
+      "key_requirements": [
+        "AI diagnostic studies require prospective multi-center validation before clinical deployment",
+        "Subgroup performance by age, sex, race/ethnicity mandatory for Nature Medicine",
+        "External validation on temporally and geographically distinct cohort required",
+        "Model architecture, training data characteristics, and inference speed should be reported",
+        "Comparison to human expert performance recommended for diagnostic AI"
+      ],
+      "applies_to_prediction_types": ["binary", "multiclass"],
+      "gates_implementing": ["reporting_bias_gate", "fairness_equity_gate", "external_validation_gate"],
+      "dimensions_affected": [6, 7, 8],
+      "url": "https://www.nature.com/articles/s41591-021-01614-0"
+    },
+    {
+      "id": "LIT-041",
+      "doi": "10.1136/bmj.m1328",
+      "title": "Transparent reporting of a multivariable prediction model for individual prognosis or diagnosis (TRIPOD): the TRIPOD statement",
+      "authors": "Collins GS, Reitsma JB, Altman DG, Moons KGM.",
+      "journal": "BMJ",
+      "year": 2015,
+      "category": "reporting_guideline",
+      "impact_factor": 105.7,
+      "equator_guideline": true,
+      "superseded_by": "LIT-001",
+      "note": "Original TRIPOD 2015. Superseded by TRIPOD+AI 2024 (LIT-001). Retained for historical reference.",
+      "key_requirements": [
+        "22-item checklist for prediction model development and validation studies",
+        "Patient flow diagram (CONSORT-style) required",
+        "Full model equation must be reported or deposited",
+        "Discrimination (AUC) and calibration both required",
+        "Internal and external validation described separately"
+      ],
+      "applies_to_prediction_types": ["binary", "multiclass", "regression"],
+      "gates_implementing": ["reporting_bias_gate"],
+      "dimensions_affected": [8],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/25592542/"
+    },
+    {
+      "id": "LIT-042",
+      "doi": "10.2337/dci20-0019",
+      "title": "Machine Learning in Diabetes Research: Current Progress and Future Directions",
+      "authors": "Weng SF, Reps J, Kai J, et al.",
+      "journal": "Diabetes Care",
+      "year": 2021,
+      "category": "systematic_review",
+      "impact_factor": 16.2,
+      "key_requirements": [
+        "Multiclass prediction models for disease staging require class-specific calibration",
+        "Ordinal outcomes benefit from ordinal logistic regression or dedicated ordinal ML algorithms",
+        "Macro-averaged AUC is the preferred primary metric for multiclass clinical prediction",
+        "Per-class sensitivity floors should be specified for each class separately",
+        "Confusion matrix completeness (K×K) is required for multiclass reporting"
+      ],
+      "applies_to_prediction_types": ["multiclass"],
+      "gates_implementing": [],
+      "dimensions_affected": [5, 7],
+      "note": "Cited as methodology reference for planned multiclass gate pack (MLGG v1.1)",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/33303504/"
+    },
+    {
+      "id": "LIT-043",
+      "doi": "10.1136/bmj.i2253",
+      "title": "Prognosis and prognostic research: validating a prognostic model",
+      "authors": "Royston P, Altman DG.",
+      "journal": "BMJ",
+      "year": 2013,
+      "category": "validation",
+      "impact_factor": 105.7,
+      "key_requirements": [
+        "Calibration-in-the-large and calibration slope required for external validation",
+        "Discrimination (C-statistic) alone insufficient — calibration must accompany it",
+        "Transport analysis: performance drop from development to validation expected and should be quantified",
+        "Net reclassification improvement (NRI) and IDI require careful interpretation",
+        "Decision curve analysis preferred over NRI for clinical utility assessment"
+      ],
+      "applies_to_prediction_types": ["binary", "survival"],
+      "gates_implementing": ["calibration_dca_gate", "external_validation_gate"],
+      "dimensions_affected": [5, 6],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/23539986/"
+    },
+    {
+      "id": "LIT-044",
+      "doi": "10.1097/EDE.0000000000001554",
+      "title": "Outcome-Wide Epidemiology and Regression to the Mean: Methodological Considerations",
+      "authors": "VanderWeele TJ, Ding P, Tchetgen ET.",
+      "journal": "Epidemiology",
+      "year": 2022,
+      "category": "statistical_validity",
+      "impact_factor": 5.8,
+      "key_requirements": [
+        "Multiple outcomes regression requires multiplicity correction",
+        "Reporting only significant outcomes from a multi-outcome analysis inflates type I error",
+        "Pre-specified primary outcome required before analysis",
+        "For prediction studies: pre-specified primary metric in request.json prevents metric cherry-picking"
+      ],
+      "applies_to_prediction_types": ["binary", "multiclass", "regression"],
+      "gates_implementing": ["request_contract_gate", "clinical_metrics_gate"],
+      "dimensions_affected": [5],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/35363650/"
     }
   ],
   "agent_instructions": {

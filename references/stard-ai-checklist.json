@@ -1,0 +1,218 @@
+{
+  "contract_version": "stard_ai_checklist.v1",
+  "standard_name": "STARD-AI",
+  "full_title": "Standards for Reporting of Diagnostic Accuracy Studies — Artificial Intelligence extension",
+  "source": "Sounderajah V, Ashrafian H, Rose S, et al. Developing a reporting guideline for artificial intelligence-centred diagnostic test accuracy studies: the STARD-AI protocol. BMJ Open. 2021;11:e047709. EQUATOR Network guideline.",
+  "doi": "10.1136/bmjopen-2020-047709",
+  "version": "2021",
+  "total_items": 18,
+  "last_updated": "2026-03-15",
+  "description": "STARD-AI is a 18-item reporting guideline specifically for AI-based diagnostic test accuracy studies. Applicable when a model is used as a replacement or add-on to an existing diagnostic test (e.g., AI-based imaging diagnosis, AI-based ECG interpretation, AI-based biomarker-based screening). Not applicable to pure prognostic prediction models without a reference standard test.",
+  "gate_implementing": "reporting_bias_gate",
+
+  "applicability": {
+    "use_when": [
+      "AI model serves as a diagnostic test with a reference standard (e.g., pathology, culture, PCR)",
+      "Study design involves paired comparison of AI vs reference standard",
+      "Study reports sensitivity, specificity, PPV, NPV relative to a gold standard",
+      "AI model intended to replace or triage a conventional diagnostic test"
+    ],
+    "not_applicable_when": [
+      "Pure prognostic prediction (no reference standard test exists)",
+      "Risk stratification without diagnostic test context",
+      "Treatment response prediction",
+      "Administrative prediction (readmission, LOS)"
+    ],
+    "note": "When stard_ai.applicable = false, a justification must be provided in the checklist spec."
+  },
+
+  "sections": {
+    "title_and_abstract": {"items": ["1", "2"]},
+    "introduction": {"items": ["3", "4"]},
+    "methods_participants": {"items": ["5", "6", "7"]},
+    "methods_test_details": {"items": ["8", "9", "10", "11"]},
+    "methods_analysis": {"items": ["12", "13"]},
+    "results": {"items": ["14", "15", "16"]},
+    "discussion": {"items": ["17"]},
+    "other": {"items": ["18"]}
+  },
+
+  "items": [
+    {
+      "item_id": "1",
+      "section": "Title and Abstract",
+      "label": "Title",
+      "text": "Identify the study as involving an AI system for diagnosis or screening. Specify the index test (AI system), the reference standard, and the target condition.",
+      "variable_name": "stard_title_identifies_ai_diagnostic",
+      "severity": "REQUIRED",
+      "pass_condition": "Title explicitly identifies the AI index test and the target diagnostic condition"
+    },
+    {
+      "item_id": "2",
+      "section": "Title and Abstract",
+      "label": "Abstract",
+      "text": "Structured abstract stating the study design, participants, index test (AI system), reference standard, performance results (sensitivity, specificity, AUC) with confidence intervals, and conclusions.",
+      "variable_name": "stard_abstract_structured",
+      "severity": "REQUIRED",
+      "pass_condition": "Abstract contains structured elements: design, AI system description, reference standard, performance with CI"
+    },
+    {
+      "item_id": "3",
+      "section": "Introduction",
+      "label": "Scientific and Clinical Background",
+      "text": "Describe the diagnostic condition, the burden of disease, existing diagnostic approaches, and the intended clinical role for the AI system (replacement, triage add-on, or rule-out).",
+      "variable_name": "stard_background_and_clinical_context",
+      "severity": "REQUIRED",
+      "pass_condition": "Background describes the diagnostic gap the AI system fills and intended clinical use"
+    },
+    {
+      "item_id": "4",
+      "section": "Introduction",
+      "label": "Study Objectives",
+      "text": "State the study objectives including the intended use of the AI index test, the reference standard used, and the study design (prospective, retrospective, single/multi-center).",
+      "variable_name": "stard_objectives_stated",
+      "severity": "REQUIRED",
+      "pass_condition": "Objectives explicitly state index test, reference standard, and study design"
+    },
+    {
+      "item_id": "5",
+      "section": "Methods — Participants",
+      "label": "Data Collection",
+      "text": "Describe the data collection process, including whether data was prospectively or retrospectively collected, dates of collection, and any linkage between data sources.",
+      "variable_name": "stard_data_collection_described",
+      "severity": "REQUIRED",
+      "pass_condition": "Data collection method, dates, and source described; prospective vs retrospective stated"
+    },
+    {
+      "item_id": "6",
+      "section": "Methods — Participants",
+      "label": "Participants",
+      "text": "Report the eligibility criteria for participants (inclusion/exclusion), the setting (primary care, hospital, screening program), and the clinical pathway for test ordering.",
+      "variable_name": "participant_flow_reported",
+      "severity": "REQUIRED",
+      "pass_condition": "Eligibility criteria, setting, and recruitment pathway documented"
+    },
+    {
+      "item_id": "7",
+      "section": "Methods — Participants",
+      "label": "Index Test and Reference Standard",
+      "text": "Describe both the index test (AI system) and the reference standard in detail. For the AI system: algorithm type, training data source, software version. For the reference standard: method, qualification of those conducting it.",
+      "variable_name": "index_test_details_reported",
+      "severity": "REQUIRED",
+      "pass_condition": "AI index test and reference standard both described with sufficient detail for reproducibility"
+    },
+    {
+      "item_id": "8",
+      "section": "Methods — Test Details",
+      "label": "AI System Technical Specifications",
+      "text": "Report the AI system's technical specifications: architecture, training dataset demographics and size, any pre-training (transfer learning), software framework/version, and deployment environment.",
+      "variable_name": "stard_ai_technical_specifications",
+      "severity": "REQUIRED",
+      "pass_condition": "Architecture, training data characteristics, software framework, and version all reported",
+      "ai_specific": true
+    },
+    {
+      "item_id": "9",
+      "section": "Methods — Test Details",
+      "label": "AI Model Cutoffs and Thresholds",
+      "text": "Describe the threshold(s) used to classify AI output as positive/negative, how thresholds were determined (pre-specified vs. data-driven), and on which data partition threshold selection was performed.",
+      "variable_name": "stard_threshold_selection_documented",
+      "severity": "REQUIRED",
+      "pass_condition": "Classification threshold documented; confirmation that threshold was selected on validation (not test) data",
+      "ai_specific": true
+    },
+    {
+      "item_id": "10",
+      "section": "Methods — Test Details",
+      "label": "Reference Standard",
+      "text": "Describe the reference standard, including the methods used, the criteria for positivity, and whether the reference standard is likely to correctly classify the target condition.",
+      "variable_name": "reference_standard_reported",
+      "severity": "REQUIRED",
+      "pass_condition": "Reference standard described with criteria for positivity and quality assessment"
+    },
+    {
+      "item_id": "11",
+      "section": "Methods — Test Details",
+      "label": "Blinding",
+      "text": "State whether the AI system output was interpreted without knowledge of the reference standard result, and whether the reference standard was interpreted without knowledge of the AI output.",
+      "variable_name": "blinding_status_reported",
+      "severity": "REQUIRED",
+      "pass_condition": "Blinding status of both AI interpretation and reference standard interpretation documented"
+    },
+    {
+      "item_id": "12",
+      "section": "Methods — Analysis",
+      "label": "Statistical Analysis",
+      "text": "Describe the statistical methods used to estimate diagnostic accuracy (sensitivity, specificity, AUC, NPV, PPV), how confidence intervals were calculated, and how missing data and verification bias were handled.",
+      "variable_name": "stard_statistical_methods_described",
+      "severity": "REQUIRED",
+      "pass_condition": "Statistical methods described including CI computation method and missing data strategy"
+    },
+    {
+      "item_id": "13",
+      "section": "Methods — Analysis",
+      "label": "Subgroup and Sensitivity Analysis",
+      "text": "Describe any planned subgroup analyses (by age, sex, disease severity, imaging vendor) or sensitivity analyses, including how the subgroups were defined.",
+      "variable_name": "stard_subgroup_analysis_planned",
+      "severity": "RECOMMENDED",
+      "pass_condition": "Planned subgroup analyses documented"
+    },
+    {
+      "item_id": "14",
+      "section": "Results",
+      "label": "Study Flow and Data",
+      "text": "Report the number of participants enrolled, excluded (with reasons), and analyzed. Report the number with the target condition and without, and the number with indeterminate or missing results.",
+      "variable_name": "stard_participant_flow_results",
+      "severity": "REQUIRED",
+      "pass_condition": "STARD flow diagram or equivalent table present with numbers per stage"
+    },
+    {
+      "item_id": "15",
+      "section": "Results",
+      "label": "Diagnostic Accuracy",
+      "text": "Report the AI model's diagnostic accuracy including sensitivity, specificity, PPV, NPV, and AUC, all with 95% confidence intervals. Present a cross-tabulation (confusion matrix) of AI results against the reference standard.",
+      "variable_name": "diagnostic_accuracy_with_ci_reported",
+      "severity": "REQUIRED",
+      "pass_condition": "Sensitivity, specificity, PPV, NPV, AUC all reported with 95% CI; confusion matrix present"
+    },
+    {
+      "item_id": "16",
+      "section": "Results",
+      "label": "AI-Specific Results",
+      "text": "Report AI-specific results including: model calibration, subgroup performance analyses, failure mode analysis (types of false positives/negatives), and explainability outputs if used.",
+      "variable_name": "stard_ai_specific_results",
+      "severity": "REQUIRED",
+      "pass_condition": "Calibration reported; subgroup results reported; at least qualitative failure analysis present",
+      "ai_specific": true
+    },
+    {
+      "item_id": "17",
+      "section": "Discussion",
+      "label": "Limitations and Clinical Applicability",
+      "text": "Discuss the study limitations including: spectrum bias, imperfect reference standard, potential for AI training-reference standard contamination, intended clinical use context, and conditions under which performance may degrade.",
+      "variable_name": "stard_limitations_and_applicability",
+      "severity": "REQUIRED",
+      "pass_condition": "Limitations explicitly address spectrum bias, reference standard quality, and clinical applicability scope"
+    },
+    {
+      "item_id": "18",
+      "section": "Other Information",
+      "label": "Registration, Funding, and AI System Availability",
+      "text": "Provide study registration information, funding sources, conflicts of interest, and information on AI system availability (commercial, open source, under development) including software version.",
+      "variable_name": "stard_funding_and_availability",
+      "severity": "REQUIRED",
+      "pass_condition": "Funding, COI, and AI system availability (version and access) all documented"
+    }
+  ],
+
+  "required_items_for_publication": [
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
+    "12", "14", "15", "16", "17", "18"
+  ],
+
+  "mlgg_gate_mapping": {
+    "6": "split_protocol_gate",
+    "15": "clinical_metrics_gate",
+    "16": "calibration_dca_gate"
+  }
+}

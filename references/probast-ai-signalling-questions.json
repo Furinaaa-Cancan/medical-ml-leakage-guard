@@ -1,0 +1,441 @@
+{
+  "contract_version": "probast_ai_signalling_questions.v1",
+  "standard_name": "PROBAST+AI",
+  "full_title": "Prediction model Risk Of Bias ASsessment Tool — Artificial Intelligence extension",
+  "source": "Wolff RF, Moons KGM, Riley RD, et al. PROBAST+AI: updated guidance for assessing risk of bias and applicability of AI/ML clinical prediction models. BMJ. 2025 (forthcoming); adapted from PROBAST 2019 (Ann Intern Med 2019;170:51–58).",
+  "doi_probast_2019": "10.7326/M18-1376",
+  "version": "2025",
+  "total_signalling_questions": 34,
+  "total_domains": 4,
+  "last_updated": "2026-03-15",
+  "description": "PROBAST+AI is a structured tool for assessing risk of bias (ROB) and applicability of clinical prediction model studies that use AI/ML methods. Reviewers answer 34 signalling questions across 4 domains, each rated: Yes / Probably Yes / No / Probably No / No Information. Domain ROB is judged as: Low / High / Unclear. Overall ROB = Low only if all 4 domains are Low.",
+  "gate_implementing": "reporting_bias_gate",
+
+  "answer_options": {
+    "Y": "Yes — clear evidence supporting low risk of bias",
+    "PY": "Probably Yes — likely low risk but not fully documented",
+    "PN": "Probably No — likely some risk of bias present",
+    "N": "No — clear evidence of high risk of bias",
+    "NI": "No Information — insufficient information to judge"
+  },
+
+  "domain_rob_rules": {
+    "low": "All signalling questions answered Y or PY",
+    "high": "At least one question answered N or PN",
+    "unclear": "At least one question answered NI and no N/PN answers"
+  },
+
+  "overall_rob_rule": "Overall ROB is Low only when all 4 domains are judged Low. Any single High domain → Overall High.",
+
+  "domains": {
+    "D1_participants": {
+      "domain_id": "D1",
+      "name": "Participant Selection",
+      "description": "Assesses whether the selection of participants introduces bias. Key concerns: inappropriate inclusion/exclusion criteria, non-representative sampling, case-control design for prognostic models.",
+      "variable_name": "participants_domain_low_risk",
+      "signalling_questions": [
+        {
+          "sq_id": "D1.1",
+          "question": "Was the source population appropriate for the prediction model's intended use?",
+          "detail": "The source population should match the intended clinical population. Convenience samples, highly selected cohorts, or case-control designs may introduce selection bias for prediction model development.",
+          "rob_concern": "Non-representative source population inflates apparent model performance",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D1.2",
+          "question": "Were all potentially eligible participants included in the analysis (or were exclusions appropriate and documented)?",
+          "detail": "Arbitrary exclusions or exclusions based on outcome-linked characteristics (e.g., excluding patients who died before the prediction horizon) can distort the training population.",
+          "rob_concern": "Non-random exclusion can create artificially cleaner data and inflate performance",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D1.3",
+          "question": "Were inclusion and exclusion criteria pre-specified before data analysis began?",
+          "detail": "Post-hoc modification of eligibility criteria based on observed outcomes constitutes outcome-driven participant selection.",
+          "rob_concern": "Post-hoc eligibility modifications can constitute undocumented data leakage",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D1.4",
+          "question": "Was the study design appropriate for the prediction model's development phase (development vs. external validation)?",
+          "detail": "Development studies require sufficient sample size and follow-up. Validation studies should use an independent cohort from a different setting, period, or country.",
+          "rob_concern": "Using the same data source for both development and 'external' validation is internal validation only",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D1.5",
+          "question": "Were participants enrolled consecutively or using a random sample (not selectively)?",
+          "detail": "Selective enrollment (e.g., enrolling only patients with complete data, or only certain disease severities) undermines generalizability.",
+          "rob_concern": "Cherry-picking patients creates optimistic performance that does not replicate",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D1.6",
+          "question": "For AI models trained on routine/registry data: was the cohort definition documented with a reproducible phenotyping algorithm?",
+          "detail": "Real-world data requires a formal phenotyping definition (e.g., ICD-code-based cohort algorithm) to ensure reproducibility and avoid phenotype-definition leakage.",
+          "rob_concern": "Undocumented phenotyping introduces definition leakage (outcome derived from same codes used as features)",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "definition_variable_guard"
+        },
+        {
+          "sq_id": "D1.7",
+          "question": "Was patient-level data partitioning applied (not row-level) to prevent patients appearing in multiple splits?",
+          "detail": "Row-level splits that allow the same patient to appear in both train and test sets introduce patient-level leakage and invalidate all performance estimates.",
+          "rob_concern": "Patient-level overlap between splits inflates all metrics and is a critical data leakage form",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "split_protocol_gate"
+        },
+        {
+          "sq_id": "D1.8",
+          "question": "For temporal data: was an out-of-time (temporal) split used with test data chronologically after training data?",
+          "detail": "For time-stamped medical records, random splitting allows future data to inform historical training, introducing temporal leakage.",
+          "rob_concern": "Random splits on temporal data inflate performance by allowing future-to-past information flow",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "split_protocol_gate"
+        }
+      ]
+    },
+
+    "D2_predictors": {
+      "domain_id": "D2",
+      "name": "Predictors / Features",
+      "description": "Assesses whether predictors (features) were defined, measured, and selected in ways that avoid bias. Key AI concerns: feature leakage, post-index features, target encoding leakage, preprocessing leakage.",
+      "variable_name": "predictors_domain_low_risk",
+      "signalling_questions": [
+        {
+          "sq_id": "D2.1",
+          "question": "Were all predictors (features) defined and operationalized before model development?",
+          "detail": "Feature definitions should be pre-specified in a feature group specification. Definitions derived after observing the outcome data constitute circular reasoning.",
+          "rob_concern": "Outcome-informed feature engineering is a subtle form of data leakage",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "feature_engineering_audit_gate"
+        },
+        {
+          "sq_id": "D2.2",
+          "question": "Were all predictors available at the intended time of prediction (no post-index or future-informed features)?",
+          "detail": "All features must have been measurable at or before the prediction index time point t_index. Features derived from information after t_index (e.g., downstream tests, subsequent diagnoses) constitute temporal leakage.",
+          "rob_concern": "Post-index features provide information the model would not have in real clinical use",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "leakage_gate"
+        },
+        {
+          "sq_id": "D2.3",
+          "question": "Were disease-defining variables (phenotype-defining ICD codes, lab tests, or procedures) excluded from the predictor set?",
+          "detail": "Using the same variables that define case status as predictors creates perfect or near-perfect leakage (circular prediction).",
+          "rob_concern": "Definition-variable leakage is one of the most common critical errors in EHR prediction studies",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "definition_variable_guard"
+        },
+        {
+          "sq_id": "D2.4",
+          "question": "Were derived features documented with a feature lineage provenance chain?",
+          "detail": "Derived features (ratios, aggregations, engineered variables) can inherit leakage from their source variables. A lineage specification documents the transformation chain.",
+          "rob_concern": "Lineage leakage occurs when derived features trace back to forbidden ancestor variables",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "feature_lineage_gate"
+        },
+        {
+          "sq_id": "D2.5",
+          "question": "Were all preprocessing transformations (scaling, encoding, imputation) fitted exclusively on training data and then applied to validation/test?",
+          "detail": "Fitting preprocessing on the full dataset (including validation/test) before splitting causes target statistics and distribution parameters to bleed from test to train, invalidating test performance estimates.",
+          "rob_concern": "Preprocessing leakage is the most common form of pipeline isolation failure in ML studies",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "leakage_gate"
+        },
+        {
+          "sq_id": "D2.6",
+          "question": "Was feature selection performed within cross-validation folds only (not on the full dataset)?",
+          "detail": "Applying feature selection globally before CV allows test-set outcome information to influence which features are selected, inflating apparent performance.",
+          "rob_concern": "Global feature selection is selection leakage — a well-documented source of optimistic bias in ML pipelines",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "feature_engineering_audit_gate"
+        },
+        {
+          "sq_id": "D2.7",
+          "question": "Was the handling of missing predictor data appropriate and documented?",
+          "detail": "Ad hoc deletion or non-documented imputation introduces missing data bias. Multiple imputation or documented deterministic strategies are preferred.",
+          "rob_concern": "Listwise deletion removes informative missing patterns and biases estimates",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "missingness_policy_gate"
+        },
+        {
+          "sq_id": "D2.8",
+          "question": "Were class imbalance handling techniques (SMOTE, oversampling, undersampling, class weights) applied to training data only?",
+          "detail": "Applying resampling before splitting, or to the validation/test sets, artificially inflates minority-class performance and violates split isolation.",
+          "rob_concern": "Resampling-on-full-dataset is a documented source of gross optimism in imbalanced medical classification",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "imbalance_policy_gate"
+        }
+      ]
+    },
+
+    "D3_outcome": {
+      "domain_id": "D3",
+      "name": "Outcome",
+      "description": "Assesses whether outcome measurement is appropriate and unbiased. Key concerns: outcome definition clarity, timing, blinding, and differential verification.",
+      "variable_name": "outcome_domain_low_risk",
+      "signalling_questions": [
+        {
+          "sq_id": "D3.1",
+          "question": "Was the outcome clearly defined with an unambiguous, pre-specified operationalization?",
+          "detail": "The outcome should have a formal definition (ICD codes + date logic, lab threshold + time window, etc.) documented before data extraction.",
+          "rob_concern": "Vague outcome definitions allow post-hoc selection that inflates apparent discrimination",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "definition_variable_guard"
+        },
+        {
+          "sq_id": "D3.2",
+          "question": "Was the time horizon for prediction clearly specified and consistently applied?",
+          "detail": "For prognostic models, the prediction window (e.g., 30-day mortality, 1-year readmission) must be fixed and applied consistently to all participants.",
+          "rob_concern": "Variable or undefined prediction horizons create outcome misclassification",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D3.3",
+          "question": "Was the outcome assessed without knowledge of predictor values (or was blinding not feasible and documented)?",
+          "detail": "For manually adjudicated outcomes, knowledge of predictor values during outcome assessment introduces differential measurement bias.",
+          "rob_concern": "Unblinded outcome assessment inflates perceived discrimination for models using clinician-derived features",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        },
+        {
+          "sq_id": "D3.4",
+          "question": "Was the same outcome definition applied consistently across all data partitions (train, validation, test) and external validation cohorts?",
+          "detail": "Differences in outcome coding across splits (e.g., stricter coding in one hospital, different ICD code versions) cause distribution shift in the outcome label.",
+          "rob_concern": "Outcome definition inconsistency across partitions creates artificial distribution shift",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "split_protocol_gate"
+        },
+        {
+          "sq_id": "D3.5",
+          "question": "Was the event rate / prevalence documented per data partition, with sufficient events for the analysis?",
+          "detail": "Low event rates (<50 events in validation/test) produce unstable performance estimates with wide confidence intervals that cannot support publication claims.",
+          "rob_concern": "Insufficient events per partition produce unreliable metrics even if global sample size is adequate",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "sample_size_gate"
+        },
+        {
+          "sq_id": "D3.6",
+          "question": "For AI models with EHR outcomes: was the outcome free from coding artifacts that could leak future information (e.g., retrospective chart review codes, encounter-level billing codes)?",
+          "detail": "EHR billing codes are sometimes assigned retrospectively or capture diagnoses confirmed after the prediction time point, introducing temporal outcome leakage.",
+          "rob_concern": "Retrospectively assigned diagnosis codes after t_index constitute outcome-timing leakage",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "leakage_gate"
+        },
+        {
+          "sq_id": "D3.7",
+          "question": "Was censoring (for time-to-event outcomes) or missing outcome data handled appropriately?",
+          "detail": "For survival/time-to-event outcomes, informative censoring must be assessed. For binary outcomes, missing outcome classification must be documented.",
+          "rob_concern": "Informative censoring biases survival estimates; ad hoc outcome imputation creates outcome leakage",
+          "preferred_answer": "Y",
+          "ai_specific": false
+        }
+      ]
+    },
+
+    "D4_analysis": {
+      "domain_id": "D4",
+      "name": "Analysis",
+      "description": "Assesses whether the analysis is appropriate, complete, and free from bias. Key AI concerns: hyperparameter tuning isolation, model selection rigor, appropriate performance metrics, calibration, DCA, and overfitting assessment.",
+      "variable_name": "analysis_domain_low_risk",
+      "signalling_questions": [
+        {
+          "sq_id": "D4.1",
+          "question": "Was hyperparameter tuning performed only on training/validation data, without any access to test set performance?",
+          "detail": "Using test set results to guide hyperparameter selection (even informally) inflates test set performance estimates. All tuning must occur exclusively on training/validation folds.",
+          "rob_concern": "Test-set peeking during tuning is one of the most impactful sources of bias in published ML studies",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "tuning_leakage_gate",
+          "variable_name": "no_test_set_peeking"
+        },
+        {
+          "sq_id": "D4.2",
+          "question": "Was the model selection strategy documented with a pre-specified primary metric and selection criterion?",
+          "detail": "Ad hoc model selection (trying multiple models and reporting the best) without a pre-specified criterion inflates selection bias. The one-SE rule or similar principled criterion should be documented.",
+          "rob_concern": "Undocumented model selection from a large candidate pool inflates published performance via selection bias",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "model_selection_audit_gate"
+        },
+        {
+          "sq_id": "D4.3",
+          "question": "Was a clinically meaningful baseline comparator reported alongside the model?",
+          "detail": "Model performance must be compared against a relevant baseline (prevalence model, logistic regression, or existing clinical score) to establish added value.",
+          "rob_concern": "Reporting performance without baseline comparison obscures whether the model provides any clinical improvement",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "model_selection_audit_gate"
+        },
+        {
+          "sq_id": "D4.4",
+          "question": "Was model discrimination reported with bootstrap confidence intervals (not just point estimates)?",
+          "detail": "Point estimates without uncertainty quantification are insufficient for publication. Bootstrap-based 95% CI with ≥200 resamples is the minimum standard.",
+          "rob_concern": "Reporting without CI prevents assessment of estimate precision and clinical significance",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "ci_matrix_gate",
+          "variable_name": "no_data_leakage_signals"
+        },
+        {
+          "sq_id": "D4.5",
+          "question": "Was calibration assessed using appropriate methods (reliability diagram, ECE, calibration slope/intercept, or calibration-in-the-large)?",
+          "detail": "Calibration measures whether predicted probabilities match observed event rates. AUC alone is insufficient — a model can have high discrimination but be perfectly miscalibrated.",
+          "rob_concern": "Uncalibrated models used clinically cause systematic over-treatment or under-treatment",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "calibration_dca_gate"
+        },
+        {
+          "sq_id": "D4.6",
+          "question": "Was decision curve analysis (DCA) or another clinical utility analysis performed?",
+          "detail": "DCA quantifies net benefit across threshold probabilities and directly answers whether the model provides clinical value over treat-all or treat-none strategies.",
+          "rob_concern": "Without DCA or NRI/IDI, it is unclear whether statistical significance translates to clinical utility",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "calibration_dca_gate"
+        },
+        {
+          "sq_id": "D4.7",
+          "question": "Was a statistical test for model significance (e.g., permutation test, likelihood ratio test) performed?",
+          "detail": "A permutation test or equivalent establishes that observed performance exceeds chance expectation, ruling out lucky random splits.",
+          "rob_concern": "Without significance testing, apparent performance may be within chance variation on small datasets",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "permutation_significance_gate"
+        },
+        {
+          "sq_id": "D4.8",
+          "question": "Was overfitting assessed by comparing training/validation performance to test performance?",
+          "detail": "Large gaps between training and test performance indicate overfitting. The generalization gap must be documented and be within acceptable bounds.",
+          "rob_concern": "Unreported overfitting masks models that will not replicate in practice",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "generalization_gap_gate"
+        },
+        {
+          "sq_id": "D4.9",
+          "question": "Was seed stability / seed sensitivity analysis performed to ensure results are not dependent on a single lucky random seed?",
+          "detail": "For stochastic algorithms, results can vary substantially across random seeds. Reporting a single seed without seed sensitivity analysis may represent cherry-picking.",
+          "rob_concern": "Cherry-picked seeds in stochastic ML models inflate reported performance above true expected performance",
+          "preferred_answer": "Y",
+          "ai_specific": true,
+          "gate": "seed_stability_gate"
+        },
+        {
+          "sq_id": "D4.10",
+          "question": "Was external validation performed on an independent cohort from a different setting, time period, or geographic location?",
+          "detail": "Internal validation demonstrates optimism-corrected performance. External validation provides evidence of generalizability to new settings and is required for high-impact publications.",
+          "rob_concern": "Without external validation, performance claims are limited to the development population",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "external_validation_gate"
+        },
+        {
+          "sq_id": "D4.11",
+          "question": "Were all reported performance metrics consistent (e.g., confusion matrix entries sum correctly, sensitivity/specificity/PPV/NPV consistent with each other and the stated threshold)?",
+          "detail": "Arithmetic inconsistencies in reported metrics indicate errors in analysis or reporting that undermine trust in all reported results.",
+          "rob_concern": "Metric inconsistency is a marker of copy-paste errors or computational bugs in reporting",
+          "preferred_answer": "Y",
+          "ai_specific": false,
+          "gate": "metric_consistency_gate"
+        }
+      ]
+    }
+  },
+
+  "supplementary_domain_ai": {
+    "domain_id": "D5",
+    "name": "AI-Specific Supplementary Assessment",
+    "description": "Additional signalling questions specific to AI/ML models that do not fit cleanly within the four main PROBAST domains. These are recommended for comprehensive reviews of AI prediction models.",
+    "note": "This domain is a MLGG extension to PROBAST+AI to cover aspects unique to the ML lifecycle not fully addressed in the original 4-domain structure.",
+    "signalling_questions": [
+      {
+        "sq_id": "D5.1",
+        "question": "Was the prediction task definition (binary vs multiclass vs regression) appropriate for the clinical question?",
+        "detail": "Binarizing a continuous outcome (e.g., converting HbA1c to diabetic/non-diabetic) discards clinical nuance. Similarly, treating an ordinal outcome as binary may be inappropriate.",
+        "preferred_answer": "Y",
+        "ai_specific": true
+      },
+      {
+        "sq_id": "D5.2",
+        "question": "Were model artifacts (trained weights, preprocessing pipelines, configuration files) cryptographically signed and preserved for independent verification?",
+        "detail": "Reproducibility requires that reviewers can re-run or verify the model. Signed artifacts with hash verification enable independent audit.",
+        "preferred_answer": "Y",
+        "ai_specific": true,
+        "gate": "security_audit_gate"
+      },
+      {
+        "sq_id": "D5.3",
+        "question": "Was subgroup fairness analysis performed across protected attributes (age, sex, race/ethnicity, insurance status) and results reported?",
+        "detail": "AI models can perform well on average while being substantially worse for minority groups. Fairness analysis is now required by major journals.",
+        "preferred_answer": "Y",
+        "ai_specific": true,
+        "gate": "fairness_equity_gate"
+      }
+    ]
+  },
+
+  "required_for_low_overall_rob": {
+    "description": "These specific signalling questions, if answered No/Probably No, will result in High ROB regardless of other answers.",
+    "critical_questions": [
+      "D1.7",
+      "D2.2",
+      "D2.3",
+      "D2.5",
+      "D4.1"
+    ]
+  },
+
+  "mlgg_gate_mapping": {
+    "D1.6": "definition_variable_guard",
+    "D1.7": "split_protocol_gate",
+    "D1.8": "split_protocol_gate",
+    "D2.1": "feature_engineering_audit_gate",
+    "D2.2": "leakage_gate",
+    "D2.3": "definition_variable_guard",
+    "D2.4": "feature_lineage_gate",
+    "D2.5": "leakage_gate",
+    "D2.6": "feature_engineering_audit_gate",
+    "D2.7": "missingness_policy_gate",
+    "D2.8": "imbalance_policy_gate",
+    "D3.1": "definition_variable_guard",
+    "D3.4": "split_protocol_gate",
+    "D3.5": "sample_size_gate",
+    "D3.6": "leakage_gate",
+    "D4.1": "tuning_leakage_gate",
+    "D4.2": "model_selection_audit_gate",
+    "D4.3": "model_selection_audit_gate",
+    "D4.4": "ci_matrix_gate",
+    "D4.5": "calibration_dca_gate",
+    "D4.6": "calibration_dca_gate",
+    "D4.7": "permutation_significance_gate",
+    "D4.8": "generalization_gap_gate",
+    "D4.9": "seed_stability_gate",
+    "D4.10": "external_validation_gate",
+    "D4.11": "metric_consistency_gate",
+    "D5.2": "security_audit_gate",
+    "D5.3": "fairness_equity_gate"
+  }
+}

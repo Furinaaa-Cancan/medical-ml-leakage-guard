@@ -37,26 +37,63 @@ register_remediations({
     "claim_level_not_publication": "Set claim_level to 'publication-grade' in the checklist spec.",
 })
 
+# TRIPOD+AI 2024 (Collins et al. BMJ 2024;385:e078378) — official item mapping.
+# Key: checklist spec variable name. Value: official TRIPOD+AI item ID.
+# Reference: references/tripod-ai-official-checklist.json
+TRIPOD_ITEM_ID_MAP: Dict[str, str] = {
+    "title_identifies_prediction_model": "1",
+    "abstract_structured_summary": "2",
+    "objectives_and_rationale_stated": "3",
+    "study_design_and_data_source_described": "4",
+    "target_population_defined": "5",
+    "outcome_definition_prespecified": "6a",
+    "predictor_definition_prespecified": "6b",
+    "sample_size_justification_reported": "7",
+    "missing_data_handling_reported": "8",
+    "statistical_analysis_methods_described": "9",
+    "model_building_procedure_reported": "10",
+    "internal_validation_strategy_reported": "11",
+    "fairness_assessment_reported": "12",       # AI-specific (2024 addition)
+    "explainability_methods_described": "13",   # AI-specific (2024 addition)
+    "participant_flow_and_exclusions_reported": "14",
+    "outcome_prevalence_or_event_rate_reported": "15b",
+    "full_model_specification_reported": "16",
+    "performance_measures_with_ci_reported": "17",
+    "calibration_metrics_reported": "17",
+    "model_uncertainty_quantified": "18",        # AI-specific (2024 addition)
+    "internal_validation_results_reported": "19",
+    "fairness_results_reported": "20",           # AI-specific (2024 addition)
+    "limitations_and_clinical_use_reported": "21",
+    "interpretation_and_implications_stated": "22",
+    "generalizability_discussion_present": "23",
+    "supplementary_information_provided": "24",
+    "study_registration_reported": "25",
+    "study_protocol_accessible": "26",
+    "model_availability_or_code_sharing_reported": "27",
+    "data_availability_statement_provided": "27",
+}
+
 TRIPOD_REQUIRED_TRUE = [
-    # Original 11 items
-    "title_identifies_prediction_model",
-    "target_population_defined",
-    "outcome_definition_prespecified",
-    "predictor_definition_prespecified",
-    "sample_size_justification_reported",
-    "missing_data_handling_reported",
-    "model_building_procedure_reported",
-    "internal_validation_strategy_reported",
-    "full_model_specification_reported",
-    "performance_measures_with_ci_reported",
-    "limitations_and_clinical_use_reported",
+    # TRIPOD+AI 2024 required items (Items 1-12, 14-23, 27)
+    # Original TRIPOD core (pre-2024)
+    "title_identifies_prediction_model",           # Item 1
+    "target_population_defined",                   # Item 5
+    "outcome_definition_prespecified",             # Item 6a
+    "predictor_definition_prespecified",           # Item 6b
+    "sample_size_justification_reported",          # Item 7
+    "missing_data_handling_reported",              # Item 8
+    "model_building_procedure_reported",           # Item 10
+    "internal_validation_strategy_reported",       # Item 11
+    "full_model_specification_reported",           # Item 16
+    "performance_measures_with_ci_reported",       # Item 17
+    "limitations_and_clinical_use_reported",       # Item 21
     # TRIPOD+AI 2024 additions (BMJ 2024;385:e078378)
-    "study_design_and_data_source_described",
-    "outcome_prevalence_or_event_rate_reported",
-    "calibration_metrics_reported",
-    "fairness_assessment_reported",
-    "model_availability_or_code_sharing_reported",
-    "data_availability_statement_provided",
+    "study_design_and_data_source_described",      # Item 4
+    "outcome_prevalence_or_event_rate_reported",   # Item 15b
+    "calibration_metrics_reported",               # Item 17 (calibration sub-component)
+    "fairness_assessment_reported",               # Item 12 (AI-specific, new in 2024)
+    "model_availability_or_code_sharing_reported", # Item 27
+    "data_availability_statement_provided",        # Item 27
 ]
 
 PROBAST_REQUIRED_TRUE = [
@@ -159,11 +196,16 @@ def require_true_fields(
         if value is True:
             true_count += 1
             continue
+        # Include official TRIPOD+AI item ID in failure details for traceability
+        details: Dict[str, Any] = {"section": section_name, "item": key, "actual_value": value}
+        if section_name == "tripod_ai" and key in TRIPOD_ITEM_ID_MAP:
+            details["tripod_ai_item_id"] = TRIPOD_ITEM_ID_MAP[key]
+            details["tripod_ai_reference"] = "Collins et al. BMJ 2024;385:e078378"
         add_issue(
             failures,
             "checklist_item_not_satisfied",
             "Required checklist item must be true for publication-grade.",
-            {"section": section_name, "item": key, "actual_value": value},
+            details,
         )
     return true_count
 
@@ -248,12 +290,23 @@ def main() -> int:
             {"claim_level": claim_level},
         )
 
+    # Build TRIPOD+AI item-level satisfaction map for traceability
+    tripod_item_satisfaction: Dict[str, Any] = {}
+    if tripod is not None:
+        for key in TRIPOD_REQUIRED_TRUE:
+            item_id = TRIPOD_ITEM_ID_MAP.get(key, key)
+            tripod_item_satisfaction[f"Item-{item_id}_{key}"] = tripod.get(key) is True
+
     summary = {
         "checklist_spec": str(checklist_path),
         "tripod_required_count": len(TRIPOD_REQUIRED_TRUE),
         "tripod_true_count": tripod_true,
+        "tripod_ai_version": "2024",
+        "tripod_ai_reference": "Collins et al. BMJ 2024;385:e078378. doi:10.1136/bmj-2023-078378",
+        "tripod_item_satisfaction": tripod_item_satisfaction,
         "probast_required_count": len(PROBAST_REQUIRED_TRUE),
         "probast_true_count": probast_true,
+        "probast_ai_version": "2025",
         "stard_required_count": len(STARD_REQUIRED_TRUE) if stard_applicable else 0,
         "stard_true_count": stard_true,
         "stard_applicable": stard_applicable,
