@@ -243,7 +243,7 @@ def test_download_dataset_menu_uses_stable_triplet() -> None:
         state = {"source": "download"}
         result = play.step_dataset(state)
         assert_true(result is True, "step_dataset(download) succeeds")
-        assert_true(len(captured["opts"]) == 3, "download dataset menu is restricted to 3 stable datasets")
+        assert_true(len(captured["opts"]) == len(play.PLAY_DOWNLOAD_DATASETS), "download dataset menu matches PLAY_DOWNLOAD_DATASETS")
     finally:
         play.select = original_select  # type: ignore[assignment]
 

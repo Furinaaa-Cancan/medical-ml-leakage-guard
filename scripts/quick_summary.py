@@ -21,7 +21,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 # ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ def print_model_selection(ms_data: Dict[str, Any]) -> None:
     if len(candidates) > top_n:
         lines.append(f"  ... and {len(candidates) - top_n} more")
     lines.append("")
-    lines.append(f"  * = selected")
+    lines.append("  * = selected")
 
     _box(f"Model Selection ({len(candidates)} candidates)", lines)
 

@@ -13,7 +13,13 @@
     "internal_validation_strategy_reported": true,
     "full_model_specification_reported": true,
     "performance_measures_with_ci_reported": true,
-    "limitations_and_clinical_use_reported": true
+    "limitations_and_clinical_use_reported": true,
+    "study_design_and_data_source_described": true,
+    "outcome_prevalence_or_event_rate_reported": true,
+    "calibration_metrics_reported": true,
+    "fairness_assessment_reported": true,
+    "model_availability_or_code_sharing_reported": true,
+    "data_availability_statement_provided": true
   },
   "probast_ai": {
     "participants_domain_low_risk": true,

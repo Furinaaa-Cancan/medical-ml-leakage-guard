@@ -1,16 +1,52 @@
-# medical-ml-leakage-guard
+# ML Leakage Guard (MLGG) — Medical Prediction Integrity Standard
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+[![CI Security](https://img.shields.io/badge/ci--security-332%20tests-brightgreen)]()
 [![Tests](https://img.shields.io/badge/tests-2905%20passed-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/gate%20coverage-%E2%89%A586%25-blue)]()
+[![TRIPOD+AI 2024](https://img.shields.io/badge/TRIPOD%2BAI-2024-blue)](https://doi.org/10.1136/bmj-2023-078378)
+[![PROBAST+AI 2025](https://img.shields.io/badge/PROBAST%2BAI-2025-blue)](https://doi.org/10.7326/M18-1376)
+[![MLGG Standard v1.0](https://img.shields.io/badge/MLGG%20Standard-v1.0-orange)]()
 
 面向医学预测任务的发布级防泄漏工作流，提供严格门控、可复现实验工件与 fail-closed 审核机制。
 
-Publication-grade medical prediction workflow with strict anti-data-leakage gates, reproducibility evidence, and fail-closed review logic.
+Publication-grade medical prediction integrity standard with 31 anti-leakage gates, TRIPOD+AI 2024 / PROBAST+AI 2025 compliance checking, and machine-verifiable conformance certificates.
+
+> **MLGG Standard v1.0** — A citable, machine-verifiable standard for medical ML prediction model integrity.
+> Conformance levels: **L1** (12 gates, leakage-audited) · **L2** (25 gates, statistically valid) · **L3** (all 31 gates + strict, publication-grade)
+
+---
+
+## Quick Audit: Point at Any ML Project
+
+```bash
+# Audit any medical ML project — no configuration needed
+python3 scripts/generate_audit_report.py --project-dir /path/to/your/project
+
+# Or via mlgg subcommand
+python3 scripts/mlgg.py audit-report -- --project-dir /path/to/your/project \
+    --target-journal nature_medicine
+```
+
+**Output** (in `<project-dir>/audit-reports/`):
+- `audit-report.md` — publication-quality Markdown with TRIPOD+AI item coverage, PROBAST+AI ROB assessment, error root causes, literature citations, and prioritized fixes
+- `audit-report.json` — machine-readable structured report
+
+### What the audit checks
+| Check | Detail |
+|-------|--------|
+| 10-dimension score (0–100) | Data Integrity, Leakage Prevention, Pipeline Isolation, Model Selection Rigor, Statistical Validity, Generalization Evidence, Clinical Completeness, Reporting Standards, Reproducibility, Security |
+| TRIPOD+AI 2024 | 17 required items incl. 4 AI-specific (Collins et al. BMJ 2024;385:e078378) |
+| PROBAST+AI 2025 | Risk-of-bias across 4 domains: Participants, Predictors, Outcome, Analysis |
+| Code anti-patterns | 12 pattern types: fit_on_full_data, test_in_training_loop, global_scaler_leak, missing CI, etc. |
+| Error KB lookup | Each finding enriched with root cause + fix from 56-entry error knowledge base |
+| Literature citations | 44 literature entries automatically cited per finding |
+
+---
 
 **核心能力** | **Core Capabilities**:
 - **20 个模型族**（逻辑回归/SVM/随机森林/XGBoost/KNN/MLP 等）自动训练+超参搜索
-- **29 道安全门控**（泄漏检测/校准/鲁棒性/TRIPOD 合规/安全审计等）fail-closed 架构
+- **31 道安全门控**（泄漏检测/公平性/样本量验证/校准/鲁棒性/TRIPOD 合规/安全审计等）fail-closed 架构
 - **9 个真实医学数据集**（UCI/PhysioNet/GitHub，297-14,980 行）一键下载训练
 - **交互式 CLI 向导**（中英双语，EPV 提示/类别分布/数据质量警告）
 - **自动评估报告**（ROC-AUC/PR-AUC/Brier + 95% CI + 过拟合检测）
@@ -162,7 +198,7 @@ python3 scripts/mlgg.py workflow \
   - 阈值与校准误用（阈值在测试集上优化）
   - 外部队列迁移鲁棒性不足（在未见队列上的性能退化）
 - 输出可机器校验的证据工件和发布门结果。
-- 每个门控都是**二元 pass/fail**：29 个全部通过才能声称 publication-grade。
+- 每个门控都是**二元 pass/fail**：31 个全部通过才能声称 publication-grade。
 
 **架构概览**：管线按 `请求契约验证 → 数据指纹锁定 → 执行证明 → 泄漏/协议门 → 模型审计门 → 外部验证门 → 聚合发布门 → 自评分` 顺序执行。每个 gate 是独立 CLI 脚本，输出 JSON 报告。
 
@@ -658,10 +694,10 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 ### 10. 范围说明
 - 本项目是**预测建模严谨性**系统，不直接支持因果推断声明。
-- 要宣称 publication-grade，必须 29 个严格门全部通过（`publication_gate_report.json` 中 `status: pass`）。
+- 要宣称 publication-grade，必须 31 个严格门全部通过（`publication_gate_report.json` 中 `status: pass`）。
 - 系统**不会**自动为你在生产环境训练模型——它验证你的训练流程是否防泄漏且可复现。
 - 支持任务类型：仅限**二分类**。多分类、回归和生存分析不在范围内。
-- 29 步管线是**确定性且 fail-closed** 的：任何一个 gate 失败都会阻断整个发布级声明，没有手动覆盖机制。
+- 31 步管线是**确定性且 fail-closed** 的：任何一个 gate 失败都会阻断整个发布级声明，没有手动覆盖机制。
 
 ---
 
@@ -723,7 +759,7 @@ python3 scripts/mlgg.py play
 
 Important:
 - `play` is a quick train/evaluate launcher for interactive exploration.
-- The “Quick Readiness (play mode)” card is **not** the 29-gate publication verdict.
+- The “Quick Readiness (play mode)” card is **not** the 31-gate publication verdict.
 - Stable installed console scripts are `mlgg` and `mlgg-pixel`.
 - The browser wizard is currently a repository-local legacy prototype:
   `python3 -m pip install ".[web]" && python3 scripts/mlgg_web.py`
@@ -771,7 +807,7 @@ python3 scripts/mlgg.py split -- \
 |---|---|---|
 | Quick exploration / teaching | `python3 scripts/mlgg.py play` | Fast interactive train/eval, **not** publication verdict |
 | First strict end-to-end run | `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes` | 8-step strict flow + evidence reports |
-| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 29-gate strict decision |
+| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 31-gate strict decision |
 
 ### 0.2 Status semantics (do not mix these)
 
@@ -779,7 +815,7 @@ python3 scripts/mlgg.py split -- \
 |---|---|---|---|
 | `play` quick readiness card | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | Lightweight educational signal in play mode | No |
 | `onboarding_report.json` | `status=pass|fail` + `termination_reason` | Whether onboarding flow completed cleanly | No (onboarding is a wrapper) |
-| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 29-gate strict result | Yes |
+| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 31-gate strict result | Yes |
 
 ### 0.3 Fastest own-CSV strict closed loop (copy-paste)
 
@@ -820,7 +856,7 @@ python3 scripts/mlgg.py workflow \
 
 This repository:
 - Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
-- Enforces **29 DAG-orchestrated fail-closed gates** covering:
+- Enforces **31 DAG-orchestrated fail-closed gates** covering:
   - definition-variable leakage (disease-defining features used as predictors)
   - feature lineage leakage (features derived from post-index-time data)
   - split/time contamination (patient overlap or temporal ordering violations)
@@ -1315,10 +1351,10 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 ### 10. Scope Notes
 - This repository is for **predictive modeling rigor**, not causal inference claims.
-- Publication-grade claim is valid only when all 29 strict gates pass (`status: pass` in `publication_gate_report.json`).
+- Publication-grade claim is valid only when all 31 strict gates pass (`status: pass` in `publication_gate_report.json`).
 - The system does **not** train models for you automatically in production — it validates that your training process is leakage-safe and reproducible.
 - Supported task type: **binary classification** only. Multi-class, regression, and survival analysis are out of scope.
-- The 29-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
+- The 31-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
 
 ---
 

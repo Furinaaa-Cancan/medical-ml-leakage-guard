@@ -80,7 +80,7 @@ python3 scripts/mlgg.py doctor
 
 ### 数据泄漏 & 学术诚信检测覆盖
 
-本项目的 29 道 gate 覆盖以下学术诚信风险：
+本项目的 31 道 gate 覆盖以下学术诚信风险：
 
 **数据泄漏检测（4 道 gate）**：
 - `leakage_gate`: 行级重叠、患者 ID 重叠、时序穿越（训练数据晚于测试数据）
@@ -309,7 +309,9 @@ Use this internal sequence in order:
 27. Aggregate publication gate (`publication_gate.py`).
 28. Run self-critique scoring gate (`self_critique_gate.py`).
 29. Run security audit gate (`security_audit_gate.py`).
-30. Emit final report only if all strict gates pass.
+30. Run fairness & equity gate (`fairness_equity_gate.py`).
+31. Run sample size adequacy gate (`sample_size_gate.py`).
+32. Emit final report only if all strict gates pass.
 
 Treat execution-attestation failures (signature/fingerprint/key-revocation/timestamp/transparency/execution-receipt/execution-log/witness-quorum/cross-role-authority-distinctness), disease-definition leakage, lineage ambiguity, metric-source ambiguity, split protocol violations, covariate-shift anomalies, class-imbalance misuse, missingness/imputation misuse, and tuning/test leakage as critical failures in strict mode.
 
@@ -344,7 +346,9 @@ Produce these deterministic artifacts:
 27. `evidence/publication_gate_report.json`
 28. `evidence/self_critique_report.json`
 29. `evidence/security_audit_gate_report.json`
-30. `evidence/dag_pipeline_report.json`
+30. `evidence/fairness_equity_report.json`
+31. `evidence/sample_size_report.json`
+32. `evidence/dag_pipeline_report.json`
 
 Report status from each file must be machine-readable (`pass` or `fail`) with issue codes.
 
@@ -527,6 +531,10 @@ If orchestration is unavailable, run in this exact order:
 27. `publication_gate.py`
 28. `self_critique_gate.py`
 29. `security_audit_gate.py`
+30. `fairness_equity_gate.py`
+31. `sample_size_gate.py`
+
+Note: Steps 30-31 run in METRIC_VALIDATION layer (parallel with steps 16-26 in DAG mode). In manual sequential mode, run them after step 29 to ensure all dependencies are available.
 
 If any step returns non-zero, stop and block claim release.
 
@@ -556,6 +564,11 @@ If any step returns non-zero, stop and block claim release.
 - Never include post-index features for pre-index prediction tasks.
 - Never report point estimates without uncertainty and robustness checks.
 - Never claim causality from predictive associations.
+- Never publish subgroup predictions without fairness/equity assessment (equalized odds, disparate impact).
+- Never claim adequate sample size without EPV ≥ 10 justification (Riley et al. 2019).
+- Never omit IDI/NRI when comparing against baseline models for top-tier journals.
+- Never use ICD diagnostic codes from the same admission as predictors without verifying temporal precedence.
+- Never claim TRIPOD+AI adherence without the 2024 expanded 27-item checklist (BMJ 2024;385:e078378).
 
 ## Resources
 
@@ -601,7 +614,9 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/mlgg_pixel.py`: pixel-art interactive CLI wizard (`mlgg.py play`) for guided pipeline setup and execution with bilingual (en/zh) support, dataset-size-aware defaults, small-sample strict mode, and play-mode quick-readiness card.
 - `scripts/_gate_utils.py`: shared utility functions (`add_issue`, `load_json`, `write_json`, `to_float`) for gate scripts.
 - `scripts/_security.py`: security hardening module — HMAC model signing, path traversal protection, secure JSON loading, artifact integrity manifest, membership inference defense, dependency verification, security audit CLI.
-- `scripts/security_audit_gate.py`: 29th pipeline gate — verifies model HMAC signatures, evidence manifest integrity, dependency authenticity, file permissions, sensitive data exposure, artifact sizes.
+- `scripts/security_audit_gate.py`: 29th pipeline gate (FINAL layer) — verifies model HMAC signatures, evidence manifest integrity, dependency authenticity, file permissions, sensitive data exposure, artifact sizes.
+- `scripts/fairness_equity_gate.py`: 30th pipeline gate (METRIC_VALIDATION layer) — equalized odds gap across demographic/clinical subgroups, disparate impact ratio (four-fifths rule), per-subgroup PR-AUC validation.
+- `scripts/sample_size_gate.py`: 31st pipeline gate (METRIC_VALIDATION layer) — EPV (Riley et al. 2019/2025), shrinkage factor, minimum events/non-events adequacy.
 - `scripts/policy_generator.py`: generate recommended `performance_policy.json` from evidence reports with configurable margin and presets.
 - `scripts/gate_timeline.py`: analyze gate execution timeline, identify bottleneck gates, compute wall-clock span.
 - `scripts/gate_coverage_matrix.py`: scan evidence directory against full gate registry to produce coverage matrix.
@@ -614,6 +629,10 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/export_latex.py`: generate LaTeX tables from evaluation/CI/model-selection reports.
 - `scripts/explain_gate.py`: explain a single gate result in human-readable form.
 - `scripts/quick_summary.py`: one-command training results viewer with key metrics, overfitting risk, model selection top-10.
+- `scripts/audit_external_project.py`: 10-dimension quantitative audit tool for evaluating medical ML projects (100-point scale) with journal-specific gap analysis.
+- `scripts/fairness_equity_gate.py`: fail-closed fairness and equity gate — equalized odds gap, disparate impact ratio (four-fifths rule), per-subgroup PR-AUC validation.
+- `scripts/sample_size_gate.py`: fail-closed sample size adequacy gate — EPV (Riley et al. 2019/2025), shrinkage factor, min events/non-events.
+- `scripts/batch_journal_review.py`: batch audit N projects in parallel with comparison matrix, cross-cutting analysis, and aggregated remediation priorities.
 - `experiments/authority-e2e/scan_stress_diabetes_feasibility.py`: stress-case diabetes feasibility scanner across target modes and row caps; outputs a fail-closed feasibility report.
 
 ### examples/
@@ -661,6 +680,11 @@ If any step returns non-zero, stop and block claim release.
 - `references/external-benchmark-comparison.md`: external tool/guideline comparison and gap map.
 - `references/release-benchmark-suite.md`: structured benchmark profile matrix and pass contract.
 - `references/report-template.md`: reporting template for methods/results/robustness.
+- `references/error-knowledge-base.json`: self-improving error pattern database with 25 known patterns, agent-appendable.
+- `references/journal-rigor-standards.json`: top-tier journal requirements mapped to gates (Nature Medicine, Lancet DH, JAMA, BMJ, npj DM).
+- `references/literature-knowledge-base.json`: curated top-journal literature database (30 entries, LIT-001–LIT-030), searchable by category/gate/dimension.
+- `references/mlgg-review-standard.json`: independent MLGG Medical ML Review Standard — 10 dimensions × 73 criteria across 3 review levels (quick/standard/comprehensive).
+- `references/batch-manifest.example.json`: batch manifest template for multi-project review.
 
 ## Authority E2E Execution Notes
 - Recommended single-entry CLI:
@@ -782,3 +806,200 @@ If any step returns non-zero, stop and block claim release.
 - `generalization_gap_gate.py`: `to_float` already had `math.isfinite`.
 - All 27 gate scripts now uniformly use `bool(failures) or (args.strict and bool(warnings))` in `finish()`.
 - All 11 `to_float` implementations across gate scripts now reject `inf`/`nan`.
+
+## Agent Skill Protocol (Agent 技能协议)
+
+本节定义 AI Agent 如何使用本项目作为 skill 快速构建和审计医疗 ML 项目。
+
+### 三种操作模式
+
+#### 模式 A：从零构建科研项目 (Build)
+当用户说"帮我做一个预测模型"或"build a medical prediction project"时：
+
+**标准化 8 步流程**：
+```
+Step 1: 环境检查     → python3 scripts/mlgg.py doctor
+Step 2: 项目初始化   → python3 scripts/mlgg.py init --project-root <dir>
+Step 3: 数据准备     → 下载数据集或放入用户数据，用 split_data.py 分割
+Step 4: 配置对齐     → 确保 request.json + 所有 spec 文件正确
+Step 5: 模型训练     → python3 scripts/mlgg.py train ...
+Step 6: 执行认证     → python3 scripts/generate_execution_attestation.py ...
+Step 7: 严格审计     → python3 scripts/mlgg.py workflow --strict
+Step 8: 质量报告     → python3 scripts/quick_summary.py + python3 scripts/audit_external_project.py
+```
+
+**Agent 决策点**：
+- Step 3 数据不足 (<100行)？→ 警告并建议更大数据集
+- Step 5 候选模型不足？→ 自动扩大 model-pool
+- Step 7 某个 gate 失败？→ 查询 `references/error-knowledge-base.json` 定位修复方案
+- Step 8 得分 <90？→ 生成 remediation_plan 并逐项修复
+
+#### 模式 B：审计他人项目 (Audit)
+当用户说"帮我审查这个项目"或"review this ML project"时：
+
+```bash
+# 1. 量化评分
+python3 scripts/audit_external_project.py --project-dir <dir> --target-journal nature_medicine --json
+
+# 2. 如果已有 evidence 目录，运行完整 gate
+python3 scripts/report_health_check.py --evidence-dir <dir>/evidence
+
+# 3. 生成修复计划
+python3 scripts/remediation_plan.py --evidence-dir <dir>/evidence
+```
+
+**审计输出**：10 维度量化评分 (满分100) + 期刊差距分析 + 优先修复清单
+
+#### 模式 C：增量修复 (Fix)
+当某个 gate 失败时：
+
+```
+1. 读取 gate report JSON → 提取 failure codes
+2. 在 references/error-knowledge-base.json 中查找 → 获取修复方案
+3. 如果找不到 → 诊断根因 → 应用修复 → 追加到 error-knowledge-base.json
+4. 重跑失败的 gate → 验证通过
+5. 重跑 publication_gate → 验证全链路通过
+```
+
+#### 模式 D：批量评审 (Batch Review)
+当用户说"帮我批量评审"或"review these projects"时：
+
+```bash
+# 1. 准备评审清单 (参考 references/batch-manifest.example.json)
+# 2. 运行批量评审
+python3 scripts/mlgg.py batch-review \
+  --manifest batch_manifest.json \
+  --target-journal nature_medicine \
+  --workers 4 \
+  --format json \
+  --output batch_report.json
+
+# 3. 可选：输出 CSV 摘要
+python3 scripts/mlgg.py batch-review \
+  --manifest batch_manifest.json \
+  --summary-csv batch_summary.csv
+```
+
+**批量评审输出**：
+- 对比矩阵：每个项目的 10 维度评分 + 总分 + 等级
+- 跨项目分析：最常失败的维度 + 最普遍的差距
+- 聚合修复优先级：去重后按严重性 × 影响项目数排序
+
+**文献检索协议**：
+- 查询 `references/literature-knowledge-base.json`（30 条顶刊文献）
+- 按类别 (`category`)、实现的门控 (`gates_implementing`)、影响维度 (`dimensions_affected`) 搜索
+- 在评审报告中引用 `LIT-NNN` 编号
+- 新增文献须符合：IF>10 期刊 / EQUATOR 指南 / PRISMA 系统评价
+
+### 10 维度量化评分标准 (100分制)
+
+用于量化评判任何医疗 ML 项目的质量：
+
+| # | 维度 | 权重 | 评分要点 |
+|---|------|------|---------|
+| 1 | 数据完整性 | 12 | Split 隔离、患者级不重叠、时序有序、无行重叠 |
+| 2 | 防泄漏 | 15 | 无目标泄漏、无定义变量泄漏、无谱系泄漏、无未来特征 |
+| 3 | 流水线隔离 | 12 | 预处理器仅在训练集 fit、插补器隔离、重采样仅在训练集 |
+| 4 | 模型选择严谨性 | 10 | 候选池≥3、one-SE 规则、不窥探测试集、有基线比较 |
+| 5 | 统计有效性 | 12 | Bootstrap CI、置换检验、校准、DCA、指标一致性 |
+| 6 | 泛化证据 | 10 | Train-test gap、外部队列、Transport-drop CI、种子稳定性 |
+| 7 | 临床完整性 | 8 | 完整指标面板、混淆矩阵一致性、阈值可行性 |
+| 8 | 报告标准 | 8 | TRIPOD+AI、PROBAST+AI、排除标准文档、局限性文档 |
+| 9 | 可重复性 | 8 | 种子记录、版本追踪、执行认证、清单锁定 |
+| 10 | 安全与溯源 | 5 | 模型签名、工件完整性、敏感数据保护 |
+
+**评分解读**：
+- 90-100: 顶刊级 (Publication-grade) — 可直接投稿 Nature Medicine / Lancet DH / JAMA / BMJ
+- 75-89: 有基础但需补充 (Solid but gaps) — 需要补充特定维度
+- 60-74: 重大缺陷 (Major issues) — 需要系统性修复
+- <60: 不可发表 (Not publishable) — 需要重新设计
+
+### 顶刊级标准映射
+
+各顶级期刊的核心要求已映射到本框架的 gate：
+- 详见 `references/journal-rigor-standards.json`
+- 支持期刊：Nature Medicine, Lancet Digital Health, JAMA, BMJ, npj Digital Medicine
+- Agent 可自动运行差距分析：`audit_external_project.py --target-journal <name>`
+
+### 自改进错误知识库协议
+
+本项目维护一个结构化的错误模式数据库 (`references/error-knowledge-base.json`)：
+
+**Agent 操作规范**：
+1. 遇到新错误 → 先查知识库是否已有记录
+2. 已有记录 → 按 `fix` 字段操作 → 验证修复
+3. 未找到 → 诊断根因 → 应用修复 → 验证 → 追加新条目（ERR-NNN 格式）
+4. 提交：`git commit -m "knowledge-base: add ERR-NNN <description>"`
+
+**条目结构**：
+```json
+{
+  "id": "ERR-NNN",
+  "code": "error_code_string",
+  "symptom": "用户看到的症状",
+  "root_cause": "根因分析",
+  "fix": "具体修复步骤",
+  "prevention": "如何预防此类问题",
+  "category": "data|leakage|pipeline|model|gate|config|environment|attestation|security|statistical",
+  "severity": "CRITICAL|ERROR|WARNING|INFO",
+  "affected_files": ["file1.py"],
+  "first_seen": "YYYY-MM",
+  "resolved": true
+}
+```
+
+### Agent 快速参考卡
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ML Leakage Guard — Agent Quick Reference                   │
+├─────────────────────────────────────────────────────────────┤
+│  构建新项目:  python3 scripts/mlgg.py onboarding --mode auto│
+│  审计项目:    python3 scripts/audit_external_project.py     │
+│  错误查询:    references/error-knowledge-base.json          │
+│  期刊标准:    references/journal-rigor-standards.json       │
+│  修复计划:    python3 scripts/remediation_plan.py           │
+│  健康检查:    python3 scripts/report_health_check.py        │
+│  证据对比:    python3 scripts/evidence_comparator.py        │
+│  阈值敏感:    python3 scripts/threshold_sensitivity.py      │
+│  LaTeX导出:   python3 scripts/export_latex.py               │
+├─────────────────────────────────────────────────────────────┤
+│  评分工具:    audit_external_project.py --target-journal X  │
+│  支持期刊:    nature_medicine | lancet_digital_health |     │
+│               jama | bmj | npj_digital_medicine             │
+├─────────────────────────────────────────────────────────────┤
+│  Gate 失败?   1. 读报告 2. 查知识库 3. 修复 4. 重跑         │
+│  得分 <90?    1. 运行 remediation_plan 2. 逐项修复          │
+│  新增错误?    追加到 error-knowledge-base.json               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 标准化交付物清单 (Publication-Ready Deliverables)
+
+Agent 完成完整流程后应产出以下交付物：
+
+```
+<project>/
+├── data/
+│   ├── train.csv, valid.csv, test.csv          # 分割后数据
+│   └── external_*.csv                          # 外部验证队列
+├── configs/
+│   ├── request.json                            # 实验请求合同
+│   ├── execution_attestation.json              # 执行认证规范
+│   └── *.json                                  # 各类 spec 文件
+├── evidence/
+│   ├── *_report.json (×31)                     # 31 个 gate 报告
+│   ├── manifest.json                           # SHA256 工件清单
+│   ├── prediction_trace.csv.gz                 # 行级预测追踪
+│   ├── evaluation_report.json                  # 评估指标报告
+│   ├── model_selection_report.json             # 模型选择报告
+│   └── audit_report.json                       # 10维量化审计报告
+├── models/
+│   ├── model.pkl + model.pkl.sig               # 签名模型工件
+│   └── .mlgg_model_key                         # HMAC 密钥
+├── keys/
+│   └── *.pem                                   # 认证密钥对
+└── results/
+    ├── summary.md                              # 人类可读摘要
+    └── tables.tex                              # LaTeX 表格
+```

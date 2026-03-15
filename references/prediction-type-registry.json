@@ -1,0 +1,206 @@
+{
+  "contract_version": "prediction_type_registry.v1",
+  "description": "Registry of supported prediction task types for the MLGG standard. Defines the metrics, thresholds, baseline requirements, and sample size rules for each prediction type. Version 1.0 supports binary classification only; versions 1.1+ will add multiclass, regression, and survival.",
+  "version": "1.0.0",
+  "last_updated": "2026-03-15",
+
+  "prediction_types": {
+    "binary": {
+      "id": "binary",
+      "name": "Binary Classification",
+      "description": "Predicts whether an event will occur (y ∈ {0, 1}). The target is a binary label. Examples: mortality prediction, readmission, disease diagnosis.",
+      "status": "supported",
+      "mlgg_version_introduced": "1.0.0",
+      "request_field": "prediction_type",
+      "request_value": "binary",
+      "default_if_omitted": true,
+
+      "primary_metric": {
+        "name": "pr_auc",
+        "description": "Area under the Precision-Recall curve. Preferred for imbalanced medical datasets.",
+        "range": [0.0, 1.0],
+        "higher_is_better": true,
+        "minimum_for_publication": "must exceed baseline PR-AUC by ≥0.03"
+      },
+
+      "required_metrics": [
+        "roc_auc", "pr_auc", "brier", "calibration_ece",
+        "sensitivity", "specificity", "ppv", "npv",
+        "f1", "f2_beta", "accuracy"
+      ],
+
+      "required_baselines": [
+        "prevalence_model",
+        "logistic_regression_baseline"
+      ],
+
+      "ci_requirements": {
+        "method": "bootstrap",
+        "n_resamples_minimum": 200,
+        "ci_level": 0.95,
+        "max_ci_width": 0.20
+      },
+
+      "sample_size_method": "riley_epv",
+      "minimum_events_test": 50,
+      "minimum_events_validation": 25,
+
+      "calibration_methods": ["reliability_diagram", "ece", "brier_score"],
+
+      "decision_analysis_methods": ["dca"],
+
+      "fairness_metrics": [
+        "equalized_odds_difference",
+        "demographic_parity_difference",
+        "disparate_impact_ratio"
+      ],
+
+      "threshold_selection_method": "maximize_fbeta_on_validation",
+      "threshold_selection_split": "valid",
+
+      "confusion_matrix_elements": ["tp", "fp", "tn", "fn"],
+
+      "model_families_supported": [
+        "logistic_regression", "random_forest", "xgboost",
+        "catboost", "lightgbm", "svm", "mlp", "knn",
+        "decision_tree", "naive_bayes", "adaboost",
+        "extra_trees", "hist_gradient_boosting",
+        "tabpfn", "ensemble_voting", "ensemble_stacking"
+      ],
+
+      "applicable_checklists": ["tripod_ai", "probast_ai", "stard_ai"],
+      "applicable_gates": "all_31",
+
+      "publication_floor": {
+        "roc_auc_minimum": 0.70,
+        "pr_auc_vs_baseline_delta_minimum": 0.03,
+        "brier_score_maximum": 0.25,
+        "calibration_ece_maximum": 0.10,
+        "note": "Floors are minimum requirements; not sufficient on their own for publication"
+      }
+    },
+
+    "multiclass": {
+      "id": "multiclass",
+      "name": "Multiclass Classification",
+      "description": "Predicts which of K ≥ 3 mutually exclusive categories an observation belongs to (y ∈ {0, 1, ..., K-1}). Examples: disease staging (stages I-IV), triage acuity (ESI 1-5), diagnostic category.",
+      "status": "planned",
+      "mlgg_version_introduced": "1.1.0",
+      "request_field": "prediction_type",
+      "request_value": "multiclass",
+      "additional_request_fields": {
+        "num_classes": "integer ≥ 3, required",
+        "class_labels": "list of class names, recommended",
+        "task_subtype": "'ordinal' | 'unordered', required"
+      },
+
+      "primary_metric": {
+        "name": "macro_roc_auc",
+        "description": "Macro-averaged one-vs-rest AUC. Treats each class equally regardless of prevalence.",
+        "alternative": "weighted_roc_auc for imbalanced classes"
+      },
+
+      "required_metrics_planned": [
+        "macro_roc_auc", "weighted_roc_auc", "macro_f1",
+        "weighted_f1", "per_class_sensitivity", "per_class_specificity",
+        "per_class_ppv", "per_class_npv", "macro_calibration_ece",
+        "confusion_matrix_kxk"
+      ],
+
+      "planned_gates": [
+        "multiclass_calibration_gate",
+        "multiclass_fairness_gate",
+        "multiclass_threshold_gate",
+        "ordinal_consistency_gate",
+        "multiclass_sample_size_gate"
+      ],
+
+      "note": "Not yet supported in MLGG v1.0. Pipeline will fail with informative error if prediction_type=multiclass is specified."
+    },
+
+    "regression": {
+      "id": "regression",
+      "name": "Regression (Continuous Outcome)",
+      "description": "Predicts a continuous numeric outcome (y ∈ ℝ). Examples: predicted length of stay, predicted lab value, predicted clinical score, predicted days to event.",
+      "status": "planned",
+      "mlgg_version_introduced": "1.1.0",
+      "request_field": "prediction_type",
+      "request_value": "regression",
+      "additional_request_fields": {
+        "outcome_unit": "string describing the outcome units (e.g., 'days', 'mg/dL'), recommended",
+        "clinically_meaningful_delta": "minimum clinically important difference, recommended"
+      },
+
+      "primary_metric": {
+        "name": "r_squared",
+        "description": "Coefficient of determination (R²). Proportion of variance explained by the model.",
+        "alternative": "rmse or mae depending on clinical context"
+      },
+
+      "required_metrics_planned": [
+        "r_squared", "rmse", "mae", "mape",
+        "coverage_probability", "bland_altman_limits",
+        "prediction_interval_width"
+      ],
+
+      "planned_gates": [
+        "regression_residuals_gate",
+        "regression_clinical_metrics_gate",
+        "regression_generalization_gate",
+        "regression_calibration_gate"
+      ],
+
+      "note": "Not yet supported in MLGG v1.0. Pipeline will fail with informative error if prediction_type=regression is specified."
+    },
+
+    "survival": {
+      "id": "survival",
+      "name": "Survival Analysis / Time-to-Event",
+      "description": "Predicts the time until an event occurs, accounting for censoring. Examples: time to sepsis, time to readmission, overall survival, progression-free survival.",
+      "status": "planned",
+      "mlgg_version_introduced": "1.2.0",
+      "request_field": "prediction_type",
+      "request_value": "survival",
+      "additional_request_fields": {
+        "time_col": "column name for time-to-event, required",
+        "event_col": "column name for event indicator (1=event, 0=censored), required",
+        "prediction_horizons": "list of time points for evaluation (e.g., [30, 90, 365]), recommended"
+      },
+
+      "primary_metric": {
+        "name": "harrell_c_index",
+        "description": "Harrell's concordance index (C-index). Proportion of all usable pairs where the model correctly orders the predicted risk.",
+        "range": [0.5, 1.0],
+        "higher_is_better": true
+      },
+
+      "required_metrics_planned": [
+        "harrell_c_index", "ibs", "time_dependent_auc",
+        "calibration_at_t", "d_calibration"
+      ],
+
+      "planned_gates": [
+        "survival_harrell_gate",
+        "survival_ph_assumption_gate",
+        "survival_calibration_gate",
+        "survival_split_gate",
+        "survival_sample_size_gate"
+      ],
+
+      "note": "Not yet supported in MLGG v1.0. Pipeline will fail with informative error if prediction_type=survival is specified."
+    }
+  },
+
+  "unsupported_type_error": {
+    "code": "unsupported_prediction_type",
+    "message_template": "prediction_type '{type}' is not supported in MLGG v{version}. Supported types: {supported}. Planned support in {planned_version}.",
+    "gate": "request_contract_gate",
+    "severity": "CRITICAL",
+    "fail_action": "block_pipeline"
+  },
+
+  "backward_compatibility": {
+    "rule": "If prediction_type field is absent from request.json, defaults to 'binary'. This ensures all existing pipelines continue to work without modification.",
+    "introduced_in": "1.0.0"
+  }
+}

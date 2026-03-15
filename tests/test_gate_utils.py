@@ -321,8 +321,10 @@ class TestWriteJson:
 
 class TestResolvePath:
     def test_absolute_path(self, tmp_path: Path):
-        result = resolve_path(tmp_path, "/usr/bin/python3")
-        assert result == Path("/usr/bin/python3")
+        abs_file = tmp_path / "sentinel.txt"
+        abs_file.touch()
+        result = resolve_path(tmp_path, str(abs_file))
+        assert result == abs_file.resolve()
 
     def test_relative_path(self, tmp_path: Path):
         result = resolve_path(tmp_path, "data/train.csv")

@@ -6,10 +6,16 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 HEART_CSV = EXAMPLES_DIR / "heart_disease.csv"
+
+pytestmark = pytest.mark.skipif(
+    not HEART_CSV.exists(),
+    reason="heart_disease.csv not present; run examples/download_real_data.py first",
+)
 
 
 def _run_split(tmp_path: Path, strategy: str, input_csv: Path = HEART_CSV,

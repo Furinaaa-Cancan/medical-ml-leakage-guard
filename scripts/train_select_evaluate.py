@@ -4358,6 +4358,60 @@ def _net_reclassification_improvement(
     }
 
 
+def _integrated_discrimination_improvement(
+    y_true: "np.ndarray",
+    proba_new: "np.ndarray",
+    proba_ref: "np.ndarray",
+) -> Dict[str, Any]:
+    """Compute Integrated Discrimination Improvement (IDI).
+
+    Pencina et al. (2008) Statistics in Medicine.
+    IDI = (IS_new - IS_ref) where IS = mean(p|events) - mean(p|non-events).
+    IDI measures the improvement in discrimination slope between two models.
+
+    Required by top-tier journals (JAMA, Lancet) when comparing prediction models.
+
+    Args:
+        y_true: Binary ground truth labels.
+        proba_new: Predicted probabilities from the new (candidate) model.
+        proba_ref: Predicted probabilities from the reference (baseline) model.
+
+    Returns:
+        Dict with IDI, IS_new, IS_ref, and relative IDI.
+    """
+    events = y_true == 1
+    nonevents = y_true == 0
+    n_events = int(np.sum(events))
+    n_nonevents = int(np.sum(nonevents))
+
+    if n_events < 1 or n_nonevents < 1:
+        return {
+            "idi": None,
+            "is_new": None,
+            "is_ref": None,
+            "relative_idi": None,
+            "note": "insufficient_events_or_nonevents",
+        }
+
+    # Discrimination slope (integrated sensitivity - integrated 1-specificity)
+    is_new = float(np.mean(proba_new[events]) - np.mean(proba_new[nonevents]))
+    is_ref = float(np.mean(proba_ref[events]) - np.mean(proba_ref[nonevents]))
+    idi = is_new - is_ref
+    relative_idi = idi / is_ref if is_ref != 0 else None
+
+    return {
+        "idi": round(float(idi), 6),
+        "discrimination_slope_new": round(is_new, 6),
+        "discrimination_slope_ref": round(is_ref, 6),
+        "relative_idi": round(float(relative_idi), 4) if relative_idi is not None else None,
+        "interpretation": (
+            "new_model_better" if idi > 0
+            else "reference_model_better" if idi < 0
+            else "no_difference"
+        ),
+    }
+
+
 def _delong_test(
     y_true: "np.ndarray",
     proba_a: "np.ndarray",
@@ -5790,6 +5844,12 @@ def main() -> int:
     test_pred = (test_proba >= selected_threshold).astype(int)
     baseline_logit_pred = (baseline_logit_proba_test >= selected_threshold).astype(int)
     delong_vs_logistic = _delong_test(y_test, test_proba, baseline_logit_proba_test)
+    idi_vs_prevalence = _integrated_discrimination_improvement(
+        y_test, test_proba, baseline_proba_test,
+    )
+    idi_vs_logistic = _integrated_discrimination_improvement(
+        y_test, test_proba, baseline_logit_proba_test,
+    )
     mcnemar_vs_logistic = _mcnemar_test(y_test, test_pred, baseline_logit_pred)
     pred_uncertainty = _prediction_uncertainty(test_proba)
     subgroup_report = _subgroup_performance(
@@ -5840,6 +5900,10 @@ def main() -> int:
         "net_reclassification_improvement": {
             "vs_prevalence_baseline": nri_vs_prevalence,
             "vs_logistic_baseline": nri_vs_logistic,
+        },
+        "integrated_discrimination_improvement": {
+            "vs_prevalence_baseline": idi_vs_prevalence,
+            "vs_logistic_baseline": idi_vs_logistic,
         },
         "statistical_tests": {
             "delong_vs_logistic": delong_vs_logistic,

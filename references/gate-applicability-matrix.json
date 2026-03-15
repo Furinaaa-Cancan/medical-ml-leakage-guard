@@ -1,0 +1,452 @@
+{
+  "contract_version": "gate_applicability_matrix.v1",
+  "description": "Defines which MLGG gates apply to which prediction types. In MLGG v1.0, all 31 gates apply to binary classification only. This matrix serves as the authoritative source for conditional gate execution in future versions.",
+  "version": "1.0.0",
+  "last_updated": "2026-03-15",
+
+  "prediction_types": ["binary", "multiclass", "regression", "survival"],
+
+  "legend": {
+    "FULL": "Gate applies without modification",
+    "ADAPTED": "Gate applies with prediction-type-specific logic branches (planned)",
+    "REPLACED": "Gate is replaced by a type-specific equivalent gate (planned)",
+    "NEW": "New gate required, no current equivalent (planned)",
+    "NA": "Gate not applicable to this prediction type",
+    "CONDITIONAL": "Gate applies only under specific conditions"
+  },
+
+  "core_gates": {
+    "request_contract_gate": {
+      "layer": 0,
+      "description": "Validates request.json structure and normalizes paths",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Add num_classes and class_labels validation",
+        "regression": "Add outcome_unit field; remove label_col binary checks",
+        "survival": "Add time_col, event_col, prediction_horizons validation"
+      }
+    },
+    "manifest_lock": {
+      "layer": 1,
+      "description": "SHA-256 cryptographic integrity of input files",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "execution_attestation_gate": {
+      "layer": 2,
+      "description": "Cryptographic execution timestamp and witness",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "leakage_gate": {
+      "layer": 3,
+      "description": "Row/entity/temporal overlap detection",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "survival": "Add censoring integrity check; verify event_col not used as predictor"
+      }
+    },
+    "split_protocol_gate": {
+      "layer": 3,
+      "description": "Split stratification and integrity",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Stratify on class distribution, not just binary outcome",
+        "regression": "Stratify on outcome quantiles instead of binary event",
+        "survival": "Add event rate per split; censoring ratio validation"
+      }
+    },
+    "covariate_shift_gate": {
+      "layer": 3,
+      "description": "Distribution shift analysis between splits",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "reporting_bias_gate": {
+      "layer": 3,
+      "description": "TRIPOD+AI / PROBAST+AI / STARD-AI checklist enforcement",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Check multiclass-specific TRIPOD items (calibration per class, fairness per class)",
+        "regression": "Substitute calibration items with regression-specific reporting (Bland-Altman)",
+        "survival": "Add PH assumption, calibration at prediction horizons, Kaplan-Meier items"
+      }
+    },
+    "definition_variable_guard": {
+      "layer": 4,
+      "description": "Phenotype definition variable exclusion check",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "feature_lineage_gate": {
+      "layer": 4,
+      "description": "Forbidden ancestor detection in feature lineage",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "imbalance_policy_gate": {
+      "layer": 4,
+      "description": "Class imbalance handling verification",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "NA",
+      "survival": "CONDITIONAL",
+      "adaptation_notes": {
+        "multiclass": "Verify per-class resampling strategy; SMOTE on train only per class",
+        "regression": "Not applicable — no class imbalance concept for continuous outcomes",
+        "survival": "Only applicable if event rate imbalance policy is specified"
+      }
+    },
+    "missingness_policy_gate": {
+      "layer": 4,
+      "description": "Missing data strategy validation",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "survival": "Add check for informative censoring vs missing outcome; verify time_col completeness"
+      }
+    },
+    "tuning_leakage_gate": {
+      "layer": 4,
+      "description": "Hyperparameter tuning isolation",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "model_selection_audit_gate": {
+      "layer": 5,
+      "description": "One-SE rule, no test peeking, baseline comparator",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Primary metric becomes macro_roc_auc; baseline = majority class classifier",
+        "regression": "Primary metric becomes R²; baseline = mean predictor",
+        "survival": "Primary metric becomes C-index; baseline = Kaplan-Meier"
+      }
+    },
+    "feature_engineering_audit_gate": {
+      "layer": 5,
+      "description": "Selection leakage detection",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    },
+    "clinical_metrics_gate": {
+      "layer": 5,
+      "description": "Performance floor validation",
+      "binary": "FULL",
+      "multiclass": "REPLACED",
+      "regression": "REPLACED",
+      "survival": "REPLACED",
+      "adaptation_notes": {
+        "multiclass": "→ multiclass_clinical_metrics_gate (per-class sensitivity/specificity floors)",
+        "regression": "→ regression_clinical_metrics_gate (RMSE/R² floors)",
+        "survival": "→ survival_clinical_metrics_gate (C-index floor ≥ 0.60)"
+      }
+    },
+    "calibration_dca_gate": {
+      "layer": 6,
+      "description": "Calibration and decision curve analysis",
+      "binary": "FULL",
+      "multiclass": "REPLACED",
+      "regression": "REPLACED",
+      "survival": "REPLACED",
+      "adaptation_notes": {
+        "multiclass": "→ multiclass_calibration_gate (per-class reliability diagrams, macro ECE)",
+        "regression": "→ regression_calibration_gate (Loess calibration, coverage probability)",
+        "survival": "→ survival_calibration_gate (D-calibration, calibration at t horizons)"
+      }
+    },
+    "ci_matrix_gate": {
+      "layer": 6,
+      "description": "Bootstrap CI for all primary metrics",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "CI for macro_roc_auc, macro_f1, per-class AUC",
+        "regression": "CI for R², RMSE, MAE",
+        "survival": "CI for C-index, IBS"
+      }
+    },
+    "distribution_generalization_gate": {
+      "layer": 6,
+      "description": "Feature distribution shift detection",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "survival": "Add follow-up time distribution check"
+      }
+    },
+    "evaluation_quality_gate": {
+      "layer": 6,
+      "description": "Evaluation methodology quality check",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {}
+    },
+    "external_validation_gate": {
+      "layer": 6,
+      "description": "External cohort validation",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "all_types": "Core logic same; metric checks adapted per prediction type"
+      }
+    },
+    "fairness_equity_gate": {
+      "layer": 6,
+      "description": "Subgroup fairness metrics",
+      "binary": "FULL",
+      "multiclass": "REPLACED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "→ multiclass_fairness_gate (per-class equalized odds)",
+        "regression": "Adapt fairness metrics to continuous outcome (mean error parity)",
+        "survival": "Adapt fairness metrics to C-index parity across groups"
+      }
+    },
+    "generalization_gap_gate": {
+      "layer": 6,
+      "description": "Train vs test performance gap",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Gap measured on macro_roc_auc",
+        "regression": "Gap measured on R² and RMSE",
+        "survival": "Gap measured on C-index"
+      }
+    },
+    "metric_consistency_gate": {
+      "layer": 6,
+      "description": "Arithmetic consistency of reported metrics",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Verify per-class metrics sum to macro averages; confusion matrix row sums",
+        "regression": "Verify RMSE = sqrt(MSE); MAE ≤ RMSE",
+        "survival": "Verify concordant + discordant + tied = total usable pairs"
+      }
+    },
+    "permutation_significance_gate": {
+      "layer": 6,
+      "description": "Permutation test for significance",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "all_types": "Primary metric permuted; implementation same, metric name changes"
+      }
+    },
+    "prediction_replay_gate": {
+      "layer": 6,
+      "description": "Prediction trace replay verification",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "multiclass": "Replay softmax probabilities for each class",
+        "regression": "Replay continuous predictions",
+        "survival": "Replay risk scores at prediction horizons"
+      }
+    },
+    "robustness_gate": {
+      "layer": 6,
+      "description": "Model robustness to input perturbations",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {}
+    },
+    "sample_size_gate": {
+      "layer": 6,
+      "description": "Events per variable and minimum sample size",
+      "binary": "FULL",
+      "multiclass": "REPLACED",
+      "regression": "REPLACED",
+      "survival": "REPLACED",
+      "adaptation_notes": {
+        "multiclass": "→ multiclass_sample_size_gate (EPV per class; minority class minimum)",
+        "regression": "→ regression_sample_size_gate (minimum n for stable R², power for RMSE CI)",
+        "survival": "→ survival_sample_size_gate (events per variable, minimum events)"
+      }
+    },
+    "seed_stability_gate": {
+      "layer": 6,
+      "description": "Seed sensitivity analysis",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "all_types": "Stability measured on primary metric for each type"
+      }
+    },
+    "publication_gate": {
+      "layer": 7,
+      "description": "Aggregates all layer 0-6 gate outcomes",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "all_types": "Publication criteria adapted per prediction type (metric floors, gate set)"
+      }
+    },
+    "self_critique_gate": {
+      "layer": 8,
+      "description": "10-dimension quality scoring",
+      "binary": "FULL",
+      "multiclass": "ADAPTED",
+      "regression": "ADAPTED",
+      "survival": "ADAPTED",
+      "adaptation_notes": {
+        "all_types": "Scoring rubric adapts weights/floors per prediction type"
+      }
+    },
+    "security_audit_gate": {
+      "layer": 8,
+      "description": "Cryptographic model signing and integrity",
+      "binary": "FULL",
+      "multiclass": "FULL",
+      "regression": "FULL",
+      "survival": "FULL",
+      "adaptation_notes": {}
+    }
+  },
+
+  "planned_new_gates_v1_1": {
+    "multiclass": [
+      {
+        "gate": "multiclass_calibration_gate",
+        "replaces": "calibration_dca_gate (for multiclass)",
+        "description": "Per-class reliability diagrams; macro ECE; multiclass DCA"
+      },
+      {
+        "gate": "multiclass_fairness_gate",
+        "replaces": "fairness_equity_gate (for multiclass)",
+        "description": "Per-class equalized odds; macro fairness gap"
+      },
+      {
+        "gate": "multiclass_threshold_gate",
+        "new": true,
+        "description": "Per-class threshold feasibility; OvR decision curves"
+      },
+      {
+        "gate": "ordinal_consistency_gate",
+        "new": true,
+        "description": "Monotonicity for ordinal class labels; adjacent-class transition sanity"
+      },
+      {
+        "gate": "multiclass_sample_size_gate",
+        "replaces": "sample_size_gate (for multiclass)",
+        "description": "EPV per class; minority class minimum events"
+      }
+    ],
+    "regression": [
+      {
+        "gate": "regression_residuals_gate",
+        "new": true,
+        "description": "Residual normality; heteroscedasticity (Breusch-Pagan); Q-Q data"
+      },
+      {
+        "gate": "regression_clinical_metrics_gate",
+        "replaces": "clinical_metrics_gate (for regression)",
+        "description": "RMSE/MAE/MAPE CI; R² CI; Bland-Altman limits of agreement"
+      },
+      {
+        "gate": "regression_generalization_gate",
+        "new": true,
+        "description": "Regression-specific generalization gap (RMSE ratio); external cohort R²"
+      },
+      {
+        "gate": "regression_calibration_gate",
+        "replaces": "calibration_dca_gate (for regression)",
+        "description": "Loess calibration curve; coverage probability; PI width"
+      }
+    ],
+    "survival": [
+      {
+        "gate": "survival_harrell_gate",
+        "new": true,
+        "description": "Harrell C-index CI; time-dependent AUC; IBS"
+      },
+      {
+        "gate": "survival_ph_assumption_gate",
+        "new": true,
+        "description": "Schoenfeld residuals; PH assumption formal test"
+      },
+      {
+        "gate": "survival_calibration_gate",
+        "new": true,
+        "description": "Calibration at prediction horizons; D-calibration"
+      },
+      {
+        "gate": "survival_split_gate",
+        "new": true,
+        "description": "Time truncation correctness; censoring ratio; follow-up adequacy"
+      },
+      {
+        "gate": "survival_sample_size_gate",
+        "new": true,
+        "description": "Events per variable (survival version); minimum events test"
+      }
+    ]
+  },
+
+  "total_gates_by_version": {
+    "v1_0_binary_only": 31,
+    "v1_1_adds_multiclass_regression": "31 + 9 = 40",
+    "v1_2_adds_survival": "40 + 5 = 45"
+  }
+}

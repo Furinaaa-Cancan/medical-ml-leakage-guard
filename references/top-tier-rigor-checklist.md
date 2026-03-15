@@ -119,7 +119,29 @@ Use this checklist as a hard gate before claiming publication-grade predictive p
 - [ ] Audit diagnosis/lab/medication coding timestamps against `t_index`.
 - [ ] Document ambiguous variables and adjudication rationale.
 
+## K. Fairness and Equity (TRIPOD+AI 2024 / PROBAST+AI 2025)
+- [ ] Report subgroup performance across key demographic/clinical variables.
+- [ ] Compute equalized odds gap across subgroups (threshold: <0.15).
+- [ ] Compute disparate impact ratio (four-fifths rule: >0.80).
+- [ ] Document minimum subgroup size and flag underpowered subgroups (<20).
+- [ ] If disparity detected, document mitigation strategy and results.
+- [ ] Report fairness assessment in TRIPOD+AI checklist.
+
+## L. Sample Size Adequacy (Riley et al. 2019/2025)
+- [ ] Compute events per variable (EPV) and justify EPV ≥ 10 (minimum) or ≥ 20 (recommended).
+- [ ] Estimate shrinkage factor (target ≥ 0.90) or cite pmsampsize calculation.
+- [ ] Ensure minimum 100 events and 100 non-events for model development.
+- [ ] Ensure test set has ≥ 50 events for reliable performance estimation.
+- [ ] For ML models, note that higher EPV may be needed vs regression (Tsegaye et al. 2025).
+
+## M. Model Comparison and Improvement Metrics
+- [ ] Report Net Reclassification Improvement (NRI) vs clinical baseline.
+- [ ] Report Integrated Discrimination Improvement (IDI) vs baseline.
+- [ ] Report DeLong test for AUC comparison.
+- [ ] Report McNemar test for classification comparison.
+- [ ] Include both prevalence baseline and logistic regression baseline comparisons.
+
 ## Decision Rule
 Apply fail-closed policy:
 1. If any item in sections B-E or J fails, block performance claims.
-2. If sections F-I have unresolved gaps, downgrade claim from "publication-grade" to "preliminary".
+2. If sections F-I or K-M have unresolved gaps, downgrade claim from "publication-grade" to "preliminary".

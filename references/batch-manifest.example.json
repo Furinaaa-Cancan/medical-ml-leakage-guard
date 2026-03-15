@@ -1,0 +1,25 @@
+{
+  "contract_version": "batch_manifest.v1",
+  "description": "Example batch manifest for batch_journal_review.py. List projects to audit and optionally specify target journals.",
+  "target_journals": ["nature_medicine"],
+  "projects": [
+    {
+      "id": "example_sepsis_risk",
+      "path": "/path/to/sepsis_risk_project",
+      "label": "Sepsis Risk ICU Model",
+      "notes": "XGBoost model for 48h sepsis onset prediction in ICU patients"
+    },
+    {
+      "id": "example_readmission",
+      "path": "/path/to/readmission_project",
+      "label": "30-Day Readmission Predictor",
+      "notes": "Logistic regression + gradient boosting ensemble for hospital readmission"
+    },
+    {
+      "id": "example_ckd_progression",
+      "path": "/path/to/ckd_progression_project",
+      "label": "CKD Progression Risk Score",
+      "notes": "Multi-center chronic kidney disease progression model"
+    }
+  ]
+}

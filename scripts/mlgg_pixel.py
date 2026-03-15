@@ -34,6 +34,19 @@ EXAMPLES_DIR = REPO_ROOT / "examples"
 DESKTOP = Path.home() / "Desktop"
 DEFAULT_OUT = DESKTOP / "MLGG_Output"
 
+# ── Unicode box-drawing / symbol constants (avoid backslash in f-string expr) ─
+_HLINE = '─'
+_VLINE = '│'
+_TL    = '┌'
+_TR    = '┐'
+_BL    = '└'
+_BR    = '┘'
+_ML    = '├'
+_MR    = '┤'
+_CHECK = '✓'
+_BLOCK = '▓'
+_LIGHT = '░'
+
 # ── ANSI ──────────────────────────────────────────────────────────────────────
 RST = "\033[0m"
 BOLD = "\033[1m"
@@ -928,10 +941,10 @@ def step_header(step: int, total: int, title: str) -> None:
     w = min(_cols() - 4, 64)
     bar_w = max(w - 28, 8)
     filled = int(bar_w * step / total)
-    bar = s('C', '\u2593' * filled) + DIM + '\u2591' * (bar_w - filled) + RST
+    bar = s('C', _BLOCK * filled) + DIM + _LIGHT * (bar_w - filled) + RST
     pct = f"{int(100 * step / total):>3}%"
     print(f"  {s('C', 'LEAKAGE GUARD', bold=True)}  {DIM}Step {step}/{total}{RST}  {bar} {DIM}{pct}{RST}")
-    print(f"  {s('C', '\u2500' * w)}")
+    print(f"  {s('C', _HLINE * w)}")
     if title:
         print(f"\n  {s('W', title, bold=True)}\n")
 
@@ -1149,7 +1162,7 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
                 _emit(f"  {DIM}  \u25b2 {offset} more{RST}")
             for fidx in range(offset, end):
                 i = filtered[fidx]
-                mark = s('G', '\u2713') if i in checked else ' '
+                mark = s('G', _CHECK) if i in checked else ' '
                 lbl = _trunc(options[i], maxw - 10)
                 if fidx == pos:
                     line = f"  {s('C','>', bold=True)} [{mark}] {BG['b']}{FG['W']}{BOLD}{lbl}{RST}"
@@ -1241,16 +1254,16 @@ def multi_select(options: List[str], descs: Optional[List[str]] = None,
 def box(title: str, lines: List[str], color: str = "C") -> None:
     maxw = _cols() - 6
     w = min(max(max((_wlen(l) for l in lines), default=0), _wlen(title)) + 4, maxw)
-    print(f"  {s(color, '\u250c' + '\u2500' * w + '\u2510')}")
+    print(f"  {s(color, _TL + _HLINE * w + _TR)}")
     if title:
         pad = w - _wlen(title) - 2
-        print(f"  {s(color, '\u2502')} {s('W', title, bold=True)}{' ' * max(pad,0)}{s(color, '\u2502')}")
-        print(f"  {s(color, '\u251c' + '\u2500' * w + '\u2524')}")
+        print(f"  {s(color, _VLINE)} {s('W', title, bold=True)}{' ' * max(pad,0)}{s(color, _VLINE)}")
+        print(f"  {s(color, _ML + _HLINE * w + _MR)}")
     for line in lines:
         tl = _trunc(line, w - 2)
         pad = w - _wlen(tl) - 2
-        print(f"  {s(color, '\u2502')} {tl}{' ' * max(pad, 0)}{s(color, '\u2502')}")
-    print(f"  {s(color, '\u2514' + '\u2500' * w + '\u2518')}")
+        print(f"  {s(color, _VLINE)} {tl}{' ' * max(pad, 0)}{s(color, _VLINE)}")
+    print(f"  {s(color, _BL + _HLINE * w + _BR)}")
 
 
 class Spinner:
@@ -1334,7 +1347,7 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
         last_draw = draw_key
         pct = min(int(done * 100 / total_n), 100)
         filled = int(bar_w * done / total_n)
-        bar = s('C', '\u2588' * filled) + DIM + '\u2591' * (bar_w - filled) + RST
+        bar = s('C', '\u2588' * filled) + DIM + _LIGHT * (bar_w - filled) + RST
         cols = max(_cols(), 40)
         name_budget = 30 if cols >= 100 else 20 if cols >= 80 else 12
         name = _compact_model_id(model_name, max_len=name_budget) if model_name else ""
@@ -1395,7 +1408,7 @@ def run_with_progress(cmd: List[str], label: str, total: int = 0,
 
     # final complete bar
     if total > 0:
-        _draw_bar(total, total, s('G', '\u2713'))
+        _draw_bar(total, total, s('G', _CHECK))
     sys.stdout.write(f"\r{ERASE}{SHOW_CUR}")
     sys.stdout.flush()
 
@@ -2801,7 +2814,7 @@ def step_config(state: Dict) -> Any:
             print(f"  {s('G', '[' + auto_label + ']')} {DIM}{', '.join(hints)}{RST}")
         print(f"  {DIM}{t('config_search_tip')}{RST}")
         for label, value in chosen:
-            print(f"  {s('G', '\u2713')} {label} {s('W', value)}")
+            print(f"  {s('G', _CHECK)} {label} {s('W', value)}")
         print()
 
     auto_pid = str(detected.get("pid", "") or "").strip()
@@ -3032,7 +3045,7 @@ def step_split(state: Dict) -> Any:
                 sub = 0; continue
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
-            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}\n")
+            print(f"  {s('G', _CHECK)} {t('c_strat')} {s('W', strat)}\n")
             time_opts = rem[:]
             if detected.get("time") and detected["time"] in time_opts:
                 time_opts.remove(detected["time"])
@@ -3046,9 +3059,9 @@ def step_split(state: Dict) -> Any:
         elif sub == 2:
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
-            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            print(f"  {s('G', _CHECK)} {t('c_strat')} {s('W', strat)}")
             if tcol:
-                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+                print(f"  {s('G', _CHECK)} {t('c_time')} {s('W', tcol)}")
             print()
             valid_order = validation_method_order_for_state(state)
             method_title = {"holdout": t("valid_holdout"), "cv": t("valid_cv")}
@@ -3071,10 +3084,10 @@ def step_split(state: Dict) -> Any:
         elif sub == 3:
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
-            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            print(f"  {s('G', _CHECK)} {t('c_strat')} {s('W', strat)}")
             if tcol:
-                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
-            print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', t('valid_cv'))}")
+                print(f"  {s('G', _CHECK)} {t('c_time')} {s('W', tcol)}")
+            print(f"  {s('G', _CHECK)} {t('c_validation')} {s('W', t('valid_cv'))}")
             print()
             fold_values = cv_folds_order_for_state(state)
             fold_title = {
@@ -3094,10 +3107,10 @@ def step_split(state: Dict) -> Any:
         elif sub == 4:
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
-            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            print(f"  {s('G', _CHECK)} {t('c_strat')} {s('W', strat)}")
             if tcol:
-                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
-            print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', t('valid_holdout'))}")
+                print(f"  {s('G', _CHECK)} {t('c_time')} {s('W', tcol)}")
+            print(f"  {s('G', _CHECK)} {t('c_validation')} {s('W', t('valid_holdout'))}")
             print()
             ri = select(
                 [t("ratio_60"), t("ratio_70"), t("ratio_70_20_10"), t("ratio_80")],
@@ -3113,12 +3126,12 @@ def step_split(state: Dict) -> Any:
         elif sub == 5:
             _clear()
             step_header(5, TOTAL_STEPS, t("s_split"))
-            print(f"  {s('G', '\u2713')} {t('c_strat')} {s('W', strat)}")
+            print(f"  {s('G', _CHECK)} {t('c_strat')} {s('W', strat)}")
             if tcol:
-                print(f"  {s('G', '\u2713')} {t('c_time')} {s('W', tcol)}")
+                print(f"  {s('G', _CHECK)} {t('c_time')} {s('W', tcol)}")
             cv_label = t("valid_cv")
             folds = state["cv_folds"]
-            print(f"  {s('G', '\u2713')} {t('c_validation')} {s('W', f'{cv_label} ({folds}-fold)')}")
+            print(f"  {s('G', _CHECK)} {t('c_validation')} {s('W', f'{cv_label} ({folds}-fold)')}")
             print()
             ri = select(
                 [t("tt_70_30"), t("tt_80_20")],
@@ -3386,7 +3399,7 @@ def step_tuning(state: Dict) -> Any:
         elif sub == 1:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
-            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
+            print(f"  {s('G', _CHECK)} {t('c_tuning')} {s('W', state['hyperparam_search'])}\n")
             print(f"  {DIM}{t('optuna_trials_hint')}{RST}")
             optuna_default = int(state.get("optuna_trials", max(20, int(recommended_max_trials(state)))))
             preset_values = [20, 50, 100, 200]
@@ -3432,9 +3445,9 @@ def step_tuning(state: Dict) -> Any:
                 else:
                     print(f"  {s('C', 'Strict small-sample mode enabled: complexity/trials will be tightened')}")
                 print()
-            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+            print(f"  {s('G', _CHECK)} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
             if state["hyperparam_search"] == "optuna":
-                print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
+                print(f"  {s('G', _CHECK)} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
             print()
             default_trials = int(state.get("max_trials", recommended_max_trials(state)))
             if strict_small:
@@ -3525,10 +3538,10 @@ def step_tuning(state: Dict) -> Any:
         elif sub == 3:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
-            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+            print(f"  {s('G', _CHECK)} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
             if state["hyperparam_search"] == "optuna":
-                print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
-            print(f"  {s('G', '\u2713')} {t('c_trials')} {s('W', str(state['max_trials']))}")
+                print(f"  {s('G', _CHECK)} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
+            print(f"  {s('G', _CHECK)} {t('c_trials')} {s('W', str(state['max_trials']))}")
             print()
             if strict_small_sample_active(state):
                 calib_order = ["power", "none", "sigmoid", "isotonic", "beta"]
@@ -3567,11 +3580,11 @@ def step_tuning(state: Dict) -> Any:
         elif sub == 4:
             _clear()
             step_header(8, TOTAL_STEPS, t("s_tuning"))
-            print(f"  {s('G', '\u2713')} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
+            print(f"  {s('G', _CHECK)} {t('c_tuning')} {s('W', state['hyperparam_search'])}")
             if state["hyperparam_search"] == "optuna":
-                print(f"  {s('G', '\u2713')} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
-            print(f"  {s('G', '\u2713')} {t('c_trials')} {s('W', str(state['max_trials']))}")
-            print(f"  {s('G', '\u2713')} {t('c_calib')} {s('W', state['calibration'])}")
+                print(f"  {s('G', _CHECK)} Optuna trials: {s('W', str(state.get('optuna_trials', 50)))}")
+            print(f"  {s('G', _CHECK)} {t('c_trials')} {s('W', str(state['max_trials']))}")
+            print(f"  {s('G', _CHECK)} {t('c_calib')} {s('W', state['calibration'])}")
             print()
             di = select(
                 [t("dev_auto"), t("dev_cpu"), t("dev_gpu")],
@@ -3622,9 +3635,9 @@ def step_advanced(state: Dict) -> Any:
         _clear()
         step_header(9, TOTAL_STEPS, t("s_advanced"))
         print(f"  {s('W', t('adv_current'), bold=True)}")
-        print(f"  {s('G', '\u2713')} ignore_cols = {s('W', str(state.get('ignore_cols', '')))}")
-        print(f"  {s('G', '\u2713')} n_jobs = {s('W', str(state.get('n_jobs', 1)))}")
-        print(f"  {s('G', '\u2713')} include_optional_models = {s('W', str(bool(state.get('include_optional_models', False))))}\n")
+        print(f"  {s('G', _CHECK)} ignore_cols = {s('W', str(state.get('ignore_cols', '')))}")
+        print(f"  {s('G', _CHECK)} n_jobs = {s('W', str(state.get('n_jobs', 1)))}")
+        print(f"  {s('G', _CHECK)} include_optional_models = {s('W', str(bool(state.get('include_optional_models', False))))}\n")
         ai = select(
             [t("adv_edit_ignore"), t("adv_edit_njobs"), t("adv_edit_optional"), t("adv_done")],
             title=t("adv_menu_title"),
@@ -4202,10 +4215,10 @@ def step_run(state: Dict) -> Any:
         pct = int(done_count * 100 / total_phases) if total_phases else 0
         bar_w = 20
         filled = int(bar_w * pct / 100)
-        bar = s('G', '\u2588' * filled) + s('W', '\u2591' * (bar_w - filled))
+        bar = s('G', '\u2588' * filled) + s('W', _LIGHT * (bar_w - filled))
         print(f"  {bar} {s('W', f'{pct}%')}")
         for label, st in completed:
-            icon = s('G', '\u2713') if st == "done" else s('R', '\u2717')
+            icon = s('G', _CHECK) if st == "done" else s('R', '\u2717')
             clr = 'W' if st == "done" else 'R'
             print(f"  {icon}  {s(clr, label)}")
 

@@ -26,9 +26,7 @@ import json
 import os
 import pickle
 import secrets
-import struct
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -437,7 +435,7 @@ def perturb_predictions(
     # Laplace noise scaled to be small but meaningful
     noise = rng.laplace(0, scale * 0.001, size=len(probabilities))
     perturbed = np.clip(np.array(probabilities, dtype=float) + noise, 0.0, 1.0)
-    return perturbed.tolist()
+    return list(float(x) for x in perturbed)
 
 
 # ---------------------------------------------------------------------------
@@ -703,15 +701,18 @@ def encrypt_evidence(data: bytes, key: Optional[bytes] = None) -> bytes:
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         aesgcm = AESGCM(key)
-        ciphertext = aesgcm.encrypt(nonce, data, None)
+        ciphertext = bytes(aesgcm.encrypt(nonce, data, None))
         # ciphertext includes the 16-byte tag appended by cryptography lib
         return _ENC_HEADER + nonce + ciphertext
     except ImportError:
         # Fallback: XOR-based obfuscation with HMAC integrity (not true AES)
         # This is a degraded mode when cryptography package is unavailable
         import hashlib as _hl
-        stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(data))
-        ciphertext = bytes(a ^ b for a, b in zip(data, stream_key))
+        if data:
+            stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(data))
+            ciphertext = bytes(a ^ b for a, b in zip(data, stream_key))
+        else:
+            ciphertext = b""
         tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()[:16]
         return _ENC_HEADER + nonce + tag + ciphertext
 
@@ -742,13 +743,15 @@ def decrypt_evidence(blob: bytes, key: Optional[bytes] = None) -> bytes:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         aesgcm = AESGCM(key)
         ciphertext_with_tag = blob[header_len + 12:]
-        return aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+        return bytes(aesgcm.decrypt(nonce, ciphertext_with_tag, None))
     except ImportError:
         tag = blob[header_len + 12:header_len + 28]
         ciphertext = blob[header_len + 28:]
         expected_tag = hmac.new(key, nonce + ciphertext, hashlib.sha256).digest()[:16]
         if not hmac.compare_digest(tag, expected_tag):
             raise SecurityError("Evidence integrity check failed: HMAC mismatch")
+        if not ciphertext:
+            return b""
         import hashlib as _hl
         stream_key = _hl.pbkdf2_hmac("sha256", key, nonce, 100_000, dklen=len(ciphertext))
         return bytes(a ^ b for a, b in zip(ciphertext, stream_key))
@@ -784,7 +787,7 @@ class Role:
     VIEWER = "viewer"
 
 
-_ROLE_PERMISSIONS: Dict[str, frozenset] = {
+_ROLE_PERMISSIONS: Dict[str, frozenset[str]] = {
     Role.ADMIN: frozenset({
         "pipeline.run", "pipeline.configure", "pipeline.abort",
         "gate.run", "gate.override",
@@ -1271,7 +1274,7 @@ def main() -> int:
     manifest_p.add_argument("evidence_dir", help="Path to evidence directory")
 
     # check-deps
-    deps_p = sub.add_parser("check-deps", help="Verify critical dependency integrity")
+    sub.add_parser("check-deps", help="Verify critical dependency integrity")
 
     # encrypt
     enc_p = sub.add_parser("encrypt", help="Encrypt evidence files at rest")

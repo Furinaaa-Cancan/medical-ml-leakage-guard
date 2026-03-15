@@ -1,0 +1,593 @@
+{
+  "contract_version": "tripod_ai_official_checklist.v1",
+  "standard_name": "TRIPOD+AI",
+  "full_title": "Transparent Reporting of a multivariable prediction model for Individual Prognosis Or Diagnosis — Artificial Intelligence extension",
+  "source": "Collins GS, Moons KGM, Dhiman P, et al. TRIPOD+AI statement: updated guidance for reporting clinical prediction models that use regression or machine learning methods. BMJ. 2024;385:e078378.",
+  "doi": "10.1136/bmj-2023-078378",
+  "pmid": "38626948",
+  "version": "2024",
+  "total_items": 27,
+  "last_updated": "2026-03-15",
+  "description": "Official 27-item reporting checklist for clinical prediction model studies using regression or ML methods. Supersedes TRIPOD 2015 (Moons et al., Ann Intern Med 2015). Items 12, 13, 18, 20 are new AI-specific additions in 2024.",
+  "gate_implementing": "reporting_bias_gate",
+
+  "sections": {
+    "title_and_abstract": {
+      "label": "Title and Abstract",
+      "items": ["1", "2"]
+    },
+    "introduction": {
+      "label": "Introduction",
+      "items": ["3"]
+    },
+    "methods": {
+      "label": "Methods",
+      "items": ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13"]
+    },
+    "results": {
+      "label": "Results",
+      "items": ["14", "15", "16", "17", "18", "19", "20"]
+    },
+    "discussion": {
+      "label": "Discussion",
+      "items": ["21", "22", "23"]
+    },
+    "other": {
+      "label": "Other Information",
+      "items": ["24", "25", "26", "27"]
+    }
+  },
+
+  "items": [
+    {
+      "item_id": "1",
+      "section": "Title and Abstract",
+      "label": "Title",
+      "text": "Identify the study as developing, validating, or updating a clinical prediction model, specifying the type of model (e.g., prediction model, diagnostic model, prognostic model) and target population.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 1",
+      "variable_name": "title_identifies_prediction_model",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory",
+        "npj_digital_medicine": "mandatory"
+      },
+      "pass_condition": "Title explicitly states model type (prediction/diagnostic/prognostic) and target population",
+      "gate_check": "reporting_bias_gate → tripod_ai.title_identifies_prediction_model = true"
+    },
+    {
+      "item_id": "2",
+      "section": "Title and Abstract",
+      "label": "Abstract",
+      "text": "Provide a structured summary of study objectives, methods (including data source, participants, predictors, outcome, sample size, validation strategy, statistical methods, AI model type), results (model performance metrics with confidence intervals), and conclusions.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 2",
+      "variable_name": "abstract_structured_summary",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory",
+        "npj_digital_medicine": "mandatory"
+      },
+      "pass_condition": "Abstract contains structured elements: objectives, data, participants, outcome, methods, performance, conclusions",
+      "gate_check": "reporting_bias_gate → tripod_ai.abstract_structured_summary = true"
+    },
+    {
+      "item_id": "3",
+      "section": "Introduction",
+      "label": "Background and Objectives",
+      "sub_items": {
+        "3a": "Explain the medical context and rationale for developing, validating, or updating the prediction model, including references to existing models if available.",
+        "3b": "Specify the study objectives, including specifying the prediction type (diagnosis vs prognosis), the target population, the index time point, and the intended use of the model."
+      },
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 3",
+      "variable_name": "objectives_and_rationale_stated",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Introduction explicitly states both rationale (3a) and specific objectives including prediction type and target population (3b)",
+      "gate_check": "reporting_bias_gate → tripod_ai.objectives_and_rationale_stated = true"
+    },
+    {
+      "item_id": "4",
+      "section": "Methods",
+      "label": "Source of Data",
+      "text": "Describe the source of data (e.g., existing dataset, prospective cohort, routinely collected data, registry), including the setting(s), recruitment period, and any linkage of datasets.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 4",
+      "variable_name": "study_design_and_data_source_described",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Data source, setting, dates, and any linkage clearly described",
+      "gate_check": "reporting_bias_gate → tripod_ai.study_design_and_data_source_described = true"
+    },
+    {
+      "item_id": "5",
+      "section": "Methods",
+      "label": "Participants",
+      "text": "Specify the key elements of the study design (observational, trial, registry), the eligibility criteria for participants (inclusion and exclusion criteria), and the method of recruitment and sampling.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 5",
+      "variable_name": "target_population_defined",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Eligibility criteria, recruitment method, and sampling strategy explicitly documented",
+      "gate_check": "reporting_bias_gate → tripod_ai.target_population_defined = true"
+    },
+    {
+      "item_id": "6",
+      "section": "Methods",
+      "label": "Outcome",
+      "sub_items": {
+        "6a": "Clearly define the outcome(s) to be predicted, including the time horizon for prediction, how outcomes were determined, and any blinding of outcome assessment from predictor data.",
+        "6b": "Define and operationalize all candidate predictors (features), including how they were measured or collected, and any transformations applied."
+      },
+      "ai_specific": false,
+      "tripod2015_equivalent": "Items 6a–6b",
+      "variable_name_6a": "outcome_definition_prespecified",
+      "variable_name_6b": "predictor_definition_prespecified",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition_6a": "Outcome definition includes time horizon, measurement method, and blinding status",
+      "pass_condition_6b": "All predictors/features have pre-specified definitions with measurement details",
+      "gate_check": "reporting_bias_gate → tripod_ai.outcome_definition_prespecified = true AND tripod_ai.predictor_definition_prespecified = true"
+    },
+    {
+      "item_id": "7",
+      "section": "Methods",
+      "label": "Sample Size",
+      "text": "Explain how the study size (number of participants, number of events) was determined, including formal sample size or events-per-variable calculations if performed.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 7",
+      "variable_name": "sample_size_justification_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Formal EPV or sample size calculation documented with minimum events count reported",
+      "gate_check": "reporting_bias_gate → tripod_ai.sample_size_justification_reported = true; sample_size_gate → status = pass"
+    },
+    {
+      "item_id": "8",
+      "section": "Methods",
+      "label": "Missing Data",
+      "text": "Describe how missing data were handled in the analysis, including what variables had missing values, the missing data mechanism assumed (MCAR/MAR/MNAR), and the imputation strategy used.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 8",
+      "variable_name": "missing_data_handling_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Missing data mechanism, imputation strategy, and fit scope (train-only) all documented",
+      "gate_check": "reporting_bias_gate → tripod_ai.missing_data_handling_reported = true; missingness_policy_gate → status = pass"
+    },
+    {
+      "item_id": "9",
+      "section": "Methods",
+      "label": "Statistical Analysis Methods",
+      "text": "Describe the statistical analysis methods used, including how the model was evaluated (discrimination, calibration, clinical utility), how uncertainty was quantified (confidence intervals, bootstrap), and any multiplicity adjustment.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 9",
+      "variable_name": "statistical_analysis_methods_described",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Bootstrap/CI method, evaluation metrics (AUC, calibration, DCA), and significance testing all described",
+      "gate_check": "reporting_bias_gate → tripod_ai.statistical_analysis_methods_described = true"
+    },
+    {
+      "item_id": "10",
+      "section": "Methods",
+      "label": "Model Development",
+      "sub_items": {
+        "10a": "Describe the type of AI/ML model used (e.g., logistic regression, random forest, neural network), with justification for the choice.",
+        "10b": "Describe the model building procedure, including hyperparameter tuning strategy, the data used for tuning (validation fold vs test set), and model selection criteria."
+      },
+      "ai_specific": true,
+      "tripod2015_equivalent": "Item 10 (expanded for AI)",
+      "variable_name": "model_building_procedure_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Model type justified (10a) and tuning procedure documented with confirmation that test set was not used for tuning (10b)",
+      "gate_check": "reporting_bias_gate → tripod_ai.model_building_procedure_reported = true; tuning_leakage_gate → status = pass"
+    },
+    {
+      "item_id": "11",
+      "section": "Methods",
+      "label": "Internal Validation",
+      "text": "Describe the internal validation strategy (e.g., cross-validation, bootstrap, split-sample) and the purpose (optimism correction, performance estimation). Specify how train/validation/test splits were created.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 11",
+      "variable_name": "internal_validation_strategy_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Validation strategy explicitly stated with confirmation that test split was held out until final evaluation",
+      "gate_check": "reporting_bias_gate → tripod_ai.internal_validation_strategy_reported = true; split_protocol_gate → status = pass"
+    },
+    {
+      "item_id": "12",
+      "section": "Methods",
+      "label": "Fairness and Equity Assessment",
+      "text": "Describe how fairness and equity across subgroups (e.g., age, sex, race/ethnicity, socioeconomic status) was assessed during model development, including which fairness metrics were used and how disparities were handled.",
+      "ai_specific": true,
+      "tripod2015_equivalent": null,
+      "note": "New item added in TRIPOD+AI 2024 — not in TRIPOD 2015",
+      "variable_name": "fairness_assessment_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "recommended",
+        "bmj": "recommended",
+        "npj_digital_medicine": "mandatory"
+      },
+      "pass_condition": "Fairness analysis with at least one subgroup (age/sex/race) and one fairness metric reported",
+      "gate_check": "reporting_bias_gate → tripod_ai.fairness_assessment_reported = true; fairness_equity_gate → status = pass"
+    },
+    {
+      "item_id": "13",
+      "section": "Methods",
+      "label": "Explainability and Interpretability",
+      "text": "Describe the methods used to explain or interpret the model's predictions, including feature importance methods (e.g., SHAP, LIME, permutation importance) and any clinician-facing explanation interface.",
+      "ai_specific": true,
+      "tripod2015_equivalent": null,
+      "note": "New item added in TRIPOD+AI 2024 — not in TRIPOD 2015",
+      "variable_name": "explainability_methods_described",
+      "severity": "RECOMMENDED",
+      "journal_enforcement": {
+        "nature_medicine": "recommended",
+        "lancet_digital_health": "recommended",
+        "jama": "optional",
+        "bmj": "optional"
+      },
+      "pass_condition": "At least one interpretability method described (SHAP, feature importance, or equivalent)",
+      "gate_check": "reporting_bias_gate → tripod_ai.explainability_methods_described = true"
+    },
+    {
+      "item_id": "14",
+      "section": "Results",
+      "label": "Participant Flow",
+      "text": "Report the number of participants at each stage of the study (screened, eligible, included, analyzed), reasons for exclusion, and the number of participants with missing outcome or predictor data. Ideally present a flow diagram.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 13",
+      "variable_name": "participant_flow_and_exclusions_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Numbers enrolled, excluded (with reasons), and analyzed reported for each split",
+      "gate_check": "reporting_bias_gate → tripod_ai.participant_flow_and_exclusions_reported = true"
+    },
+    {
+      "item_id": "15",
+      "section": "Results",
+      "label": "Descriptive Data",
+      "sub_items": {
+        "15a": "Report the characteristics of the participants (e.g., demographics, comorbidities) for each data partition (training/validation/test), with any differences highlighted.",
+        "15b": "Report the outcome event rates (prevalence for diagnostic, event rate for prognostic) per data partition."
+      },
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 14",
+      "variable_name": "outcome_prevalence_or_event_rate_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Event rate/prevalence per split reported; baseline characteristics table provided",
+      "gate_check": "reporting_bias_gate → tripod_ai.outcome_prevalence_or_event_rate_reported = true"
+    },
+    {
+      "item_id": "16",
+      "section": "Results",
+      "label": "Model Specification",
+      "text": "Present the final model in full (regression coefficients, tree structure, or model architecture), including all predictors, their coding, and any transformations, so that the model can be reproduced or applied by others.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 15",
+      "variable_name": "full_model_specification_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Final model specification published or deposited in public repository with DOI",
+      "gate_check": "reporting_bias_gate → tripod_ai.full_model_specification_reported = true"
+    },
+    {
+      "item_id": "17",
+      "section": "Results",
+      "label": "Model Performance",
+      "text": "Report model performance statistics (including calibration and discrimination) with measures of uncertainty (confidence intervals) for both the development and validation datasets.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 16",
+      "variable_name": "performance_measures_with_ci_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Primary metric (AUC/PR-AUC) + calibration (ECE/Brier) + CI (bootstrap 95%) all reported",
+      "gate_check": "reporting_bias_gate → tripod_ai.performance_measures_with_ci_reported = true; ci_matrix_gate → status = pass; calibration_dca_gate → status = pass"
+    },
+    {
+      "item_id": "18",
+      "section": "Results",
+      "label": "Model Uncertainty",
+      "text": "For AI/ML models, report measures of model uncertainty (e.g., prediction intervals, bootstrap variance, conformal prediction sets) to quantify the reliability of individual predictions.",
+      "ai_specific": true,
+      "tripod2015_equivalent": null,
+      "note": "New item added in TRIPOD+AI 2024 — not in TRIPOD 2015",
+      "variable_name": "model_uncertainty_quantified",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "recommended",
+        "bmj": "recommended"
+      },
+      "pass_condition": "CI width for primary metric ≤ 0.20 AND bootstrap n_resamples ≥ 200",
+      "gate_check": "ci_matrix_gate → status = pass; reporting_bias_gate → tripod_ai.model_uncertainty_quantified = true"
+    },
+    {
+      "item_id": "19",
+      "section": "Results",
+      "label": "Internal Validation Results",
+      "text": "If internal validation was performed, report the optimism-corrected performance estimates and compare with apparent performance to show the degree of overfitting.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 17",
+      "variable_name": "internal_validation_results_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Train vs validation vs test performance comparison reported; generalization gap documented",
+      "gate_check": "generalization_gap_gate → status = pass; reporting_bias_gate → tripod_ai.internal_validation_results_reported = true"
+    },
+    {
+      "item_id": "20",
+      "section": "Results",
+      "label": "Fairness Results",
+      "text": "Report the results of fairness and equity assessments, including performance metrics stratified by relevant subgroups and any identified performance disparities with absolute differences and confidence intervals.",
+      "ai_specific": true,
+      "tripod2015_equivalent": null,
+      "note": "New item added in TRIPOD+AI 2024 — not in TRIPOD 2015",
+      "variable_name": "fairness_results_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "recommended",
+        "npj_digital_medicine": "mandatory"
+      },
+      "pass_condition": "Subgroup performance table present; fairness_equity_gate passes",
+      "gate_check": "fairness_equity_gate → status = pass; reporting_bias_gate → tripod_ai.fairness_results_reported = true"
+    },
+    {
+      "item_id": "21",
+      "section": "Discussion",
+      "label": "Limitations",
+      "text": "Discuss the limitations of the study, including potential sources of bias, limitations of the data and methods, limitations of the model (e.g., generalizability restrictions), and implications for clinical use.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 18",
+      "variable_name": "limitations_and_clinical_use_reported",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Limitations section present covering data quality, generalizability, and clinical use constraints",
+      "gate_check": "reporting_bias_gate → tripod_ai.limitations_and_clinical_use_reported = true"
+    },
+    {
+      "item_id": "22",
+      "section": "Discussion",
+      "label": "Interpretation",
+      "text": "Provide an overall interpretation of the results, considering the study objectives, limitations, results from similar studies, and clinical applicability.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 19",
+      "variable_name": "interpretation_and_implications_stated",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory"
+      },
+      "pass_condition": "Clinical implications and comparison to existing models/approaches discussed",
+      "gate_check": "reporting_bias_gate → tripod_ai.interpretation_and_implications_stated = true"
+    },
+    {
+      "item_id": "23",
+      "section": "Discussion",
+      "label": "Generalizability",
+      "text": "Discuss the potential generalizability of the model, including the settings, populations, and time periods to which the model might be transported, and evidence from external validation if available.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 20",
+      "variable_name": "generalizability_discussion_present",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "recommended",
+        "bmj": "recommended"
+      },
+      "pass_condition": "Generalizability limitations discussed; external validation evidence cited if available",
+      "gate_check": "external_validation_gate → status = pass; reporting_bias_gate → tripod_ai.generalizability_discussion_present = true"
+    },
+    {
+      "item_id": "24",
+      "section": "Other Information",
+      "label": "Supplementary Information",
+      "text": "Provide information about supplementary materials, including extended methodology, additional analyses, sensitivity analyses, code, and any other supporting materials.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 21",
+      "variable_name": "supplementary_information_provided",
+      "severity": "RECOMMENDED",
+      "journal_enforcement": {
+        "nature_medicine": "recommended",
+        "lancet_digital_health": "recommended",
+        "jama": "optional",
+        "bmj": "optional"
+      },
+      "pass_condition": "Supplementary methods or appendix present with extended analysis details",
+      "gate_check": "reporting_bias_gate → tripod_ai.supplementary_information_provided = true"
+    },
+    {
+      "item_id": "25",
+      "section": "Other Information",
+      "label": "Registration",
+      "text": "Provide registration information for the study (e.g., ClinicalTrials.gov, ISRCTN, PROSPERO for systematic reviews), including the registration number and date.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 22",
+      "variable_name": "study_registration_reported",
+      "severity": "RECOMMENDED",
+      "journal_enforcement": {
+        "nature_medicine": "recommended",
+        "lancet_digital_health": "mandatory",
+        "jama": "recommended",
+        "bmj": "recommended"
+      },
+      "pass_condition": "Registration ID from approved registry provided",
+      "gate_check": "reporting_bias_gate → tripod_ai.study_registration_reported = true"
+    },
+    {
+      "item_id": "26",
+      "section": "Other Information",
+      "label": "Protocol",
+      "text": "Indicate where the study protocol can be accessed, including any protocol amendments.",
+      "ai_specific": false,
+      "tripod2015_equivalent": "Item 23",
+      "variable_name": "study_protocol_accessible",
+      "severity": "OPTIONAL",
+      "journal_enforcement": {
+        "nature_medicine": "optional",
+        "lancet_digital_health": "recommended",
+        "jama": "optional",
+        "bmj": "optional"
+      },
+      "pass_condition": "Protocol URL or DOI provided",
+      "gate_check": "reporting_bias_gate → tripod_ai.study_protocol_accessible = true"
+    },
+    {
+      "item_id": "27",
+      "section": "Other Information",
+      "label": "Funding, Conflicts of Interest, and Data/Code Availability",
+      "text": "Give the sources of funding, the role of the funders in the study, and any conflicts of interest. State the availability of data and code: whether they are publicly available, under controlled access, or unavailable, with reasons.",
+      "ai_specific": true,
+      "tripod2015_equivalent": "Item 24 (expanded for AI — code/model availability now required)",
+      "note": "TRIPOD+AI 2024 substantially expands Item 24 to require explicit code and model availability statements",
+      "variable_name_model": "model_availability_or_code_sharing_reported",
+      "variable_name_data": "data_availability_statement_provided",
+      "severity": "REQUIRED",
+      "journal_enforcement": {
+        "nature_medicine": "mandatory",
+        "lancet_digital_health": "mandatory",
+        "jama": "mandatory",
+        "bmj": "mandatory",
+        "npj_digital_medicine": "mandatory"
+      },
+      "pass_condition": "Data availability statement AND code/model availability statement both present",
+      "gate_check": "reporting_bias_gate → tripod_ai.model_availability_or_code_sharing_reported = true AND tripod_ai.data_availability_statement_provided = true"
+    }
+  ],
+
+  "required_items_for_publication_grade": [
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+    "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "27"
+  ],
+
+  "ai_specific_new_items": ["12", "13", "18", "20"],
+
+  "variable_name_to_item_id": {
+    "title_identifies_prediction_model": "1",
+    "abstract_structured_summary": "2",
+    "objectives_and_rationale_stated": "3",
+    "study_design_and_data_source_described": "4",
+    "target_population_defined": "5",
+    "outcome_definition_prespecified": "6a",
+    "predictor_definition_prespecified": "6b",
+    "sample_size_justification_reported": "7",
+    "missing_data_handling_reported": "8",
+    "statistical_analysis_methods_described": "9",
+    "model_building_procedure_reported": "10",
+    "internal_validation_strategy_reported": "11",
+    "fairness_assessment_reported": "12",
+    "explainability_methods_described": "13",
+    "participant_flow_and_exclusions_reported": "14",
+    "outcome_prevalence_or_event_rate_reported": "15b",
+    "full_model_specification_reported": "16",
+    "performance_measures_with_ci_reported": "17",
+    "model_uncertainty_quantified": "18",
+    "internal_validation_results_reported": "19",
+    "fairness_results_reported": "20",
+    "limitations_and_clinical_use_reported": "21",
+    "interpretation_and_implications_stated": "22",
+    "generalizability_discussion_present": "23",
+    "supplementary_information_provided": "24",
+    "study_registration_reported": "25",
+    "study_protocol_accessible": "26",
+    "model_availability_or_code_sharing_reported": "27",
+    "data_availability_statement_provided": "27",
+    "calibration_metrics_reported": "17"
+  }
+}

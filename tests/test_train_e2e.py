@@ -16,6 +16,11 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 HEART_CSV = EXAMPLES_DIR / "heart_disease.csv"
 
+pytestmark = pytest.mark.skipif(
+    not HEART_CSV.exists(),
+    reason="heart_disease.csv not present; run examples/download_real_data.py first",
+)
+
 
 def _split_data(tmp_path: Path) -> Path:
     """Pre-split heart data into train/valid/test under tmp_path/data."""

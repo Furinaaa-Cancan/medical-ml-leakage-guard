@@ -1,0 +1,240 @@
+{
+  "contract_version": "mlgg_compliance_certificate_schema.v1",
+  "description": "JSON Schema (draft-07 compatible) for MLGG Compliance Certificates. A compliance certificate is a machine-readable, HMAC-signed artifact that attests to a prediction pipeline's conformance level. It can be submitted alongside a manuscript for independent verification by journal reviewers.",
+  "schema_version": "1.0.0",
+  "last_updated": "2026-03-15",
+
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mlgg-standard.org/schemas/v1/compliance-certificate",
+  "title": "MLGG Compliance Certificate",
+  "type": "object",
+
+  "certificate_fields_description": {
+    "certificate_id": "Unique identifier for this certificate (UUID v4)",
+    "mlgg_standard_version": "MLGG standard version used (e.g., '1.0.0')",
+    "conformance_level": "Achieved conformance level: L1-Leakage-Audited, L2-Statistically-Valid, L3-Publication-Grade",
+    "study_id": "Study identifier from request.json",
+    "run_id": "Run identifier from request.json",
+    "issued_at": "ISO 8601 UTC timestamp of certificate generation",
+    "expires_at": "ISO 8601 UTC timestamp after which evidence should be re-verified (typically 2 years)",
+    "gates_summary": "Summary of gate outcomes",
+    "score_10dim": "Overall 10-dimension score (0–100)",
+    "tripod_ai_coverage": "TRIPOD+AI item coverage (e.g., '23/27')",
+    "probast_overall_rob": "PROBAST+AI overall risk of bias: low / unclear / high",
+    "evidence_manifest": "SHA-256 hashes of all gate report files",
+    "signature": "HMAC-SHA256 of the canonical certificate body"
+  },
+
+  "example_certificate": {
+    "_comment": "This is an example of a valid MLGG Compliance Certificate",
+    "certificate_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "mlgg_standard_version": "1.0.0",
+    "mlgg_schema_version": "1.0.0",
+    "conformance_level": "L3-Publication-Grade",
+    "conformance_level_description": "All 31 gates passed in strict mode. Meets requirements for Nature Medicine / Lancet Digital Health / JAMA / BMJ submission.",
+
+    "study": {
+      "study_id": "sepsis_prediction_v3",
+      "run_id": "run_20260315_001",
+      "target_name": "In-hospital sepsis within 72h of ICU admission",
+      "prediction_unit": "patient-icu-stay",
+      "prediction_type": "binary"
+    },
+
+    "issuance": {
+      "issued_at": "2026-03-15T14:30:00Z",
+      "expires_at": "2028-03-15T14:30:00Z",
+      "generator_version": "mlgg-leakage-guard v1.0.0",
+      "generation_script": "scripts/generate_compliance_certificate.py"
+    },
+
+    "gates_summary": {
+      "total_gates": 31,
+      "passed": 31,
+      "failed": 0,
+      "warnings": 2,
+      "strict_mode": true,
+      "conformance_level_gates_required": 31,
+      "gate_outcomes": {
+        "request_contract_gate": "pass",
+        "manifest_lock": "pass",
+        "execution_attestation_gate": "pass",
+        "leakage_gate": "pass",
+        "split_protocol_gate": "pass",
+        "covariate_shift_gate": "pass",
+        "reporting_bias_gate": "pass",
+        "definition_variable_guard": "pass",
+        "feature_lineage_gate": "pass",
+        "imbalance_policy_gate": "pass",
+        "missingness_policy_gate": "pass",
+        "tuning_leakage_gate": "pass",
+        "model_selection_audit_gate": "pass",
+        "feature_engineering_audit_gate": "pass",
+        "clinical_metrics_gate": "pass",
+        "calibration_dca_gate": "pass",
+        "ci_matrix_gate": "pass",
+        "distribution_generalization_gate": "pass",
+        "evaluation_quality_gate": "pass",
+        "external_validation_gate": "pass",
+        "fairness_equity_gate": "pass",
+        "generalization_gap_gate": "pass",
+        "metric_consistency_gate": "pass",
+        "permutation_significance_gate": "pass",
+        "prediction_replay_gate": "pass",
+        "robustness_gate": "pass",
+        "sample_size_gate": "pass",
+        "seed_stability_gate": "pass",
+        "publication_gate": "pass",
+        "self_critique_gate": "pass",
+        "security_audit_gate": "pass"
+      }
+    },
+
+    "scores": {
+      "score_10dim_total": 94.5,
+      "score_10dim_breakdown": {
+        "D1_data_integrity": {"score": 12.0, "max": 12},
+        "D2_leakage_prevention": {"score": 15.0, "max": 15},
+        "D3_pipeline_isolation": {"score": 12.0, "max": 12},
+        "D4_model_selection": {"score": 9.5, "max": 10},
+        "D5_statistical_validity": {"score": 11.5, "max": 12},
+        "D6_generalization": {"score": 9.0, "max": 10},
+        "D7_clinical_completeness": {"score": 8.0, "max": 8},
+        "D8_reporting_standards": {"score": 7.5, "max": 8},
+        "D9_reproducibility": {"score": 7.0, "max": 8},
+        "D10_security_provenance": {"score": 3.0, "max": 5}
+      }
+    },
+
+    "reporting_standards": {
+      "tripod_ai_version": "2024",
+      "tripod_ai_coverage": "23/27",
+      "tripod_ai_required_items_satisfied": true,
+      "tripod_ai_items_satisfied": [
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+        "11", "12", "14", "15", "16", "17", "18", "19", "20",
+        "21", "22", "23", "27"
+      ],
+      "tripod_ai_items_not_satisfied": ["13", "24", "25", "26"],
+      "probast_ai_version": "2025",
+      "probast_overall_rob": "low",
+      "probast_domain_rob": {
+        "D1_participants": "low",
+        "D2_predictors": "low",
+        "D3_outcome": "low",
+        "D4_analysis": "low"
+      }
+    },
+
+    "key_performance_metrics": {
+      "_note": "Stored for certificate summary; full metrics in evaluation_report.json",
+      "primary_metric": "pr_auc",
+      "primary_metric_value": 0.44,
+      "primary_metric_ci_95": [0.39, 0.50],
+      "roc_auc": 0.81,
+      "roc_auc_ci_95": [0.78, 0.85],
+      "calibration_ece": 0.048,
+      "brier_score": 0.089,
+      "permutation_p_value": 0.001
+    },
+
+    "evidence_manifest": {
+      "_note": "SHA-256 hashes of all gate report files — used for independent verification",
+      "manifest_generated_at": "2026-03-15T14:29:55Z",
+      "files": {
+        "request_contract_report.json": "abc123...",
+        "manifest.json": "def456...",
+        "leakage_audit_report.json": "ghi789...",
+        "split_protocol_report.json": "jkl012...",
+        "reporting_bias_report.json": "mno345...",
+        "publication_gate_report.json": "pqr678...",
+        "self_critique_report.json": "stu901...",
+        "security_audit_gate_report.json": "vwx234..."
+      }
+    },
+
+    "integrity": {
+      "signature_algorithm": "HMAC-SHA256",
+      "signature_scope": "All fields except this integrity block",
+      "signature": "0x1a2b3c4d5e6f...",
+      "signed_by": "pipeline_runner",
+      "verification_command": "python3 scripts/generate_compliance_certificate.py --verify certificate.json"
+    }
+  },
+
+  "required_fields": [
+    "certificate_id",
+    "mlgg_standard_version",
+    "mlgg_schema_version",
+    "conformance_level",
+    "study",
+    "issuance",
+    "gates_summary",
+    "scores",
+    "reporting_standards",
+    "evidence_manifest",
+    "integrity"
+  ],
+
+  "conformance_level_rules": {
+    "L1-Leakage-Audited": {
+      "minimum_gates_passed": 12,
+      "required_gates": [
+        "request_contract_gate", "manifest_lock", "leakage_gate",
+        "split_protocol_gate", "definition_variable_guard",
+        "feature_lineage_gate", "imbalance_policy_gate",
+        "missingness_policy_gate", "tuning_leakage_gate",
+        "model_selection_audit_gate", "feature_engineering_audit_gate",
+        "clinical_metrics_gate"
+      ],
+      "strict_mode_required": false,
+      "score_minimum": null
+    },
+    "L2-Statistically-Valid": {
+      "minimum_gates_passed": 25,
+      "strict_mode_required": false,
+      "tripod_ai_minimum": "17/27",
+      "probast_rob_maximum": "unclear",
+      "score_minimum": 75
+    },
+    "L3-Publication-Grade": {
+      "minimum_gates_passed": 31,
+      "strict_mode_required": true,
+      "tripod_ai_minimum": "23/27",
+      "probast_rob_required": "low",
+      "score_minimum": 90
+    }
+  },
+
+  "journal_requirements": {
+    "nature_medicine": {
+      "minimum_conformance": "L3-Publication-Grade",
+      "tripod_ai_required_items": ["1","2","3","4","5","6","7","8","9","10","11","12","14","15","16","17","18","19","20","21","22","23","27"],
+      "probast_required": "low",
+      "external_validation_required": true,
+      "certificate_submission": "Recommended — include as supplementary material"
+    },
+    "lancet_digital_health": {
+      "minimum_conformance": "L3-Publication-Grade",
+      "tripod_ai_required_items": ["1","2","3","4","5","6","7","8","9","10","11","12","14","15","16","17","18","19","20","21","22","23","27"],
+      "probast_required": "low",
+      "certificate_submission": "Recommended"
+    },
+    "jama": {
+      "minimum_conformance": "L3-Publication-Grade",
+      "tripod_ai_required_items": ["1","2","3","4","5","6","7","8","9","10","11","14","15","16","17","19","21","22","27"],
+      "probast_required": "low",
+      "certificate_submission": "Optional"
+    },
+    "bmj": {
+      "minimum_conformance": "L2-Statistically-Valid",
+      "tripod_ai_required_items": ["1","2","3","4","5","6","7","8","9","10","11","14","15","16","17","19","21","22","27"],
+      "certificate_submission": "Optional"
+    },
+    "npj_digital_medicine": {
+      "minimum_conformance": "L3-Publication-Grade",
+      "tripod_ai_required_items": ["1","2","3","4","5","6","7","8","9","10","11","12","14","15","16","17","18","19","20","21","22","23","27"],
+      "certificate_submission": "Recommended"
+    }
+  }
+}

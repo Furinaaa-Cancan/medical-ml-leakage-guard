@@ -232,8 +232,8 @@ def test_leakage_gate_temporal_overlap() -> None:
         assert_true("temporal_overlap" in codes, "temporal_overlap failure code present")
 
 
-def test_leakage_gate_temporal_boundary_equal_is_ok() -> None:
-    print("\n=== leakage_gate: same-day boundary (train max == valid min) should NOT fail ===")
+def test_leakage_gate_temporal_boundary_equal_is_overlap() -> None:
+    print("\n=== leakage_gate: same-day boundary (train max == valid min) SHOULD trigger temporal_overlap ===")
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
         headers = ["patient_id", "event_time", "y"]
@@ -251,7 +251,7 @@ def test_leakage_gate_temporal_boundary_equal_is_ok() -> None:
         ])
         report = load_report(report_path)
         codes = {f["code"] for f in report["failures"]}
-        assert_true("temporal_overlap" not in codes, "same-day boundary does NOT trigger temporal_overlap")
+        assert_true("temporal_overlap" in codes, "same-day boundary triggers temporal_overlap (strict ordering)")
 
 
 def test_leakage_gate_word_boundary_regex() -> None:
@@ -1812,7 +1812,7 @@ def test_wrapper_stale_publication_report_does_not_trigger_bootstrap_retry() -> 
             "case \"$1\" in\n"
             "  */env_doctor.py) exit 0 ;;\n"
             "  */schema_preflight.py) exit 0 ;;\n"
-            "  */run_strict_pipeline.py) exit 2 ;;\n"
+            "  */run_dag_pipeline.py) exit 2 ;;\n"
             "  */render_user_summary.py) exit 0 ;;\n"
             "  *) exit 0 ;;\n"
             "esac\n",
@@ -1840,7 +1840,7 @@ def test_wrapper_stale_publication_report_does_not_trigger_bootstrap_retry() -> 
         report = load_report(wrapper_report)
         step_names = [str(row.get("name", "")) for row in report.get("steps", []) if isinstance(row, dict)]
         assert_true(
-            "run_strict_pipeline_with_bootstrap_baseline" not in step_names,
+            "run_dag_pipeline_with_bootstrap_baseline" not in step_names,
             "stale publication report does not trigger retry step",
         )
         assert_true(report.get("status") == "fail", "wrapper report status=fail when blocking step fails")
@@ -1862,7 +1862,7 @@ def test_wrapper_schema_preflight_failure_causes_fail_even_if_strict_pass() -> N
             "case \"$1\" in\n"
             "  */env_doctor.py) exit 0 ;;\n"
             "  */schema_preflight.py) exit 2 ;;\n"
-            "  */run_strict_pipeline.py) exit 0 ;;\n"
+            "  */run_dag_pipeline.py) exit 0 ;;\n"
             "  */render_user_summary.py) exit 0 ;;\n"
             "  *) exit 0 ;;\n"
             "esac\n",
@@ -1893,7 +1893,7 @@ def test_wrapper_schema_preflight_failure_causes_fail_even_if_strict_pass() -> N
         steps = {str(row.get("name", "")): row for row in report.get("steps", []) if isinstance(row, dict)}
         assert_true(str(steps.get("schema_preflight", {}).get("status")) == "fail", "schema_preflight step status=fail")
         assert_true(bool(steps.get("schema_preflight", {}).get("blocking")) is True, "schema_preflight is blocking")
-        assert_true(str(steps.get("run_strict_pipeline", {}).get("status")) == "pass", "strict step may pass but wrapper still fails")
+        assert_true(str(steps.get("run_dag_pipeline", {}).get("status")) == "pass", "strict step may pass but wrapper still fails")
 
 
 def test_wrapper_bootstrap_recovered_path_reports_pass_with_recovered_step() -> None:
@@ -1914,7 +1914,7 @@ def test_wrapper_bootstrap_recovered_path_reports_pass_with_recovered_step() -> 
             "  */env_doctor.py) exit 0 ;;\n"
             "  */schema_preflight.py) exit 0 ;;\n"
             "  */render_user_summary.py) exit 0 ;;\n"
-            "  */run_strict_pipeline.py)\n"
+            "  */run_dag_pipeline.py)\n"
             "    count=0\n"
             "    if [ -f \"$COUNTER_FILE\" ]; then count=$(cat \"$COUNTER_FILE\"); fi\n"
             "    count=$((count+1))\n"
@@ -1962,12 +1962,12 @@ def test_wrapper_bootstrap_recovered_path_reports_pass_with_recovered_step() -> 
         assert_true(report.get("status_reason") == "bootstrap_recovered", "status_reason is bootstrap_recovered")
         assert_true(report.get("bootstrap_recovery_applied") is True, "bootstrap_recovery_applied=true")
         steps = {str(row.get("name", "")): row for row in report.get("steps", []) if isinstance(row, dict)}
-        strict_step = steps.get("run_strict_pipeline", {})
-        retry_step = steps.get("run_strict_pipeline_with_bootstrap_baseline", {})
+        strict_step = steps.get("run_dag_pipeline", {})
+        retry_step = steps.get("run_dag_pipeline_with_bootstrap_baseline", {})
         assert_true(str(strict_step.get("status")) == "recovered", "first strict step status=recovered")
         assert_true(bool(strict_step.get("blocking")) is False, "recovered strict step is non-blocking")
         assert_true(
-            str(strict_step.get("recovered_by_step")) == "run_strict_pipeline_with_bootstrap_baseline",
+            str(strict_step.get("recovered_by_step")) == "run_dag_pipeline_with_bootstrap_baseline",
             "recovered_by_step points to retry step",
         )
         assert_true(str(retry_step.get("status")) == "pass", "retry strict step status=pass")
@@ -2353,7 +2353,7 @@ def main() -> int:
     test_leakage_gate_row_overlap()
     test_leakage_gate_id_overlap()
     test_leakage_gate_temporal_overlap()
-    test_leakage_gate_temporal_boundary_equal_is_ok()
+    test_leakage_gate_temporal_boundary_equal_is_overlap()
     test_leakage_gate_word_boundary_regex()
     test_self_critique_weight_normalization()
     test_run_strict_pipeline_requires_strict()
