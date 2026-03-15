@@ -33,6 +33,13 @@ from typing import Any, Dict, List, Optional, Tuple
 _SCRIPTS_DIR = Path(__file__).parent
 _REFERENCES_DIR = _SCRIPTS_DIR.parent / "references"
 
+# Gate applicability (lazy import to avoid circular)
+try:
+    from gate_applicability import GateApplicability
+    _GATE_APPLICABILITY_AVAILABLE = True
+except ImportError:
+    _GATE_APPLICABILITY_AVAILABLE = False
+
 # ---------------------------------------------------------------------------
 # Knowledge base loaders
 # ---------------------------------------------------------------------------
@@ -1069,6 +1076,7 @@ def run_audit_report(
     output_dir: Optional[Path] = None,
     target_journal: Optional[str] = None,
     output_format: str = "both",
+    prediction_type: str = "binary",
 ) -> Dict[str, Any]:
     """Generate comprehensive audit report for a project.
 
@@ -1077,6 +1085,7 @@ def run_audit_report(
         output_dir: Where to write the report (defaults to project_dir/audit-reports/).
         target_journal: Optional journal key for gap analysis.
         output_format: "markdown", "json", or "both" (default).
+        prediction_type: One of binary/multiclass/regression/survival (default: binary).
 
     Returns:
         Full report dict.
@@ -1088,20 +1097,37 @@ def run_audit_report(
     if output_dir is None:
         output_dir = project_dir / "audit-reports"
 
+    # Resolve gate applicability for this prediction type
+    gate_applicability_summary: Optional[Dict[str, Any]] = None
+    skipped_gates: List[str] = []
+    if _GATE_APPLICABILITY_AVAILABLE and prediction_type != "binary":
+        try:
+            ga = GateApplicability(prediction_type)
+            gate_applicability_summary = ga.summary()
+            skipped_gates = ga.skipped_gates()
+        except Exception:
+            pass
+
     # Scan project
     scan_results = scan_project(project_dir)
     gate_reports = scan_results["gate_reports"]
 
+    # Filter out N/A gates for non-binary prediction types
+    filtered_gate_reports = {
+        k: v for k, v in gate_reports.items()
+        if k not in skipped_gates
+    }
+
     # Score dimensions
-    dimension_scores, total_score = compute_dimension_scores(scan_results, gate_reports)
+    dimension_scores, total_score = compute_dimension_scores(scan_results, filtered_gate_reports)
     grade_en, grade_zh = _score_interpretation(total_score)
 
     # Assess reporting standards
-    tripod_coverage = assess_tripod_coverage(project_dir, gate_reports)
-    probast_coverage = assess_probast_coverage(gate_reports)
+    tripod_coverage = assess_tripod_coverage(project_dir, filtered_gate_reports)
+    probast_coverage = assess_probast_coverage(filtered_gate_reports)
 
-    # Build issues
-    issues = build_issue_list(scan_results, gate_reports)
+    # Build issues (exclude N/A gate failures)
+    issues = build_issue_list(scan_results, filtered_gate_reports)
 
     # Build remediation plan
     remediation_plan = build_remediation_plan(issues, dimension_scores)
@@ -1137,12 +1163,15 @@ def run_audit_report(
         "report_version": "audit_report.v2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "project_dir": str(project_dir),
+        "prediction_type": prediction_type,
         "total_score": total_score,
         "max_score": 100,
         "grade_en": grade_en,
         "grade_zh": grade_zh,
         "py_files_scanned": scan_results["py_file_count"],
         "gate_reports_found": len(gate_reports),
+        "gate_reports_assessed": len(filtered_gate_reports),
+        "gates_skipped_na": skipped_gates,
         "dimension_scores": dimension_scores,
         "tripod_coverage": tripod_coverage,
         "probast_coverage": probast_coverage,
@@ -1152,6 +1181,8 @@ def run_audit_report(
     }
     if journal_gap is not None:
         report["journal_gap_analysis"] = journal_gap
+    if gate_applicability_summary is not None:
+        report["gate_applicability"] = gate_applicability_summary
 
     # Write outputs
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1248,6 +1279,12 @@ Examples:
         default="both",
         help="Output format (default: both).",
     )
+    parser.add_argument(
+        "--prediction-type",
+        choices=["binary", "multiclass", "regression", "survival"],
+        default="binary",
+        help="Prediction type — affects gate applicability (default: binary).",
+    )
     return parser.parse_args()
 
 
@@ -1262,6 +1299,7 @@ def main() -> int:
             output_dir=output_dir,
             target_journal=args.target_journal,
             output_format=args.format,
+            prediction_type=args.prediction_type,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
