@@ -21,9 +21,12 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from _gate_utils import add_issue, load_json_from_str as load_json_object
+from _gate_utils import add_issue, get_gate_elapsed, load_json_from_path as load_json_object
 from _gate_framework import (
+    GateIssue,
+    Severity,
     build_report_envelope,
+    get_remediation,
     print_gate_summary,
     register_remediations,
 )
@@ -166,7 +169,7 @@ def main() -> int:
         return _finish(args, failures, warnings, info, thresholds, None)
 
     try:
-        eval_report = load_json_object(eval_path.read_text(encoding="utf-8"))
+        eval_report = load_json_object(eval_path)
     except Exception as exc:
         add_issue(
             failures,
@@ -380,15 +383,22 @@ def _finish(
     should_fail = bool(failures) or (args.strict and bool(warnings))
     status = "fail" if should_fail else "pass"
 
+    fi = [GateIssue.from_legacy(f, Severity.ERROR) for f in failures]
+    wi = [GateIssue.from_legacy(w, Severity.WARNING) for w in warnings]
+    for issue in fi + wi:
+        if not issue.remediation:
+            issue.remediation = get_remediation(issue.code)
+
     report = build_report_envelope(
         gate_name="fairness_equity_gate",
         status=status,
-        failures=failures,
-        warnings=warnings,
-        info=info,
+        strict_mode=bool(args.strict),
+        failures=fi,
+        warnings=wi,
         extra={
             "thresholds": thresholds,
             "summary": summary or {},
+            "info": info,
         },
     )
 
@@ -398,7 +408,7 @@ def _finish(
         import json
         out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print_gate_summary("Fairness & Equity Gate", status, failures, warnings)
+    print_gate_summary("Fairness & Equity Gate", status, fi, wi, bool(args.strict), get_gate_elapsed())
     return 2 if should_fail else 0
 
 
