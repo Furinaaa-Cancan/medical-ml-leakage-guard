@@ -701,7 +701,7 @@ def encrypt_evidence(data: bytes, key: Optional[bytes] = None) -> bytes:
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         aesgcm = AESGCM(key)
-        ciphertext = aesgcm.encrypt(nonce, data, None)
+        ciphertext = bytes(aesgcm.encrypt(nonce, data, None))
         # ciphertext includes the 16-byte tag appended by cryptography lib
         return _ENC_HEADER + nonce + ciphertext
     except ImportError:
@@ -740,7 +740,7 @@ def decrypt_evidence(blob: bytes, key: Optional[bytes] = None) -> bytes:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         aesgcm = AESGCM(key)
         ciphertext_with_tag = blob[header_len + 12:]
-        return aesgcm.decrypt(nonce, ciphertext_with_tag, None)
+        return bytes(aesgcm.decrypt(nonce, ciphertext_with_tag, None))
     except ImportError:
         tag = blob[header_len + 12:header_len + 28]
         ciphertext = blob[header_len + 28:]

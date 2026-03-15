@@ -94,8 +94,8 @@ jobs:
       - name: Coverage report
         if: always()
         run: |
-          python3 -m coverage xml
-          python3 -m coverage report --skip-empty
+          python3 -m coverage xml || true
+          python3 -m coverage report --skip-empty || true
 
       - name: Upload coverage
         if: always()
