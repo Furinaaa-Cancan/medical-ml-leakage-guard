@@ -77,7 +77,12 @@ def _derive_key() -> bytes:
     if key_path.exists():
         raw = key_path.read_bytes().strip()
         if len(raw) >= 32:
-            return hashlib.sha256(raw).digest()
+            try:
+                # File stores hex-encoded bytes; decode back to raw before hashing
+                key_bytes = bytes.fromhex(raw.decode("ascii"))
+            except (ValueError, UnicodeDecodeError):
+                key_bytes = raw
+            return hashlib.sha256(key_bytes).digest()
 
     # Auto-generate a 256-bit key
     new_key = secrets.token_bytes(32)
