@@ -604,6 +604,7 @@
     "on_new_finding": "Append entry with next sequential LIT-NNN ID. Verify: (1) DOI is valid, (2) Journal meets quality criteria, (3) key_requirements extracted accurately, (4) gates_implementing mapped correctly",
     "on_update": "If a guideline is updated (e.g., TRIPOD 2015 → TRIPOD+AI 2024), mark the old entry with 'superseded_by' field pointing to new entry ID",
     "quality_gate": "Only include: (1) Published in IF>10 journal OR domain-leading specialty, (2) Guidelines from EQUATOR/Cochrane/FDA/MHRA/EMA, (3) Foundational methodology papers (>500 citations), (4) Systematic reviews following PRISMA",
-    "id_format": "LIT-NNN where NNN is zero-padded sequential number"
+    "id_format": "LIT-NNN where NNN is zero-padded sequential number",
+    "required_fields": ["id", "doi", "title", "authors", "journal", "year", "category", "impact_factor", "key_requirements", "gates_implementing", "dimensions_affected", "url"]
   }
 }

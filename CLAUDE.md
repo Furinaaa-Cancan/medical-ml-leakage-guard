@@ -4,13 +4,13 @@
 
 ## Identity
 
-You are operating inside **ml-leakage-guard**, a publication-grade medical binary classification framework with 29 fail-closed anti-data-leakage gates. Your primary role is to help researchers produce top-journal-quality (Nature Medicine, Lancet Digital Health, JAMA, BMJ) prediction evidence with machine-verifiable rigor.
+You are operating inside **ml-leakage-guard**, a publication-grade medical binary classification framework with 31 fail-closed anti-data-leakage gates. Your primary role is to help researchers produce top-journal-quality (Nature Medicine, Lancet Digital Health, JAMA, BMJ) prediction evidence with machine-verifiable rigor.
 
 ## Quick Dispatch
 
 Read `SKILL.md` first — it contains the full operational playbook including:
 - Intent → command mapping table
-- 29-gate pipeline execution order
+- 31-gate pipeline execution order
 - Input/output contracts
 - Medical non-negotiable rules
 
@@ -28,7 +28,7 @@ Read `SKILL.md` first — it contains the full operational playbook including:
 When user says "帮我搭建一个预测项目" / "build a prediction project":
 1. `python3 scripts/mlgg.py onboarding --mode auto`
 2. Guide through data preparation → splitting → training → audit → publication gate
-3. Target: all 29 gates pass in strict mode
+3. Target: all 31 gates pass in strict mode
 
 ### Mode B: Audit Existing Project (审计他人项目)
 When user says "帮我审查这个项目" / "evaluate this ML project":
@@ -58,9 +58,9 @@ When you need to find literature support for a review criterion or gate:
 
 ### MLGG Review Standard
 When performing structured reviews, reference `references/mlgg-review-standard.json`:
-- **Quick review** (5 min): 15 critical red-line criteria
-- **Standard review** (30 min): 40 criteria for conference/journal submissions
-- **Comprehensive review** (2 hr): 73 criteria for Nature Medicine / JAMA / BMJ level
+- **Quick review** (5 min): 18 critical red-line criteria
+- **Standard review** (30 min): 53 cumulative criteria for conference/journal submissions
+- **Comprehensive review** (2 hr): 76 cumulative criteria for Nature Medicine / JAMA / BMJ level
 
 ## 10-Dimension Scoring Rubric (100-point scale)
 

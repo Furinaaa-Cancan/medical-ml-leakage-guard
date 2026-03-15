@@ -80,7 +80,7 @@ python3 scripts/mlgg.py doctor
 
 ### 数据泄漏 & 学术诚信检测覆盖
 
-本项目的 29 道 gate 覆盖以下学术诚信风险：
+本项目的 31 道 gate 覆盖以下学术诚信风险：
 
 **数据泄漏检测（4 道 gate）**：
 - `leakage_gate`: 行级重叠、患者 ID 重叠、时序穿越（训练数据晚于测试数据）
@@ -531,6 +531,10 @@ If orchestration is unavailable, run in this exact order:
 27. `publication_gate.py`
 28. `self_critique_gate.py`
 29. `security_audit_gate.py`
+30. `fairness_equity_gate.py`
+31. `sample_size_gate.py`
+
+Note: Steps 30-31 run in METRIC_VALIDATION layer (parallel with steps 16-26 in DAG mode). In manual sequential mode, run them after step 29 to ensure all dependencies are available.
 
 If any step returns non-zero, stop and block claim release.
 
@@ -610,7 +614,9 @@ If any step returns non-zero, stop and block claim release.
 - `scripts/mlgg_pixel.py`: pixel-art interactive CLI wizard (`mlgg.py play`) for guided pipeline setup and execution with bilingual (en/zh) support, dataset-size-aware defaults, small-sample strict mode, and play-mode quick-readiness card.
 - `scripts/_gate_utils.py`: shared utility functions (`add_issue`, `load_json`, `write_json`, `to_float`) for gate scripts.
 - `scripts/_security.py`: security hardening module — HMAC model signing, path traversal protection, secure JSON loading, artifact integrity manifest, membership inference defense, dependency verification, security audit CLI.
-- `scripts/security_audit_gate.py`: 29th pipeline gate — verifies model HMAC signatures, evidence manifest integrity, dependency authenticity, file permissions, sensitive data exposure, artifact sizes.
+- `scripts/security_audit_gate.py`: 29th pipeline gate (FINAL layer) — verifies model HMAC signatures, evidence manifest integrity, dependency authenticity, file permissions, sensitive data exposure, artifact sizes.
+- `scripts/fairness_equity_gate.py`: 30th pipeline gate (METRIC_VALIDATION layer) — equalized odds gap across demographic/clinical subgroups, disparate impact ratio (four-fifths rule), per-subgroup PR-AUC validation.
+- `scripts/sample_size_gate.py`: 31st pipeline gate (METRIC_VALIDATION layer) — EPV (Riley et al. 2019/2025), shrinkage factor, minimum events/non-events adequacy.
 - `scripts/policy_generator.py`: generate recommended `performance_policy.json` from evidence reports with configurable margin and presets.
 - `scripts/gate_timeline.py`: analyze gate execution timeline, identify bottleneck gates, compute wall-clock span.
 - `scripts/gate_coverage_matrix.py`: scan evidence directory against full gate registry to produce coverage matrix.
@@ -982,7 +988,7 @@ Agent 完成完整流程后应产出以下交付物：
 │   ├── execution_attestation.json              # 执行认证规范
 │   └── *.json                                  # 各类 spec 文件
 ├── evidence/
-│   ├── *_report.json (×29)                     # 29 个 gate 报告
+│   ├── *_report.json (×31)                     # 31 个 gate 报告
 │   ├── manifest.json                           # SHA256 工件清单
 │   ├── prediction_trace.csv.gz                 # 行级预测追踪
 │   ├── evaluation_report.json                  # 评估指标报告

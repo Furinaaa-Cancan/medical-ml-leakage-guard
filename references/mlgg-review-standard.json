@@ -3,22 +3,22 @@
   "standard_name": "MLGG Medical ML Review Standard",
   "version": "1.0",
   "last_updated": "2026-03-14",
-  "description": "Independent quantitative review standard for medical ML prediction models. Covers 10 dimensions with 73 criteria across 3 review levels. Each criterion maps to specific gates, literature references, and pass conditions.",
+  "description": "Independent quantitative review standard for medical ML prediction models. Covers 12 dimensions (10 scored + 2 supplementary) with 76 criteria across 3 review levels. Each criterion maps to specific gates, literature references, and pass conditions.",
   "review_levels": {
     "quick": {
       "estimated_time": "5 minutes",
-      "criteria_count": 15,
+      "criteria_count": 18,
       "description": "Critical red-line checks — catches fatal flaws that invalidate all results"
     },
     "standard": {
       "estimated_time": "30 minutes",
-      "criteria_count": 40,
-      "description": "Standard review coverage for conference/journal submissions"
+      "criteria_count": 53,
+      "description": "Standard review coverage for conference/journal submissions (cumulative: quick + standard criteria)"
     },
     "comprehensive": {
       "estimated_time": "2 hours",
-      "criteria_count": 73,
-      "description": "Top-journal-grade full review — Nature Medicine / JAMA / BMJ / Lancet level"
+      "criteria_count": 76,
+      "description": "Top-journal-grade full review — Nature Medicine / JAMA / BMJ / Lancet level (all 76 criteria)"
     }
   },
   "dimensions": {
@@ -1074,7 +1074,7 @@
     "steps": [
       "1. Count CRITICAL severity failures → if any, cap grade at 'Major issues' maximum",
       "2. Count HIGH severity failures → if >3, cap grade at 'Solid but gaps remain' maximum",
-      "3. Compute weighted score across 10 primary dimensions (D1-D10)",
+      "3. Compute weighted score across 10 primary dimensions (D1-D10); supplementary dimensions D11-D12 are assessed but do not contribute to the 100-point score",
       "4. Apply score threshold to determine grade",
       "5. Apply cap from steps 1-2 if lower than score-based grade",
       "6. Supplementary dimensions D11-D12 provide structured assessment but do not add to total score"

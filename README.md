@@ -10,7 +10,7 @@ Publication-grade medical prediction workflow with strict anti-data-leakage gate
 
 **核心能力** | **Core Capabilities**:
 - **20 个模型族**（逻辑回归/SVM/随机森林/XGBoost/KNN/MLP 等）自动训练+超参搜索
-- **29 道安全门控**（泄漏检测/校准/鲁棒性/TRIPOD 合规/安全审计等）fail-closed 架构
+- **31 道安全门控**（泄漏检测/公平性/样本量验证/校准/鲁棒性/TRIPOD 合规/安全审计等）fail-closed 架构
 - **9 个真实医学数据集**（UCI/PhysioNet/GitHub，297-14,980 行）一键下载训练
 - **交互式 CLI 向导**（中英双语，EPV 提示/类别分布/数据质量警告）
 - **自动评估报告**（ROC-AUC/PR-AUC/Brier + 95% CI + 过拟合检测）
@@ -162,7 +162,7 @@ python3 scripts/mlgg.py workflow \
   - 阈值与校准误用（阈值在测试集上优化）
   - 外部队列迁移鲁棒性不足（在未见队列上的性能退化）
 - 输出可机器校验的证据工件和发布门结果。
-- 每个门控都是**二元 pass/fail**：29 个全部通过才能声称 publication-grade。
+- 每个门控都是**二元 pass/fail**：31 个全部通过才能声称 publication-grade。
 
 **架构概览**：管线按 `请求契约验证 → 数据指纹锁定 → 执行证明 → 泄漏/协议门 → 模型审计门 → 外部验证门 → 聚合发布门 → 自评分` 顺序执行。每个 gate 是独立 CLI 脚本，输出 JSON 报告。
 
@@ -658,10 +658,10 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 ### 10. 范围说明
 - 本项目是**预测建模严谨性**系统，不直接支持因果推断声明。
-- 要宣称 publication-grade，必须 29 个严格门全部通过（`publication_gate_report.json` 中 `status: pass`）。
+- 要宣称 publication-grade，必须 31 个严格门全部通过（`publication_gate_report.json` 中 `status: pass`）。
 - 系统**不会**自动为你在生产环境训练模型——它验证你的训练流程是否防泄漏且可复现。
 - 支持任务类型：仅限**二分类**。多分类、回归和生存分析不在范围内。
-- 29 步管线是**确定性且 fail-closed** 的：任何一个 gate 失败都会阻断整个发布级声明，没有手动覆盖机制。
+- 31 步管线是**确定性且 fail-closed** 的：任何一个 gate 失败都会阻断整个发布级声明，没有手动覆盖机制。
 
 ---
 
@@ -723,7 +723,7 @@ python3 scripts/mlgg.py play
 
 Important:
 - `play` is a quick train/evaluate launcher for interactive exploration.
-- The “Quick Readiness (play mode)” card is **not** the 29-gate publication verdict.
+- The “Quick Readiness (play mode)” card is **not** the 31-gate publication verdict.
 - Stable installed console scripts are `mlgg` and `mlgg-pixel`.
 - The browser wizard is currently a repository-local legacy prototype:
   `python3 -m pip install ".[web]" && python3 scripts/mlgg_web.py`
@@ -771,7 +771,7 @@ python3 scripts/mlgg.py split -- \
 |---|---|---|
 | Quick exploration / teaching | `python3 scripts/mlgg.py play` | Fast interactive train/eval, **not** publication verdict |
 | First strict end-to-end run | `python3 scripts/mlgg.py onboarding --project-root /tmp/mlgg_demo --mode guided --yes` | 8-step strict flow + evidence reports |
-| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 29-gate strict decision |
+| Publication-grade pass/fail decision | `python3 scripts/mlgg.py workflow --request <project>/configs/request.json --strict --allow-missing-compare` | 31-gate strict decision |
 
 ### 0.2 Status semantics (do not mix these)
 
@@ -779,7 +779,7 @@ python3 scripts/mlgg.py split -- \
 |---|---|---|---|
 | `play` quick readiness card | `NOT READY (play)` / `CAUTION (play)` / `GOOD (play)` | Lightweight educational signal in play mode | No |
 | `onboarding_report.json` | `status=pass|fail` + `termination_reason` | Whether onboarding flow completed cleanly | No (onboarding is a wrapper) |
-| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 29-gate strict result | Yes |
+| `dag_pipeline_report.json` / `publication_gate_report.json` | `status=pass|fail` | 31-gate strict result | Yes |
 
 ### 0.3 Fastest own-CSV strict closed loop (copy-paste)
 
@@ -820,7 +820,7 @@ python3 scripts/mlgg.py workflow \
 
 This repository:
 - Builds and reviews **medical binary prediction** pipelines under strict leakage controls.
-- Enforces **29 DAG-orchestrated fail-closed gates** covering:
+- Enforces **31 DAG-orchestrated fail-closed gates** covering:
   - definition-variable leakage (disease-defining features used as predictors)
   - feature lineage leakage (features derived from post-index-time data)
   - split/time contamination (patient overlap or temporal ordering violations)
@@ -1315,10 +1315,10 @@ python3 scripts/mlgg.py authority-release --dry-run --stress-case-id uci-heart-d
 
 ### 10. Scope Notes
 - This repository is for **predictive modeling rigor**, not causal inference claims.
-- Publication-grade claim is valid only when all 29 strict gates pass (`status: pass` in `publication_gate_report.json`).
+- Publication-grade claim is valid only when all 31 strict gates pass (`status: pass` in `publication_gate_report.json`).
 - The system does **not** train models for you automatically in production — it validates that your training process is leakage-safe and reproducible.
 - Supported task type: **binary classification** only. Multi-class, regression, and survival analysis are out of scope.
-- The 29-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
+- The 31-gate pipeline is **deterministic and fail-closed**: any single gate failure blocks the entire publication claim. There is no manual override.
 
 ---
 
