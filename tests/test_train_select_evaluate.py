@@ -436,7 +436,10 @@ class TestParseModelPoolConfig:
         assert config["required_models"] == []
         assert config["auto_added_required_models"] == []
 
-    def test_include_optional(self):
+    def test_include_optional(self, monkeypatch):
+        # Patch XGBClassifier to a sentinel so the test doesn't depend on
+        # whether optional packages are actually installed in this environment.
+        monkeypatch.setattr(tse, "XGBClassifier", object())
         config = tse.parse_model_pool_config({}, self._make_args(include_optional_models=True))
         pool = config["model_pool"]
         optional_models = {"xgboost", "catboost", "lightgbm", "tabpfn"}
