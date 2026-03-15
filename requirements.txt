@@ -4,3 +4,4 @@ pandas>=1.5
 scikit-learn>=1.2
 scipy>=1.9
 joblib>=1.2
+tomli>=1.1.0;python_version<"3.11"
