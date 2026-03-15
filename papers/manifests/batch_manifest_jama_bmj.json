@@ -1,0 +1,7 @@
+{
+  "contract_version": "batch_manifest.v1",
+  "_description": "JAMA / BMJ 专项审查清单",
+  "_usage": "python3 scripts/batch_journal_review.py --manifest papers/manifests/batch_manifest_jama_bmj.json --target-journal jama --output papers/audit_results/batch_jama_bmj.json --format markdown",
+  "target_journals": ["jama", "bmj"],
+  "projects": []
+}

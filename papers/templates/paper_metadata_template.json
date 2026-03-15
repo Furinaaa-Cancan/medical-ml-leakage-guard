@@ -1,0 +1,125 @@
+{
+  "_template_version": "1.0.0",
+  "_instructions": "Copy this file to papers/<journal>/<disease>/<first_author_year_keyword>/metadata.json and fill in all fields. Use null for unknown fields.",
+
+  "bibliographic": {
+    "title": "",
+    "authors": [""],
+    "journal": "",
+    "year": null,
+    "doi": "",
+    "pmid": "",
+    "url": "",
+    "pdf_filename": "paper.pdf"
+  },
+
+  "study_design": {
+    "prediction_type": "binary_classification",
+    "outcome": "",
+    "prediction_unit": "patient",
+    "prediction_horizon": "",
+    "setting": "",
+    "study_period_start": null,
+    "study_period_end": null,
+    "is_multicenter": null,
+    "has_external_validation": null,
+    "external_cohort_description": ""
+  },
+
+  "dataset": {
+    "source_type": "",
+    "_source_type_options": ["EHR_single_center", "EHR_multicenter", "public_dataset", "registry", "biobank", "claims_data", "mixed"],
+    "source_name": "",
+    "n_patients_total": null,
+    "n_events_positive": null,
+    "n_events_negative": null,
+    "prevalence_pct": null,
+    "split_strategy": "",
+    "_split_strategy_options": ["random", "temporal", "site_based", "not_reported"],
+    "train_n": null,
+    "valid_n": null,
+    "test_n": null,
+    "features_n": null,
+    "has_missing_data": null,
+    "missing_data_strategy": ""
+  },
+
+  "model": {
+    "model_type": "",
+    "_model_type_examples": ["logistic_regression", "random_forest", "xgboost", "lightgbm", "deep_learning", "ensemble", "other"],
+    "n_candidate_models": null,
+    "selection_criterion": "",
+    "hyperparameter_tuning": "",
+    "tuning_set": "",
+    "_tuning_set_options": ["validation_only", "train_validation", "test_used", "not_reported"],
+    "feature_selection_method": "",
+    "preprocessing_pipeline": ""
+  },
+
+  "performance_metrics": {
+    "primary_metric": "",
+    "test_auroc": null,
+    "test_auroc_ci_lower": null,
+    "test_auroc_ci_upper": null,
+    "test_auprc": null,
+    "test_sensitivity": null,
+    "test_specificity": null,
+    "test_ppv": null,
+    "test_npv": null,
+    "test_f1": null,
+    "test_brier_score": null,
+    "calibration_method": "",
+    "calibration_reported": null,
+    "dca_reported": null,
+    "bootstrap_ci_reported": null,
+    "n_bootstrap_resamples": null,
+    "external_auroc": null,
+    "external_auroc_ci_lower": null,
+    "external_auroc_ci_upper": null
+  },
+
+  "reporting_standards": {
+    "tripod_ai_claimed": null,
+    "probast_ai_claimed": null,
+    "stard_ai_claimed": null,
+    "equator_guideline_cited": "",
+    "limitation_section": null,
+    "code_availability": "",
+    "_code_availability_options": ["public_github", "on_request", "not_available", "not_mentioned"],
+    "data_availability": "",
+    "_data_availability_options": ["public", "on_request", "restricted", "not_available", "not_mentioned"]
+  },
+
+  "leakage_risk_assessment": {
+    "_instructions": "Fill after reading the methods section carefully",
+    "patient_level_split_confirmed": null,
+    "temporal_split_confirmed": null,
+    "preprocessing_fit_on_train_only": null,
+    "tuning_used_test_data": null,
+    "target_leakage_risk": "",
+    "_leakage_risk_options": ["low", "medium", "high", "cannot_assess"],
+    "post_index_feature_risk": "",
+    "phenotype_definition_overlap_risk": "",
+    "notes": ""
+  },
+
+  "mlgg_audit": {
+    "_instructions": "Populated automatically by audit_external_project.py or manually after MLGG review",
+    "audit_run_date": null,
+    "mlgg_total_score": null,
+    "mlgg_grade": null,
+    "gates_passed": null,
+    "gates_failed": null,
+    "gates_missing": null,
+    "conformance_level": null,
+    "top_gaps": []
+  },
+
+  "reviewer_notes": {
+    "added_by": "",
+    "added_date": "",
+    "priority": "",
+    "_priority_options": ["high", "medium", "low"],
+    "notes": ""
+  }
+}
