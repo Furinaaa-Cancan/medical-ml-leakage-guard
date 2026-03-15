@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -84,16 +85,42 @@ def _validate_python_bin(value: str) -> str:
     return resolved
 
 
+# Forbidden path prefixes reused from _gate_utils._FORBIDDEN_PATH_PREFIXES.
+# Duplicated here to avoid importing from scripts/ at module load time (circular risk).
+_FORBIDDEN_CWD_PREFIXES = frozenset(
+    ["/etc", "/private/etc", "/proc", "/sys", "/dev", "/var/run", "/boot", "/sbin"]
+)
+
+# Profile name must be a safe identifier: alphanumeric, hyphens, underscores only.
+_PROFILE_NAME_RE = re.compile(r'^[a-zA-Z0-9_-]{1,128}$')
+
+
 def _validate_cwd(value: str) -> Path:
     """
-    Validate that --cwd is an existing directory.
-    Prevents trivial path traversal to sensitive system directories.
+    Validate that --cwd is an existing directory, not a forbidden system path.
+
+    Prevents:
+    - Path traversal to /etc, /proc, /sys, etc.
+    - Non-existent or file paths being used as working directories.
     """
+    if "\x00" in value:
+        print(f"[FAIL] invalid_cwd: --cwd contains NUL byte.", file=sys.stderr)
+        raise SystemExit(2)
     try:
         cwd = Path(value).expanduser().resolve()
     except Exception as exc:
         print(f"[FAIL] invalid_cwd: cannot resolve --cwd '{value}': {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
+    # Forbidden system path check
+    cwd_str = str(cwd)
+    for prefix in _FORBIDDEN_CWD_PREFIXES:
+        if cwd_str == prefix or cwd_str.startswith(prefix + "/"):
+            print(
+                f"[FAIL] cwd_forbidden_path: --cwd '{cwd}' targets a forbidden system "
+                f"location. Forbidden prefixes: {sorted(_FORBIDDEN_CWD_PREFIXES)}",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
     if not cwd.exists():
         print(f"[FAIL] cwd_not_found: --cwd directory does not exist: {cwd}", file=sys.stderr)
         raise SystemExit(2)
@@ -101,6 +128,27 @@ def _validate_cwd(value: str) -> Path:
         print(f"[FAIL] cwd_not_directory: --cwd path is not a directory: {cwd}", file=sys.stderr)
         raise SystemExit(2)
     return cwd
+
+
+def _validate_profile_name(value: str) -> str:
+    """
+    Validate --profile-name is a safe identifier.
+
+    Rejects values containing path separators (/ \\), null bytes, or characters
+    that could be used for path traversal when the name is used as a filename.
+    Allowed: alphanumeric, hyphens, underscores, 1-128 characters.
+    """
+    if not value or not value.strip():
+        return ""
+    cleaned = value.strip()
+    if not _PROFILE_NAME_RE.match(cleaned):
+        print(
+            f"[FAIL] invalid_profile_name: --profile-name '{cleaned}' contains invalid "
+            f"characters. Allowed: alphanumeric, hyphens, underscores (max 128 chars).",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return cleaned
 
 
 def _validate_passthrough(passthrough: List[str]) -> List[str]:
@@ -518,8 +566,9 @@ def main() -> int:
             "--profile-dir",
             str(args.profile_dir),
         ]
-        if str(args.profile_name).strip():
-            cmd.extend(["--profile-name", str(args.profile_name).strip()])
+        profile_name = _validate_profile_name(str(args.profile_name))
+        if profile_name:
+            cmd.extend(["--profile-name", profile_name])
         if args.save_profile:
             cmd.append("--save-profile")
         if args.load_profile:
