@@ -16,7 +16,11 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    import numpy
+    import pandas
 
 
 def add_issue(
@@ -375,7 +379,7 @@ def confusion_counts(
     return {"tp": tp, "fp": fp, "tn": tn, "fn": fn}
 
 
-def normalize_binary(values: "pandas.Series") -> Optional["numpy.ndarray"]:  # noqa: F821
+def normalize_binary(values: "pandas.Series") -> Optional[Any]:  # noqa: F821
     """Coerce a pandas Series to a binary int ndarray, or None on failure.
 
     Returns None when the series contains non-finite or non-{0,1} values.
@@ -396,7 +400,7 @@ def metric_panel(
     y_score: "numpy.ndarray",  # noqa: F821
     y_pred: "numpy.ndarray",  # noqa: F821
     beta: float,
-) -> tuple:
+) -> tuple[Any, ...]:
     """Compute a standard binary-classification metric panel.
 
     Args:
