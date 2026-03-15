@@ -1,0 +1,122 @@
+name: ci-security
+
+on:
+  push:
+    branches:
+      - main
+      - "claude/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  security-tests:
+    name: Security & Audit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install minimal dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest
+
+      - name: CLI security tests (90 tests, no numpy required)
+        run: python3 -m pytest tests/test_mlgg_cli_security.py -v --tb=short
+
+      - name: Reporting bias gate tests
+        run: python3 -m pytest tests/test_reporting_bias_gate.py -v --tb=short
+
+      - name: Gate framework tests
+        run: python3 -m pytest tests/test_gate_framework.py -v --tb=short
+
+      - name: Manifest lock tests
+        run: python3 -m pytest tests/test_manifest_lock.py -v --tb=short
+
+      - name: Audit report smoke test
+        run: |
+          python3 scripts/generate_audit_report.py --project-dir . --output-dir /tmp/audit-ci/ --format json
+          python3 -c "
+          import json, sys
+          d = json.load(open('/tmp/audit-ci/audit-report.json'))
+          required_keys = ['report_version', 'total_score', 'dimension_scores',
+                           'tripod_coverage', 'probast_coverage', 'issues', 'remediation_plan']
+          missing = [k for k in required_keys if k not in d]
+          if missing:
+              print('FAIL: Missing keys:', missing)
+              sys.exit(1)
+          if len(d['dimension_scores']) != 10:
+              print('FAIL: Expected 10 dimension scores, got', len(d['dimension_scores']))
+              sys.exit(1)
+          tripod_items = d['tripod_coverage']['items']
+          if len(tripod_items) != 17:
+              print('FAIL: Expected 17 TRIPOD items, got', len(tripod_items))
+              sys.exit(1)
+          probast_domains = d['probast_coverage']['domains']
+          if len(probast_domains) != 4:
+              print('FAIL: Expected 4 PROBAST domains, got', len(probast_domains))
+              sys.exit(1)
+          print('OK: audit-report.json schema valid')
+          print(f'  Score: {d[\"total_score\"]} / 100')
+          print(f'  Issues: {len(d[\"issues\"])}')
+          print(f'  TRIPOD items: {len(tripod_items)}/17')
+          print(f'  PROBAST domains: {len(probast_domains)}/4')
+          "
+
+      - name: Error KB completeness check
+        run: |
+          python3 -c "
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          from _gate_registry import GATE_REGISTRY
+          data = json.load(open('references/error-knowledge-base.json'))
+          gates_covered = {e.get('gate') for e in data['entries'] if e.get('gate')}
+          all_gates = set(GATE_REGISTRY.keys())
+          missing = sorted(all_gates - gates_covered)
+          if missing:
+              print('FAIL: Gates without error KB coverage:', missing)
+              sys.exit(1)
+          print(f'OK: Error KB covers all {len(all_gates)}/31 gates')
+          print(f'Total entries: {len(data[\"entries\"])}')
+          "
+
+      - name: Knowledge base JSON validity
+        run: |
+          for f in references/error-knowledge-base.json \
+                   references/literature-knowledge-base.json \
+                   references/tripod-ai-official-checklist.json \
+                   references/probast-ai-signalling-questions.json \
+                   references/journal-rigor-standards.json \
+                   references/mlgg-standard-specification.json \
+                   references/mlgg-compliance-certificate.schema.json \
+                   references/gate-applicability-matrix.json \
+                   references/prediction-type-registry.json; do
+            python3 -c "import json; json.load(open('$f')); print('OK:', '$f')"
+          done
+
+      - name: TRIPOD+AI checklist completeness
+        run: |
+          python3 -c "
+          import json, sys
+          d = json.load(open('references/tripod-ai-official-checklist.json'))
+          items = d.get('items', [])
+          if len(items) != 27:
+              print(f'FAIL: Expected 27 TRIPOD+AI items, got {len(items)}')
+              sys.exit(1)
+          ai_items = [i for i in items if i.get('ai_specific')]
+          if len(ai_items) < 4:
+              print(f'FAIL: Expected >=4 AI-specific items, got {len(ai_items)}')
+              sys.exit(1)
+          print(f'OK: TRIPOD+AI has {len(items)} items ({len(ai_items)} AI-specific)')
+          "

@@ -41,7 +41,8 @@ def _load_json_safe(path: Path) -> Optional[Dict[str, Any]]:
     """Load a JSON file; return None on error."""
     try:
         with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            data: Dict[str, Any] = json.load(fh)
+            return data
     except Exception:
         return None
 
@@ -50,68 +51,56 @@ class KnowledgeBases:
     """Lazy-loaded knowledge base container."""
 
     def __init__(self) -> None:
-        self._error_kb: Optional[Dict[str, Any]] = None
-        self._lit_kb: Optional[Dict[str, Any]] = None
-        self._tripod: Optional[Dict[str, Any]] = None
-        self._probast: Optional[Dict[str, Any]] = None
-        self._journal_standards: Optional[Dict[str, Any]] = None
+        self._cache: Dict[str, Dict[str, Any]] = {}
+
+    def _load(self, path: Path) -> Dict[str, Any]:
+        key = str(path)
+        if key not in self._cache:
+            data = _load_json_safe(path)
+            self._cache[key] = data if data is not None else {}
+        return self._cache[key]
 
     @property
     def error_entries(self) -> List[Dict[str, Any]]:
-        if self._error_kb is None:
-            self._error_kb = _load_json_safe(
-                _REFERENCES_DIR / "error-knowledge-base.json"
-            ) or {}
-        return self._error_kb.get("entries", [])  # type: ignore[union-attr]
+        d = self._load(_REFERENCES_DIR / "error-knowledge-base.json")
+        v = d.get("entries", [])
+        return v if isinstance(v, list) else []
 
     @property
     def lit_entries(self) -> List[Dict[str, Any]]:
-        if self._lit_kb is None:
-            self._lit_kb = _load_json_safe(
-                _REFERENCES_DIR / "literature-knowledge-base.json"
-            ) or {}
-        return self._lit_kb.get("entries", [])  # type: ignore[union-attr]
+        d = self._load(_REFERENCES_DIR / "literature-knowledge-base.json")
+        v = d.get("entries", [])
+        return v if isinstance(v, list) else []
 
     @property
     def tripod_items(self) -> List[Dict[str, Any]]:
-        if self._tripod is None:
-            self._tripod = _load_json_safe(
-                _REFERENCES_DIR / "tripod-ai-official-checklist.json"
-            ) or {}
-        return self._tripod.get("items", [])  # type: ignore[union-attr]
+        d = self._load(_REFERENCES_DIR / "tripod-ai-official-checklist.json")
+        v = d.get("items", [])
+        return v if isinstance(v, list) else []
 
     @property
     def tripod_variable_map(self) -> Dict[str, str]:
-        if self._tripod is None:
-            self._tripod = _load_json_safe(
-                _REFERENCES_DIR / "tripod-ai-official-checklist.json"
-            ) or {}
-        return self._tripod.get("variable_name_to_item_id", {})  # type: ignore[union-attr]
+        d = self._load(_REFERENCES_DIR / "tripod-ai-official-checklist.json")
+        v = d.get("variable_name_to_item_id", {})
+        return v if isinstance(v, dict) else {}
 
     @property
     def probast_domains(self) -> Dict[str, Any]:
-        if self._probast is None:
-            self._probast = _load_json_safe(
-                _REFERENCES_DIR / "probast-ai-signalling-questions.json"
-            ) or {}
-        return self._probast.get("domains", {})  # type: ignore[union-attr]
+        d = self._load(_REFERENCES_DIR / "probast-ai-signalling-questions.json")
+        v = d.get("domains", {})
+        return v if isinstance(v, dict) else {}
 
     @property
     def probast_gate_mapping(self) -> Dict[str, Any]:
-        if self._probast is None:
-            self._probast = _load_json_safe(
-                _REFERENCES_DIR / "probast-ai-signalling-questions.json"
-            ) or {}
-        return self._probast.get("mlgg_gate_mapping", {})  # type: ignore[union-attr]
+        d = self._load(_REFERENCES_DIR / "probast-ai-signalling-questions.json")
+        v = d.get("mlgg_gate_mapping", {})
+        return v if isinstance(v, dict) else {}
 
     @property
     def journal_standards(self) -> Dict[str, Any]:
-        if self._journal_standards is None:
-            data = _load_json_safe(
-                _REFERENCES_DIR / "journal-rigor-standards.json"
-            ) or {}
-            self._journal_standards = data.get("journals", {})  # type: ignore[union-attr]
-        return self._journal_standards  # type: ignore[return-value]
+        d = self._load(_REFERENCES_DIR / "journal-rigor-standards.json")
+        v = d.get("journals", {})
+        return v if isinstance(v, dict) else {}
 
     def lookup_error_by_code(self, code: str) -> Optional[Dict[str, Any]]:
         for entry in self.error_entries:
@@ -342,8 +331,8 @@ def assess_tripod_coverage(
         "manifest_lock": ["24","26"],
     }
 
-    covered_items: set = set()
-    uncovered_items: set = set(TRIPOD_REQUIRED_ITEMS)
+    covered_items: set[str] = set()
+    uncovered_items: set[str] = set(TRIPOD_REQUIRED_ITEMS)
     item_status: Dict[str, str] = {}
 
     for gate_name, report in gate_reports.items():
@@ -541,7 +530,7 @@ def build_issue_list(
                 kb_errors[0] if kb_errors else None,
             )
 
-            issue: Dict[str, Any] = {
+            gate_issue: Dict[str, Any] = {
                 "issue_type": "gate_failure",
                 "gate": gate_name,
                 "severity": "ERROR",
@@ -550,22 +539,22 @@ def build_issue_list(
             }
 
             if kb_match:
-                issue["root_cause"] = kb_match.get("root_cause", "")
-                issue["fix"] = kb_match.get("fix", "")
-                issue["prevention"] = kb_match.get("prevention", "")
-                issue["kb_reference"] = kb_match.get("id", "")
+                gate_issue["root_cause"] = kb_match.get("root_cause", "")
+                gate_issue["fix"] = kb_match.get("fix", "")
+                gate_issue["prevention"] = kb_match.get("prevention", "")
+                gate_issue["kb_reference"] = kb_match.get("id", "")
             else:
-                issue["root_cause"] = f"Gate {gate_name} failed: {f_message}"
-                issue["fix"] = f"Review gate requirements for {gate_name} and address the listed failure."
-                issue["prevention"] = "Run gates regularly during development, not just at publication."
+                gate_issue["root_cause"] = f"Gate {gate_name} failed: {f_message}"
+                gate_issue["fix"] = f"Review gate requirements for {gate_name} and address the listed failure."
+                gate_issue["prevention"] = "Run gates regularly during development, not just at publication."
 
             if lit_citations:
-                issue["literature_citations"] = lit_citations
-                issue["literature_note"] = (
+                gate_issue["literature_citations"] = lit_citations
+                gate_issue["literature_note"] = (
                     "See cited works for methodological standards underlying this check."
                 )
 
-            issues.append(issue)
+            issues.append(gate_issue)
 
     # Sort: CRITICAL first, then ERROR, WARNING, INFO
     severity_order = {"CRITICAL": 0, "ERROR": 1, "WARNING": 2, "INFO": 3}
@@ -649,9 +638,13 @@ def compute_dimension_scores(
 
     for dim_key, dim_info in dimensions.items():
         frac: float = 0.5  # Start at 50% (neutral baseline)
+        dim_weight: int = dim_info["weight"]  # type: ignore[assignment]
+        dim_id: int = dim_info["id"]  # type: ignore[assignment]
+        dim_name: str = dim_info["name"]  # type: ignore[assignment]
 
         # Gate signals (each passing gate adds value)
-        gate_sigs = dim_info.get("gate_signals", [])
+        gate_sigs_raw = dim_info.get("gate_signals", [])
+        gate_sigs: List[str] = gate_sigs_raw if isinstance(gate_sigs_raw, list) else []
         if gate_sigs:
             pass_count = sum(
                 1 for g in gate_sigs
@@ -670,29 +663,37 @@ def compute_dimension_scores(
 
         # Pattern penalties
         penalty = 0.0
-        for pattern, pen_weight in dim_info.get("pattern_penalties", {}).items():
+        pattern_penalties_raw = dim_info.get("pattern_penalties", {})
+        pattern_penalties: Dict[str, float] = (
+            pattern_penalties_raw if isinstance(pattern_penalties_raw, dict) else {}
+        )
+        for pattern, pen_weight in pattern_penalties.items():
             if code_patterns.get(pattern):
-                penalty += pen_weight
+                penalty += float(pen_weight)
         frac = max(0.0, frac - penalty)
 
         # Structure bonuses
         bonus = 0.0
-        for check, bon_weight in dim_info.get("structure_bonuses", {}).items():
+        structure_bonuses_raw = dim_info.get("structure_bonuses", {})
+        structure_bonuses: Dict[str, float] = (
+            structure_bonuses_raw if isinstance(structure_bonuses_raw, dict) else {}
+        )
+        for check, bon_weight in structure_bonuses.items():
             if structure.get(check):
-                bonus += bon_weight
+                bonus += float(bon_weight)
         frac = min(1.0, frac + bonus * 0.2)  # Bonuses are minor
 
         frac = round(max(0.0, min(1.0, frac)), 3)
-        weighted = round(frac * dim_info["weight"], 2)
+        weighted = round(frac * dim_weight, 2)
         total_score += weighted
 
         dimension_scores[dim_key] = {
-            "id": dim_info["id"],
-            "name": dim_info["name"],
-            "weight": dim_info["weight"],
+            "id": dim_id,
+            "name": dim_name,
+            "weight": dim_weight,
             "score_fraction": frac,
             "weighted_score": weighted,
-            "max_possible": dim_info["weight"],
+            "max_possible": dim_weight,
         }
 
     return dimension_scores, round(total_score, 2)
@@ -751,7 +752,7 @@ def build_remediation_plan(
         if dim_data["score_fraction"] < 0.7:
             # Get literature support
             lit_refs = KB.lookup_lit_by_dimension(dim_key)
-            step: Dict[str, Any] = {
+            dim_step: Dict[str, Any] = {
                 "priority": "P2",
                 "severity": "INFO",
                 "description": f"Improve {dim_data['name']} dimension score "
@@ -760,11 +761,11 @@ def build_remediation_plan(
                 "fix": f"Address all failing checks in the {dim_data['name']} dimension.",
             }
             if lit_refs:
-                step["supporting_literature"] = [
+                dim_step["supporting_literature"] = [
                     f"{e['id']}: {e['title']} ({e['journal']}, {e['year']})"
                     for e in lit_refs[:2]
                 ]
-            plan.append(step)
+            plan.append(dim_step)
 
     return plan
 
@@ -789,8 +790,8 @@ def render_markdown_report(report: Dict[str, Any]) -> str:
         f"**Project**: `{project_name}`  ",
         f"**Path**: `{report['project_dir']}`  ",
         f"**Generated**: {timestamp}  ",
-        f"**MLGG Version**: 1.0 (31-gate pipeline)  ",
-        f"**Standard References**: TRIPOD+AI 2024, PROBAST+AI 2025, STARD-AI 2021",
+        "**MLGG Version**: 1.0 (31-gate pipeline)  ",
+        "**Standard References**: TRIPOD+AI 2024, PROBAST+AI 2025, STARD-AI 2021",
         "",
         "---",
         "",
@@ -801,8 +802,8 @@ def render_markdown_report(report: Dict[str, Any]) -> str:
     lines += [
         "## Overall Score",
         "",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| **Total Score** | **{score} / 100** |",
         f"| Grade | {grade_en} / {grade_zh} |",
         f"| Score Bar | `{score_bar}` {score}% |",
@@ -974,12 +975,12 @@ def render_markdown_report(report: Dict[str, Any]) -> str:
         "",
         "| Key | Value |",
         "|-----|-------|",
-        f"| Generated by | ML Leakage Guard (MLGG) v1.0 |",
+        "| Generated by | ML Leakage Guard (MLGG) v1.0 |",
         f"| Report version | {report.get('report_version', 'audit_report.v2')} |",
         f"| Error KB entries | {len(KB.error_entries)} |",
         f"| Literature KB entries | {len(KB.lit_entries)} |",
-        f"| TRIPOD+AI items | 27 (Collins et al. BMJ 2024;385:e078378) |",
-        f"| PROBAST+AI domains | 4 + AI supplementary (Wolff et al. 2025) |",
+        "| TRIPOD+AI items | 27 (Collins et al. BMJ 2024;385:e078378) |",
+        "| PROBAST+AI domains | 4 + AI supplementary (Wolff et al. 2025) |",
         "",
     ]
 
