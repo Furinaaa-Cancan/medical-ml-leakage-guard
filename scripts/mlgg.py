@@ -273,6 +273,10 @@ COMMANDS: Dict[str, Tuple[Path, str]] = {
         SCRIPTS_ROOT / "generate_audit_report.py",
         "Generate comprehensive audit report with TRIPOD+AI/PROBAST+AI coverage, error KB lookup, and literature citations.",
     ),
+    "export-review-prompt": (
+        SCRIPTS_ROOT / "export_review_prompt.py",
+        "Export MLGG review criteria as a portable LLM prompt. Users paste the output into any LLM (Claude, GPT-4, Gemini) to review a paper without local deployment.",
+    ),
 }
 INTERACTIVE_CORE_COMMANDS = ("init", "workflow", "train", "authority")
 COMMAND_PRESETS: Dict[str, Tuple[str, ...]] = {

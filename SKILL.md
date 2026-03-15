@@ -861,7 +861,34 @@ python3 scripts/remediation_plan.py --evidence-dir <dir>/evidence
 5. 重跑 publication_gate → 验证全链路通过
 ```
 
-#### 模式 D：批量评审 (Batch Review)
+#### 模式 D：LLM 评审 Skill（零部署，带自己的 LLM）
+当用户说"帮我生成评审 prompt"、"我想用 ChatGPT/Gemini 评审" 或 "export review prompt"时：
+
+```bash
+# 1. 快速红线检查 prompt（18条，粘贴到任意 LLM）
+python3 scripts/export_review_prompt.py --level quick --output review_prompt_quick.md
+
+# 2. 标准评审 prompt（53条）
+python3 scripts/export_review_prompt.py --level standard --output review_prompt.md
+
+# 3. 顶刊级 prompt，附 Nature Medicine 特定要求
+python3 scripts/export_review_prompt.py --level comprehensive \
+  --journal nature_medicine --output review_prompt_nm.md
+
+# 4. JSON 格式（适合 API 调用）
+python3 scripts/export_review_prompt.py --level standard --format json \
+  --journal jama --output review_payload.json
+
+# 5. 附文献引用
+python3 scripts/export_review_prompt.py --level comprehensive \
+  --include-literature --output review_with_refs.md
+```
+
+用法：将生成的 `.md` 文件内容粘贴到任意 LLM 对话框（Claude、GPT-4、Gemini 均可），然后粘贴论文 PDF 的文字内容，LLM 将输出结构化 JSON 评分报告。
+
+**支持的期刊** `--journal` 参数：`nature_medicine` · `jama` · `lancet_digital_health` · `bmj` · `npj_digital_medicine`
+
+#### 模式 E：批量评审 (Batch Review)
 当用户说"帮我批量评审"或"review these projects"时：
 
 ```bash

@@ -178,6 +178,8 @@ def main() -> int:
         "metric_consistency_report": evidence_dir / "metric_consistency_report.json",
         "evaluation_quality_report": evidence_dir / "evaluation_quality_report.json",
         "permutation_report": evidence_dir / "permutation_report.json",
+        "fairness_equity_report": evidence_dir / "fairness_equity_report.json",
+        "sample_size_report": evidence_dir / "sample_size_report.json",
         "publication_report": evidence_dir / "publication_gate_report.json",
         "self_critique_report": evidence_dir / "self_critique_report.json",
         "security_audit_gate_report": evidence_dir / "security_audit_gate_report.json",
@@ -944,6 +946,36 @@ def main() -> int:
     ):
         return finalize(args, reports, steps, success=False)
 
+    # Step 26a: fairness & equity gate (D11)
+    if not execute(
+        "fairness_equity_gate",
+        [
+            args.python,
+            str(scripts_dir / "fairness_equity_gate.py"),
+            "--evaluation-report",
+            evaluation_report_file,
+            "--report",
+            str(reports["fairness_equity_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
+    # Step 26b: sample size gate (D12)
+    if not execute(
+        "sample_size_gate",
+        [
+            args.python,
+            str(scripts_dir / "sample_size_gate.py"),
+            "--evaluation-report",
+            evaluation_report_file,
+            "--report",
+            str(reports["sample_size_report"]),
+            *strict_flag,
+        ],
+    ):
+        return finalize(args, reports, steps, success=False)
+
     # Step 27: publication gate
     if not execute(
         "publication_gate",
@@ -1002,6 +1034,10 @@ def main() -> int:
             str(reports["evaluation_quality_report"]),
             "--permutation-report",
             str(reports["permutation_report"]),
+            "--fairness-equity-report",
+            str(reports["fairness_equity_report"]),
+            "--sample-size-report",
+            str(reports["sample_size_report"]),
             "--report",
             str(reports["publication_report"]),
             *strict_flag,

@@ -62,7 +62,7 @@ When performing structured reviews, reference `references/mlgg-review-standard.j
 - **Standard review** (30 min): 53 cumulative criteria for conference/journal submissions
 - **Comprehensive review** (2 hr): 76 cumulative criteria for Nature Medicine / JAMA / BMJ level
 
-## 10-Dimension Scoring Rubric (100-point scale)
+## 12-Dimension Scoring Rubric (100-point scale)
 
 Used for quantitative evaluation of any medical ML project:
 
@@ -74,10 +74,12 @@ Used for quantitative evaluation of any medical ML project:
 | 4. Model Selection Rigor | 10 | Candidate pool ≥3, one-SE rule, no test peeking, required baseline |
 | 5. Statistical Validity | 12 | Bootstrap CI, permutation test, calibration, DCA, metric consistency |
 | 6. Generalization Evidence | 10 | Train-test gap, external cohort, transport-drop CI, seed stability |
-| 7. Clinical Completeness | 8 | Full metric panel, confusion matrix consistency, threshold feasibility |
-| 8. Reporting Standards | 8 | TRIPOD+AI, PROBAST+AI, exclusion criteria, limitation documentation |
-| 9. Reproducibility | 8 | Seed logging, version tracking, execution attestation, manifest lock |
-| 10. Security & Provenance | 5 | Model signing, artifact integrity, sensitive data protection |
+| 7. Clinical Completeness | 7 | Full metric panel, confusion matrix consistency, threshold feasibility |
+| 8. Reporting Standards | 7 | TRIPOD+AI, PROBAST+AI, STARD-AI, exclusion criteria, limitation documentation |
+| 9. Reproducibility | 6 | Seed logging, version tracking, execution attestation, manifest lock |
+| 10. Security & Provenance | 3 | Model signing, artifact integrity, sensitive data protection |
+| 11. Fairness & Equity | 3 | Equalized odds gap, disparate impact ratio, subgroup performance minimums |
+| 12. Sample Size Adequacy | 3 | EPV ≥10, shrinkage factor ≥0.90, minimum 100 events/non-events |
 
 **Score interpretation**:
 - 90-100: Publication-grade (顶刊级)
