@@ -357,7 +357,7 @@ def safe_ratio(num: float, den: float) -> float:
 
 
 def confusion_counts(
-    y_true: "numpy.ndarray", y_pred: "numpy.ndarray"  # noqa: F821
+    y_true: "numpy.ndarray[Any, Any]", y_pred: "numpy.ndarray[Any, Any]"  # noqa: F821
 ) -> Dict[str, int]:
     """Compute TP/FP/TN/FN from binary label arrays.
 
@@ -396,9 +396,9 @@ def normalize_binary(values: "pandas.Series") -> Optional[Any]:  # noqa: F821
 
 
 def metric_panel(
-    y_true: "numpy.ndarray",  # noqa: F821
-    y_score: "numpy.ndarray",  # noqa: F821
-    y_pred: "numpy.ndarray",  # noqa: F821
+    y_true: "numpy.ndarray[Any, Any]",  # noqa: F821
+    y_score: "numpy.ndarray[Any, Any]",  # noqa: F821
+    y_pred: "numpy.ndarray[Any, Any]",  # noqa: F821
     beta: float,
 ) -> tuple[Any, ...]:
     """Compute a standard binary-classification metric panel.
