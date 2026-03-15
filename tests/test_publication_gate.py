@@ -15,7 +15,7 @@ from publication_gate import (
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 
-# All 26 component artifact names expected by publication_gate.py
+# All 28 component artifact names expected by publication_gate.py
 COMPONENT_NAMES = [
     "request_report",
     "manifest",
@@ -43,6 +43,8 @@ COMPONENT_NAMES = [
     "metric_report",
     "evaluation_quality_report",
     "permutation_report",
+    "fairness_equity_report",
+    "sample_size_report",
 ]
 
 # CLI arg names corresponding to each component
@@ -73,6 +75,8 @@ COMPONENT_ARGS = [
     "--metric-report",
     "--evaluation-quality-report",
     "--permutation-report",
+    "--fairness-equity-report",
+    "--sample-size-report",
 ]
 
 

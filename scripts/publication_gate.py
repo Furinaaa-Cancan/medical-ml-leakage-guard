@@ -70,6 +70,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metric-report", required=True, help="Path to metric consistency report JSON.")
     parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality gate report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation gate report JSON.")
+    parser.add_argument("--fairness-equity-report", required=True, help="Path to fairness & equity gate report JSON.")
+    parser.add_argument("--sample-size-report", required=True, help="Path to sample size gate report JSON.")
     parser.add_argument("--report", help="Optional output publication gate report path.")
     parser.add_argument("--strict", action="store_true", help="Require strict-mode component reports.")
     return parser.parse_args()
@@ -324,6 +326,8 @@ def main() -> int:
         "metric_report": args.metric_report,
         "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
+        "fairness_equity_report": args.fairness_equity_report,
+        "sample_size_report": args.sample_size_report,
     }
 
     for name, path in files.items():
@@ -414,6 +418,8 @@ def main() -> int:
         "metric_report",
         "evaluation_quality_report",
         "permutation_report",
+        "fairness_equity_report",
+        "sample_size_report",
     ):
         validate_component_status(
             component,

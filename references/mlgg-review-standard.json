@@ -855,7 +855,7 @@
       "id": 7,
       "name": "Clinical Completeness",
       "name_zh": "临床完整性",
-      "weight": 8,
+      "weight": 7,
       "criteria": [
         {
           "id": "D7.1",
@@ -966,7 +966,7 @@
       "id": 8,
       "name": "Reporting Standards",
       "name_zh": "报告标准",
-      "weight": 8,
+      "weight": 7,
       "criteria": [
         {
           "id": "D8.1",
@@ -1103,7 +1103,7 @@
       "id": 9,
       "name": "Reproducibility",
       "name_zh": "可重复性",
-      "weight": 8,
+      "weight": 6,
       "criteria": [
         {
           "id": "D9.1",
@@ -1216,7 +1216,7 @@
       "id": 10,
       "name": "Security & Provenance",
       "name_zh": "安全与溯源",
-      "weight": 5,
+      "weight": 3,
       "criteria": [
         {
           "id": "D10.1",
@@ -1293,7 +1293,7 @@
       "id": 11,
       "name": "Fairness & Equity",
       "name_zh": "公平性与公正性",
-      "weight": 0,
+      "weight": 3,
       "weight_note": "Scored as part of generalization_evidence (D6) and reporting_standards (D8) weights. Listed separately for structured assessment per TRIPOD+AI/PROBAST+AI requirements.",
       "criteria": [
         {
@@ -1395,7 +1395,7 @@
       "id": 12,
       "name": "Sample Size Adequacy",
       "name_zh": "样本量充足性",
-      "weight": 0,
+      "weight": 3,
       "weight_note": "Scored as part of data_integrity (D1) and statistical_validity (D5) weights. Listed separately for structured assessment per Riley et al. criteria.",
       "criteria": [
         {

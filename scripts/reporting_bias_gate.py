@@ -106,11 +106,35 @@ PROBAST_REQUIRED_TRUE = [
 ]
 
 STARD_REQUIRED_TRUE = [
+    # Title / Abstract
+    "stard_title_identifies_ai_diagnostic",
+    "stard_abstract_structured",
+    # Introduction
+    "stard_background_and_clinical_context",
+    "stard_objectives_stated",
+    # Methods — Participants
+    "stard_data_collection_described",
     "participant_flow_reported",
+    # Methods — Test Details (AI system)
     "index_test_details_reported",
+    "stard_ai_technical_specifications",
+    "stard_threshold_selection_documented",
+    # Methods — Reference Standard
     "reference_standard_reported",
     "blinding_status_reported",
+    # Methods — Analysis
+    "stard_statistical_methods_described",
+    # Results
+    "stard_participant_flow_results",
     "diagnostic_accuracy_with_ci_reported",
+    "stard_ai_specific_results",
+    # Discussion / Other
+    "stard_limitations_and_applicability",
+    "stard_funding_and_availability",
+]
+
+STARD_RECOMMENDED_TRUE = [
+    "stard_subgroup_analysis_planned",
 ]
 
 ALLOWED_OVERALL_BIAS = {"low", "unclear", "high"}
@@ -242,6 +266,15 @@ def main() -> int:
     stard_not_applicable_justification: Optional[str] = None
     if stard_applicable is True:
         stard_true = require_true_fields(stard, "stard_ai", STARD_REQUIRED_TRUE, failures)
+        # Warn on missing recommended items (not failures)
+        for key in STARD_RECOMMENDED_TRUE:
+            if stard is not None and stard.get(key) is not True:
+                add_issue(
+                    warnings,
+                    "stard_recommended_item_missing",
+                    "STARD-AI recommended item not satisfied (non-blocking).",
+                    {"section": "stard_ai", "item": key},
+                )
     elif stard_applicable is False:
         stard_true = 0
         if stard is not None:

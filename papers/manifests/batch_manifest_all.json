@@ -1,0 +1,15 @@
+{
+  "contract_version": "batch_manifest.v1",
+  "_description": "全量 batch 审查清单——包含所有已录入文章，供 batch_journal_review.py 使用",
+  "_usage": "python3 scripts/batch_journal_review.py --manifest papers/manifests/batch_manifest_all.json --output papers/audit_results/batch_all.json",
+  "target_journals": ["nature_medicine"],
+  "projects": [
+    {
+      "_comment": "示例条目，请按此格式添加。id 用 first_author_year_keyword 格式。",
+      "id": "example_2024_af_prediction",
+      "path": "papers/nature_medicine/cardiovascular/example_2024_af_prediction",
+      "label": "Example et al. 2024 — AF prediction from EHR",
+      "notes": "Example entry. Replace with real paper."
+    }
+  ]
+}

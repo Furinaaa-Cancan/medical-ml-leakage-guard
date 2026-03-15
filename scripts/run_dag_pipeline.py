@@ -520,6 +520,9 @@ def _build_aggregation_cmd(
 
     if gate_name == "self_critique_gate":
         report_flag_map["publication_gate"] = "--publication-report"
+        report_flag_map["security_audit_gate"] = "--security-audit-report"
+        report_flag_map["fairness_equity_gate"] = "--fairness-equity-report"
+        report_flag_map["sample_size_gate"] = "--sample-size-report"
 
     for dep_name, flag in report_flag_map.items():
         if dep_name in report_paths:

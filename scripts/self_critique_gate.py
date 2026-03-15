@@ -65,6 +65,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--evaluation-quality-report", required=True, help="Path to evaluation quality report JSON.")
     parser.add_argument("--permutation-report", required=True, help="Path to permutation report JSON.")
     parser.add_argument("--publication-report", required=True, help="Path to publication gate report JSON.")
+    parser.add_argument("--security-audit-report", required=True, help="Path to security audit gate report JSON.")
+    parser.add_argument("--fairness-equity-report", required=True, help="Path to fairness & equity gate report JSON.")
+    parser.add_argument("--sample-size-report", required=True, help="Path to sample size adequacy gate report JSON.")
     parser.add_argument("--min-score", type=float, default=95.0, help="Minimum score for publication-grade readiness.")
     parser.add_argument(
         "--allow-missing-comparison",
@@ -125,6 +128,12 @@ def summarize_recommendations(issues: List[Dict[str, Any]]) -> List[str]:
         recs.append("Regenerate component reports with --strict for publication-grade claims.")
     if "evaluation_quality_report" in components:
         recs.append("Provide valid primary-metric CI + baseline comparison in evaluation artifact and rerun evaluation_quality_gate.")
+    if "security_audit_report" in components:
+        recs.append("Resolve security audit findings: verify model signing, artifact integrity, and sensitive data protection.")
+    if "fairness_equity_report" in components:
+        recs.append("Address fairness & equity gaps: equalized odds, disparate impact ratio, and subgroup performance minimums.")
+    if "sample_size_report" in components:
+        recs.append("Ensure adequate sample size: EPV ≥10, shrinkage factor ≥0.90, and minimum 100 events/non-events.")
     if "insufficient_quality_score" in codes:
         recs.append("Increase robustness evidence and reduce warnings to lift quality score.")
     if "manifest_not_comparable" in codes:
@@ -177,6 +186,9 @@ def main() -> int:
         "evaluation_quality_report": args.evaluation_quality_report,
         "permutation_report": args.permutation_report,
         "publication_report": args.publication_report,
+        "security_audit_report": args.security_audit_report,
+        "fairness_equity_report": args.fairness_equity_report,
+        "sample_size_report": args.sample_size_report,
     }
 
     loaded: Dict[str, Dict[str, Any]] = {}
@@ -260,6 +272,9 @@ def main() -> int:
         "evaluation_quality_report",
         "permutation_report",
         "publication_report",
+        "security_audit_report",
+        "fairness_equity_report",
+        "sample_size_report",
     ):
         require_pass(component, strict_mode_required=(component not in strict_optional_components))
 
@@ -345,6 +360,9 @@ def main() -> int:
         "evaluation_quality_report": 8.0,
         "permutation_report": 7.0,
         "publication_report": 8.0,
+        "security_audit_report": 7.0,
+        "fairness_equity_report": 7.0,
+        "sample_size_report": 7.0,
     }
     _total_raw = sum(_raw_weights.values())
     weights = {k: v * 100.0 / _total_raw for k, v in _raw_weights.items()}

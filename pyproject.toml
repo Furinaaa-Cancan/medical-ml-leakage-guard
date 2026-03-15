@@ -48,7 +48,8 @@ Repository = "https://github.com/Furinaaa-Cancan/medical-ml-leakage-guard"
 
 [tool.pytest.ini_options]
 markers = [
-    "slow: marks tests as slow (skipped in ci-smoke with -m 'not slow')",
+    "slow: marks tests as slow (skipped in ci-unit with -m 'not slow')",
+    "timeout: marks tests with a maximum execution timeout (requires pytest-timeout)",
 ]
 
 [tool.setuptools.packages.find]

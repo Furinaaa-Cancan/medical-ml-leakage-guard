@@ -82,6 +82,7 @@ ARTIFACT_NAMES = [
     "external-validation-report", "calibration-dca-report",
     "ci-matrix-report", "metric-report", "evaluation-quality-report",
     "permutation-report", "publication-report",
+    "security-audit-report", "fairness-equity-report", "sample-size-report",
 ]
 
 
@@ -328,3 +329,56 @@ class TestSelfCritiqueMain:
         data = json.loads((tmp_path / "rpt.json").read_text())
         recs = data.get("summary", {}).get("recommendations", [])
         assert len(recs) >= 4
+
+    def test_d10_security_audit_failure(self, tmp_path, monkeypatch):
+        """D10 security_audit_report failure is scored and triggers recommendation."""
+        fail_report = {"status": "fail", "failure_count": 1, "warning_count": 0, "strict_mode": True}
+        overrides = {"security_audit_report": dict(fail_report)}
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 2
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        codes = [f["code"] for f in data["failures"]]
+        assert "component_not_passed" in codes or "component_has_failures" in codes
+        recs = " ".join(data["summary"]["recommendations"])
+        assert "security" in recs.lower()
+
+    def test_d11_fairness_equity_failure(self, tmp_path, monkeypatch):
+        """D11 fairness_equity_report failure is scored and triggers recommendation."""
+        fail_report = {"status": "fail", "failure_count": 1, "warning_count": 0, "strict_mode": True}
+        overrides = {"fairness_equity_report": dict(fail_report)}
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 2
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        recs = " ".join(data["summary"]["recommendations"])
+        assert "fairness" in recs.lower() or "equity" in recs.lower()
+
+    def test_d12_sample_size_failure(self, tmp_path, monkeypatch):
+        """D12 sample_size_report failure is scored and triggers recommendation."""
+        fail_report = {"status": "fail", "failure_count": 1, "warning_count": 0, "strict_mode": True}
+        overrides = {"sample_size_report": dict(fail_report)}
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, overrides=overrides))
+        rc = sc_main()
+        assert rc == 2
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        recs = " ".join(data["summary"]["recommendations"])
+        assert "sample size" in recs.lower() or "epv" in recs.lower()
+
+    def test_d10_d11_d12_all_pass_increases_score(self, tmp_path, monkeypatch):
+        """All D10/D11/D12 passing should contribute positively to quality_score."""
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path, min_score=50.0))
+        rc = sc_main()
+        assert rc == 0
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        assert data["summary"]["quality_score"] > 50.0
+
+    def test_d10_d11_d12_artifacts_tracked_in_summary(self, tmp_path, monkeypatch):
+        """security_audit, fairness_equity, sample_size appear in artifacts summary."""
+        monkeypatch.setattr("sys.argv", _sc_argv(tmp_path))
+        sc_main()
+        data = json.loads((tmp_path / "rpt.json").read_text())
+        artifacts = data["summary"]["artifacts"]
+        assert "security_audit_report" in artifacts
+        assert "fairness_equity_report" in artifacts
+        assert "sample_size_report" in artifacts

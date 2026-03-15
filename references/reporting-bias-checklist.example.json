@@ -31,10 +31,23 @@
   },
   "stard_ai": {
     "applicable": true,
+    "stard_title_identifies_ai_diagnostic": true,
+    "stard_abstract_structured": true,
+    "stard_background_and_clinical_context": true,
+    "stard_objectives_stated": true,
+    "stard_data_collection_described": true,
     "participant_flow_reported": true,
     "index_test_details_reported": true,
+    "stard_ai_technical_specifications": true,
+    "stard_threshold_selection_documented": true,
     "reference_standard_reported": true,
     "blinding_status_reported": true,
-    "diagnostic_accuracy_with_ci_reported": true
+    "stard_statistical_methods_described": true,
+    "stard_participant_flow_results": true,
+    "diagnostic_accuracy_with_ci_reported": true,
+    "stard_ai_specific_results": true,
+    "stard_limitations_and_applicability": true,
+    "stard_funding_and_availability": true,
+    "stard_subgroup_analysis_planned": true
   }
 }

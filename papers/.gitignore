@@ -1,0 +1,10 @@
+# PDF 原文（版权保护，不提交到版本库）
+*.pdf
+*.PDF
+
+# 审查输出（可按需提交）
+# audit_output/
+
+# 系统文件
+.DS_Store
+Thumbs.db

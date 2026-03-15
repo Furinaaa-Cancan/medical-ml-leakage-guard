@@ -1,0 +1,7 @@
+{
+  "contract_version": "batch_manifest.v1",
+  "_description": "Lancet Digital Health 专项审查清单",
+  "_usage": "python3 scripts/batch_journal_review.py --manifest papers/manifests/batch_manifest_lancet_dh.json --target-journal lancet_digital_health --output papers/audit_results/batch_lancet_dh.json --format markdown",
+  "target_journals": ["lancet_digital_health"],
+  "projects": []
+}
