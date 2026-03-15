@@ -10,14 +10,154 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# ---------------------------------------------------------------------------
+# Security constants
+# ---------------------------------------------------------------------------
+
+# Subprocess timeout: gates can be slow (large datasets) but should not run forever.
+# Per-subprocess wall-clock limit. Adjust via MLGG_SUBPROCESS_TIMEOUT env var.
+_DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = int(
+    os.environ.get("MLGG_SUBPROCESS_TIMEOUT", "3600")
+)
+
+# Allowed --python executable names (basenames only).  Full-path executables
+# matching these basenames are also accepted.
+_ALLOWED_PYTHON_BASENAMES = frozenset(
+    [
+        "python", "python3", "python3.8", "python3.9", "python3.10",
+        "python3.11", "python3.12", "python3.13",
+    ]
+)
+
+# Maximum allowed byte-length for any single CLI argument to prevent
+# memory exhaustion from absurdly long strings.
+_MAX_ARG_BYTES = 8192
+
+
+def _validate_python_bin(value: str) -> str:
+    """
+    Validate that --python points to a Python-like executable.
+
+    Accepts:
+    - sys.executable (always trusted)
+    - Any path whose basename is in _ALLOWED_PYTHON_BASENAMES
+    - Any path found via shutil.which that resolves to a python binary
+
+    Raises SystemExit(2) with an informative message on failure.
+    """
+    if not value or not value.strip():
+        return sys.executable
+    candidate = value.strip()
+    if candidate == sys.executable:
+        return candidate
+    import shutil
+    basename = Path(candidate).name.lower()
+    # Strip .exe suffix on Windows
+    if basename.endswith(".exe"):
+        basename = basename[:-4]
+    if basename not in _ALLOWED_PYTHON_BASENAMES:
+        print(
+            f"[FAIL] invalid_python_executable: --python '{candidate}' is not a recognized "
+            f"Python executable. Allowed basenames: {sorted(_ALLOWED_PYTHON_BASENAMES)}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    # Ensure it actually exists / is findable
+    resolved = shutil.which(candidate) or (candidate if Path(candidate).exists() else None)
+    if resolved is None:
+        print(
+            f"[FAIL] python_executable_not_found: --python '{candidate}' not found on PATH "
+            f"or filesystem.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return resolved
+
+
+def _validate_cwd(value: str) -> Path:
+    """
+    Validate that --cwd is an existing directory.
+    Prevents trivial path traversal to sensitive system directories.
+    """
+    try:
+        cwd = Path(value).expanduser().resolve()
+    except Exception as exc:
+        print(f"[FAIL] invalid_cwd: cannot resolve --cwd '{value}': {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    if not cwd.exists():
+        print(f"[FAIL] cwd_not_found: --cwd directory does not exist: {cwd}", file=sys.stderr)
+        raise SystemExit(2)
+    if not cwd.is_dir():
+        print(f"[FAIL] cwd_not_directory: --cwd path is not a directory: {cwd}", file=sys.stderr)
+        raise SystemExit(2)
+    return cwd
+
+
+def _validate_passthrough(passthrough: List[str]) -> List[str]:
+    """
+    Validate pass-through arguments for basic safety.
+
+    Checks:
+    - Each token length ≤ _MAX_ARG_BYTES (prevents memory exhaustion)
+    - No NUL bytes (prevent arg smuggling on some systems)
+
+    Does NOT block specific flags — that's the subcommand's responsibility.
+    """
+    validated: List[str] = []
+    for i, token in enumerate(passthrough):
+        if len(token.encode("utf-8", errors="replace")) > _MAX_ARG_BYTES:
+            print(
+                f"[FAIL] passthrough_arg_too_long: argument at index {i} exceeds "
+                f"{_MAX_ARG_BYTES} bytes. Possible memory exhaustion attempt.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        if "\x00" in token:
+            print(
+                f"[FAIL] passthrough_arg_nul_byte: argument at index {i} contains a NUL "
+                f"byte, which is not allowed.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        validated.append(token)
+    return validated
+
+
+def _run_subprocess(
+    cmd: List[str],
+    cwd: Path,
+    timeout: Optional[int] = None,
+) -> int:
+    """
+    Centralized subprocess launcher with timeout and error handling.
+
+    All subprocess.run calls in this module should go through this function
+    to ensure consistent timeout enforcement and return-code handling.
+    """
+    effective_timeout = timeout if timeout is not None else _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    try:
+        proc = subprocess.run(cmd, cwd=str(cwd), text=True, timeout=effective_timeout)
+        return int(proc.returncode)
+    except subprocess.TimeoutExpired:
+        print(
+            f"[FAIL] subprocess_timeout: command exceeded {effective_timeout}s timeout. "
+            f"Set MLGG_SUBPROCESS_TIMEOUT env var to increase limit.",
+            file=sys.stderr,
+        )
+        return 2
+    except FileNotFoundError as exc:
+        print(f"[FAIL] subprocess_not_found: {exc}", file=sys.stderr)
+        return 2
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 EXPERIMENTS_ROOT = REPO_ROOT / "experiments" / "authority-e2e"
 
@@ -156,9 +296,11 @@ def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
     if "--" in suffix:
         return None
 
-    python_bin = _extract_option_value(raw_argv, "--python", sys.executable)
+    python_bin = _validate_python_bin(
+        _extract_option_value(raw_argv, "--python", sys.executable)
+    )
     cwd_raw = _extract_option_value(raw_argv, "--cwd", str(REPO_ROOT))
-    cwd = Path(cwd_raw).expanduser().resolve()
+    cwd = _validate_cwd(cwd_raw)
 
     interactive_requested = subcommand == "interactive" or "--interactive" in raw_argv
     if interactive_requested:
@@ -174,8 +316,7 @@ def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
             cmd.extend(["--command", target_command])
         cmd.append("--help")
         print(f"$ {shlex.join(cmd)}")
-        proc = subprocess.run(cmd, cwd=str(cwd), text=True)
-        return int(proc.returncode)
+        return _run_subprocess(cmd, cwd, timeout=60)
 
     script_path = COMMANDS[subcommand][0]
     if not script_path.exists():
@@ -183,8 +324,7 @@ def maybe_forward_subcommand_help(raw_argv: list[str]) -> int | None:
         return 2
     cmd = [python_bin, str(script_path), "--help"]
     print(f"$ {shlex.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=str(cwd), text=True)
-    return int(proc.returncode)
+    return _run_subprocess(cmd, cwd, timeout=60)
 
 
 def passthrough_contains_flag(passthrough: list[str], flag: str) -> bool:
@@ -324,8 +464,9 @@ def main() -> int:
     passthrough = [token for token in passthrough if token != "--"]
 
     subcommand = str(args.subcommand)
-    python_bin = str(args.python).strip() or sys.executable
-    cwd = Path(str(args.cwd)).expanduser().resolve()
+    python_bin = _validate_python_bin(str(args.python).strip() or sys.executable)
+    cwd = _validate_cwd(str(args.cwd))
+    passthrough = _validate_passthrough(passthrough)
     interactive_requested = bool(args.interactive) or subcommand == "interactive"
 
     if interactive_requested:
@@ -341,8 +482,7 @@ def main() -> int:
             print(f"$ {shlex.join(cmd)}")
             if args.dry_run:
                 return 0
-            proc = subprocess.run(cmd, cwd=str(cwd), text=True)
-            return int(proc.returncode)
+            return _run_subprocess(cmd, cwd, timeout=60)
         target_command = str(args.interactive_command).strip() if args.interactive_command else subcommand
         if target_command == "interactive":
             return emit_fail(
@@ -392,8 +532,7 @@ def main() -> int:
         print(f"$ {shlex.join(cmd)}")
         if args.dry_run:
             return 0
-        proc = subprocess.run(cmd, cwd=str(cwd), text=True)
-        return int(proc.returncode)
+        return _run_subprocess(cmd, cwd)
 
     script_path, _ = COMMANDS[subcommand]
     if not script_path.exists():
@@ -425,8 +564,7 @@ def main() -> int:
     print(f"$ {shlex.join(cmd)}")
     if args.dry_run:
         return 0
-    proc = subprocess.run(cmd, cwd=str(cwd), text=True)
-    return int(proc.returncode)
+    return _run_subprocess(cmd, cwd)
 
 
 def cli_main() -> None:
