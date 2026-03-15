@@ -18,7 +18,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ def _load_json_safe(path: Path) -> Optional[Dict[str, Any]]:
         if not path.is_file():
             return None
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            return cast(Dict[str, Any], json.load(f))
     except Exception:
         return None
 
@@ -367,7 +367,7 @@ def _load_journal_standards(
     if data is None:
         return None
     journals = data.get("journals", {})
-    return journals.get(target_journal)
+    return cast(Optional[Dict[str, Any]], journals.get(target_journal))
 
 
 def run_audit(

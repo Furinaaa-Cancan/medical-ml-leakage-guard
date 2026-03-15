@@ -435,7 +435,7 @@ def perturb_predictions(
     # Laplace noise scaled to be small but meaningful
     noise = rng.laplace(0, scale * 0.001, size=len(probabilities))
     perturbed = np.clip(np.array(probabilities, dtype=float) + noise, 0.0, 1.0)
-    return perturbed.tolist()
+    return list(float(x) for x in perturbed)
 
 
 # ---------------------------------------------------------------------------
@@ -782,7 +782,7 @@ class Role:
     VIEWER = "viewer"
 
 
-_ROLE_PERMISSIONS: Dict[str, frozenset] = {
+_ROLE_PERMISSIONS: Dict[str, frozenset[str]] = {
     Role.ADMIN: frozenset({
         "pipeline.run", "pipeline.configure", "pipeline.abort",
         "gate.run", "gate.override",
