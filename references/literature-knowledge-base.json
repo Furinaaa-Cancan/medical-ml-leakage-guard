@@ -1,7 +1,7 @@
 {
   "contract_version": "literature_knowledge_base.v1",
   "description": "Curated top-journal literature database for medical ML prediction methodology. Only includes publications from high-impact journals (IF>10), authoritative guidelines (EQUATOR/Cochrane/FDA), or foundational statistical methods papers. Agents should query this database when evaluating methodology or justifying gate requirements.",
-  "last_updated": "2026-03-14",
+  "last_updated": "2026-03-15",
   "categories": {
     "reporting_guideline": "报告指南 — TRIPOD+AI, STARD-AI, CONSORT-AI, SPIRIT-AI",
     "risk_of_bias": "偏倚风险评估 — PROBAST+AI, risk of bias tools",
@@ -104,6 +104,7 @@
         "Transparency and human oversight emphasis"
       ],
       "gates_implementing": [],
+      "applicability_note": "Not applicable to binary classification pipeline gates; LLM-specific reporting standard",
       "dimensions_affected": [8],
       "url": "https://www.nature.com/articles/s41591-024-03425-5"
     },
@@ -369,6 +370,7 @@
         "Complements TRIPOD-ML and STARD-AI for non-trial studies"
       ],
       "gates_implementing": [],
+      "applicability_note": "Not applicable to binary classification pipeline gates; RCT intervention-specific reporting standard",
       "dimensions_affected": [8],
       "url": "https://www.thelancet.com/journals/landig/article/PIIS2589-7500(20)30218-1/fulltext"
     },
@@ -387,6 +389,7 @@
         "Complements CONSORT-AI"
       ],
       "gates_implementing": [],
+      "applicability_note": "Not applicable to binary classification pipeline gates; RCT protocol-specific reporting standard",
       "dimensions_affected": [8],
       "url": "https://www.thelancet.com/journals/landig/article/PIIS2589-7500(20)30219-3/fulltext"
     },
@@ -461,7 +464,7 @@
         "Platform-trust-boundary guarantees",
         "Standardized attestation envelope format"
       ],
-      "gates_implementing": ["execution_attestation_gate", "security_audit_gate"],
+      "gates_implementing": ["execution_attestation_gate", "security_audit_gate", "manifest_lock", "prediction_replay_gate"],
       "dimensions_affected": [9, 10],
       "url": "https://slsa.dev/spec/v1.0/requirements"
     },
@@ -597,6 +600,146 @@
       "gates_implementing": ["security_audit_gate"],
       "dimensions_affected": [8, 10],
       "url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj"
+    },
+    {
+      "id": "LIT-031",
+      "doi": "10.1371/journal.pmed.1001381",
+      "title": "Prognosis Research Strategy (PROGRESS) 3: Prognostic Model Research",
+      "authors": "Steyerberg EW, Moons KGM, van der Windt DA, et al.",
+      "journal": "PLOS Medicine",
+      "year": 2013,
+      "category": "validation",
+      "impact_factor": 15.8,
+      "key_requirements": [
+        "External validation is essential before clinical implementation",
+        "Assess discrimination (C-statistic), calibration, and net benefit in external cohort",
+        "Geographic and temporal separation required for meaningful external validation",
+        "Report transportability: performance gap between development and external cohort",
+        "Recalibration strategies when external performance degrades"
+      ],
+      "gates_implementing": ["external_validation_gate", "distribution_generalization_gate"],
+      "dimensions_affected": [6],
+      "url": "https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1001381"
+    },
+    {
+      "id": "LIT-032",
+      "doi": "10.1056/NEJMc2104626",
+      "title": "The Clinician and Dataset Shift in Artificial Intelligence",
+      "authors": "Finlayson SG, Subbaswamy A, Singh K, et al.",
+      "journal": "New England Journal of Medicine",
+      "year": 2021,
+      "category": "validation",
+      "impact_factor": 158.5,
+      "key_requirements": [
+        "Dataset shift (covariate, label, or concept shift) degrades deployed AI performance",
+        "Models trained on historical data may fail when patient population or care practices change",
+        "Continuous monitoring of model performance is required post-deployment",
+        "Train-test gap analysis must account for temporal and geographic distribution differences",
+        "Clinicians should understand that AI performance metrics may not generalize"
+      ],
+      "gates_implementing": ["generalization_gap_gate", "covariate_shift_gate", "distribution_generalization_gate"],
+      "dimensions_affected": [6],
+      "url": "https://www.nejm.org/doi/10.1056/NEJMc2104626"
+    },
+    {
+      "id": "LIT-033",
+      "doi": "10.1038/s41467-018-07619-7",
+      "title": "Why rankings of biomedical image analysis competitions should be interpreted with care",
+      "authors": "Maier-Hein L, Eisenmann M, Reinke A, et al.",
+      "journal": "Nature Communications",
+      "year": 2018,
+      "category": "validation",
+      "impact_factor": 16.6,
+      "key_requirements": [
+        "Ranking instability due to small performance differences is common in ML benchmarks",
+        "Results are highly sensitive to random seed, data ordering, and evaluation methodology",
+        "Bootstrapped confidence intervals are necessary to assess ranking stability",
+        "Multi-metric evaluation is more robust than single-metric ranking",
+        "Statistical significance testing required before claiming superiority of one method"
+      ],
+      "gates_implementing": ["seed_stability_gate", "robustness_gate", "ci_matrix_gate"],
+      "dimensions_affected": [5, 6, 9],
+      "url": "https://www.nature.com/articles/s41467-018-07619-7"
+    },
+    {
+      "id": "LIT-034",
+      "doi": "10.1136/bmj.b2393",
+      "title": "Multiple imputation for missing data in epidemiological and clinical research: potential and pitfalls",
+      "authors": "Sterne JAC, White IR, Carlin JB, et al.",
+      "journal": "BMJ",
+      "year": 2009,
+      "category": "validation",
+      "impact_factor": 105.7,
+      "key_requirements": [
+        "Missing data mechanism (MCAR, MAR, MNAR) determines appropriate imputation strategy",
+        "Multiple imputation is preferred over complete-case analysis for MAR data",
+        "Sensitivity analysis under MNAR assumption is required for top-journal submissions",
+        "Imputation model must include outcome variable and all predictors",
+        "Number of imputations should reflect fraction of missing information"
+      ],
+      "gates_implementing": ["missingness_policy_gate"],
+      "dimensions_affected": [3],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/19564179/"
+    },
+    {
+      "id": "LIT-035",
+      "doi": "10.1093/jamia/ocac093",
+      "title": "The harm of class imbalance corrections for risk prediction models: illustration and simulation study",
+      "authors": "van den Goorbergh R, van Smeden M, Timmerman D, Van Calster B",
+      "journal": "Journal of the American Medical Informatics Association",
+      "year": 2022,
+      "category": "validation",
+      "impact_factor": 7.9,
+      "key_requirements": [
+        "Oversampling (SMOTE) and undersampling harm calibration of risk prediction models",
+        "Class imbalance correction inflates sensitivity at the cost of specificity and calibration",
+        "For probability estimation (risk prediction), class imbalance is generally NOT a problem",
+        "Prevalence-adjusted metrics (PR-AUC, Brier score) are preferable to accuracy for imbalanced data",
+        "Decision curve analysis should be used to evaluate clinical utility under true prevalence"
+      ],
+      "gates_implementing": ["imbalance_policy_gate", "metric_consistency_gate", "calibration_dca_gate"],
+      "dimensions_affected": [5, 7],
+      "url": "https://pubmed.ncbi.nlm.nih.gov/35640166/"
+    },
+    {
+      "id": "LIT-036",
+      "doi": "10.1007/s10994-009-5165-z",
+      "title": "Permutation Tests for Studying Classifier Performance",
+      "authors": "Ojala M, Garriga GC",
+      "journal": "Journal of Machine Learning Research",
+      "year": 2010,
+      "category": "validation",
+      "impact_factor": 6.3,
+      "key_requirements": [
+        "Permutation test is the gold standard for assessing whether a classifier performs better than chance",
+        "Null distribution is obtained by randomly permuting class labels and retraining/re-evaluating",
+        "p-value represents probability of observing the measured performance under the null hypothesis",
+        "Appropriate for any performance metric (AUC, PR-AUC, accuracy) without distributional assumptions",
+        "Minimum 1000 permutation iterations recommended for stable p-value estimation"
+      ],
+      "gates_implementing": ["permutation_significance_gate"],
+      "dimensions_affected": [5],
+      "url": "https://www.jmlr.org/papers/v11/ojala10a.html"
+    },
+    {
+      "id": "LIT-037",
+      "doi": "10.1371/journal.pmed.1001098",
+      "title": "Research Reporting Standards and the Necessity of Transparent Scientific Communication",
+      "authors": "Ioannidis JPA, Greenland S, Hlatky MA, et al.",
+      "journal": "PLOS Medicine",
+      "year": 2014,
+      "category": "reporting_guideline",
+      "impact_factor": 15.8,
+      "key_requirements": [
+        "Pre-specified analysis plans reduce researcher degrees of freedom and prevent p-hacking",
+        "Automated quality checks and self-critique of analytical decisions improve reproducibility",
+        "Transparent reporting of all analytical choices, including those that did not work",
+        "Limitation documentation is required for honest scientific communication",
+        "Self-assessment of methodological rigor should precede peer review"
+      ],
+      "gates_implementing": ["self_critique_gate", "request_contract_gate", "reporting_bias_gate"],
+      "dimensions_affected": [8, 9],
+      "url": "https://journals.plos.org/plosmedicine/article?id=10.1371/journal.pmed.1001098"
     }
   ],
   "agent_instructions": {

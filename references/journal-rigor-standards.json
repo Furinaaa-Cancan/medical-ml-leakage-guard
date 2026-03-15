@@ -1,7 +1,7 @@
 {
   "contract_version": "journal_rigor_standards.v1",
   "description": "Top-tier medical journal requirements mapped to ml-leakage-guard gates. Use for gap analysis when targeting specific journals.",
-  "last_updated": "2026-03-14",
+  "last_updated": "2026-03-15",
   "journals": {
     "nature_medicine": {
       "full_name": "Nature Medicine",
@@ -22,8 +22,8 @@
         "strongly_recommended": [
           {"requirement": "Multi-seed stability analysis", "gate": "seed_stability_gate", "dimension": 6},
           {"requirement": "Permutation test for statistical significance", "gate": "permutation_significance_gate", "dimension": 5},
-          {"requirement": "Model interpretability (SHAP/feature importance)", "gate": null, "dimension": 7},
-          {"requirement": "Prospective validation or simulation", "gate": null, "dimension": 6}
+          {"requirement": "Model interpretability (SHAP/feature importance)", "gate": null, "planned_gate": "shap_explainability_gate", "note": "Optional SHAP gate planned (see ERR-020); currently requires manual assessment via permutation importance in evaluation_quality_gate", "dimension": 7},
+          {"requirement": "Prospective validation or simulation", "gate": null, "note": "Requires external study design or prospective data collection; outside automated pipeline scope", "dimension": 6}
         ],
         "minimum_score": 92
       }
@@ -67,7 +67,7 @@
         "strongly_recommended": [
           {"requirement": "Multi-center validation", "gate": "external_validation_gate", "dimension": 6},
           {"requirement": "Algorithmic fairness assessment", "gate": "robustness_gate", "dimension": 6},
-          {"requirement": "Prospective validation plan", "gate": null, "dimension": 6}
+          {"requirement": "Prospective validation plan", "gate": null, "note": "Requires external study design or prospective data collection; outside automated pipeline scope", "dimension": 6}
         ],
         "minimum_score": 90
       }
@@ -87,7 +87,7 @@
           {"requirement": "Sensitivity analyses for key assumptions", "gate": "seed_stability_gate", "dimension": 6}
         ],
         "strongly_recommended": [
-          {"requirement": "Patient and public involvement statement", "gate": null, "dimension": 8},
+          {"requirement": "Patient and public involvement statement", "gate": null, "note": "Institutional and editorial process requirement; outside automated pipeline scope", "dimension": 8},
           {"requirement": "Health equity impact assessment", "gate": "robustness_gate", "dimension": 6}
         ],
         "minimum_score": 88
@@ -102,7 +102,7 @@
           {"requirement": "Train/validation/test split with no leakage", "gate": "leakage_gate", "dimension": 2},
           {"requirement": "Confidence intervals", "gate": "ci_matrix_gate", "dimension": 5},
           {"requirement": "Calibration metrics", "gate": "calibration_dca_gate", "dimension": 5},
-          {"requirement": "Feature importance or interpretability", "gate": null, "dimension": 7}
+          {"requirement": "Feature importance or interpretability", "gate": null, "planned_gate": "shap_explainability_gate", "note": "Optional SHAP gate planned (see ERR-020); permutation importance currently available via evaluation_quality_gate", "dimension": 7}
         ],
         "strongly_recommended": [
           {"requirement": "External validation", "gate": "external_validation_gate", "dimension": 6},

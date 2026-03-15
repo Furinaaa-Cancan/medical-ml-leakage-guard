@@ -1,7 +1,7 @@
 {
   "contract_version": "error_knowledge_base.v1",
   "description": "Self-improving error pattern database. Agents should append new entries when encountering novel error patterns.",
-  "last_updated": "2026-03-14",
+  "last_updated": "2026-03-15",
   "categories": {
     "data": "Data loading, splitting, format issues",
     "leakage": "Any form of data leakage detection",
@@ -102,7 +102,7 @@
       "prevention": "Before assigning NaN, ensure target column is float-compatible. Use pd.array with nullable integer dtype if needed.",
       "category": "data",
       "severity": "ERROR",
-      "affected_files": [],
+      "affected_files": ["scripts/train_select_evaluate.py", "scripts/split_data.py"],
       "first_seen": "2025-05",
       "resolved": true
     },
@@ -273,7 +273,8 @@
       "severity": "INFO",
       "affected_files": ["scripts/train_select_evaluate.py"],
       "first_seen": "2026-03",
-      "resolved": false
+      "resolved": false,
+      "planned_fix": "Add optional shap_explainability_gate as non-blocking INFO gate when shap package is installed; compute TreeExplainer for tree-based models, LinearExplainer for linear models, and KernelExplainer as fallback"
     },
     {
       "id": "ERR-021",
@@ -286,7 +287,8 @@
       "severity": "INFO",
       "affected_files": ["scripts/missingness_policy_gate.py"],
       "first_seen": "2026-03",
-      "resolved": false
+      "resolved": false,
+      "planned_fix": "Add Little's MCAR test as optional check in missingness_policy_gate via --mcar-test flag; add MNAR sensitivity analysis via --sensitivity-analysis flag using pattern-mixture models"
     },
     {
       "id": "ERR-022",
@@ -299,7 +301,8 @@
       "severity": "WARNING",
       "affected_files": ["scripts/reporting_bias_gate.py"],
       "first_seen": "2026-03",
-      "resolved": false
+      "resolved": false,
+      "planned_fix": "Update reporting_bias_gate.py to implement full 22-item PROBAST+AI-2025 checklist (16 development + 18 evaluation signalling questions per Moons et al. BMJ 2025) replacing the current 6-item PROBAST-2019 core domain check"
     },
     {
       "id": "ERR-023",
@@ -339,6 +342,188 @@
       "affected_files": ["scripts/batch_journal_review.py"],
       "first_seen": "2026-03",
       "resolved": true
+    },
+    {
+      "id": "ERR-026",
+      "code": "entity_overlap_detected",
+      "symptom": "split_protocol_gate reports entity_overlap_count > 0, indicating the same patient ID appears in multiple splits",
+      "root_cause": "Data was split by row rather than by patient (entity), causing the same patient to appear in both train and test sets",
+      "fix": "Re-run split_data.py with --entity-col <patient_id_column> to enforce entity-level splitting. Delete the contaminated split files and regenerate.",
+      "prevention": "Always specify --entity-col when patients have multiple rows. split_data.py defaults to entity-level splitting when entity column is provided.",
+      "category": "data",
+      "severity": "CRITICAL",
+      "affected_files": ["scripts/split_data.py", "scripts/split_protocol_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "split_protocol_gate"
+    },
+    {
+      "id": "ERR-027",
+      "code": "row_overlap_detected",
+      "symptom": "leakage_gate reports row_overlap_count > 0 between train and test CSVs",
+      "root_cause": "Identical rows (same feature values and label) appear in both training and test sets, directly contaminating the holdout evaluation",
+      "fix": "Re-run split_data.py to regenerate splits from the original unsplit dataset. Never manually copy or move rows between split files.",
+      "prevention": "Never edit split CSV files manually. Always regenerate splits from the source dataset using split_data.py. Run leakage_gate immediately after any split operation.",
+      "category": "leakage",
+      "severity": "CRITICAL",
+      "affected_files": ["scripts/split_data.py", "scripts/leakage_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "leakage_gate"
+    },
+    {
+      "id": "ERR-028",
+      "code": "subgroup_performance_missing",
+      "symptom": "clinical_metrics_gate fails because evaluation_report.json lacks the subgroup_performance section",
+      "root_cause": "train_select_evaluate.py was run without --subgroup-cols flag, so no subgroup breakdowns were computed and stored in the evaluation report",
+      "fix": "Re-run train_select_evaluate.py with --subgroup-cols <col1,col2>. Minimum clinically required columns: age_group and sex/gender when available in the dataset.",
+      "prevention": "Always specify at least one clinically relevant subgroup column. Define subgroup_columns in request.json and ensure train_select_evaluate.py reads it.",
+      "category": "model",
+      "severity": "ERROR",
+      "affected_files": ["scripts/train_select_evaluate.py", "scripts/clinical_metrics_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "clinical_metrics_gate"
+    },
+    {
+      "id": "ERR-029",
+      "code": "upstream_gates_not_passed",
+      "symptom": "publication_gate blocks the publication-ready declaration because one or more upstream gates have status != pass",
+      "root_cause": "publication_gate is a fail-closed aggregator: it issues a publication-ready attestation only when ALL 31 gates have passed. Any single gate failure propagates to block publication.",
+      "fix": "Read gate_results_summary.json to identify failed gates. Fix each failure in order of severity (CRITICAL first). Re-run the full pipeline until all 31 gates show status=pass.",
+      "prevention": "Run gates in the canonical pipeline order via mlgg.py workflow. Never skip gates. Publication declaration is only valid when all 31 gates pass in the same pipeline run.",
+      "category": "gate",
+      "severity": "CRITICAL",
+      "affected_files": ["scripts/publication_gate.py", "scripts/run_strict_pipeline.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "publication_gate"
+    },
+    {
+      "id": "ERR-030",
+      "code": "self_critique_quality_score_low",
+      "symptom": "self_critique_gate issues a warning or fails because the aggregate quality_score falls below the configured threshold (default 0.7)",
+      "root_cause": "Self-critique computes a weighted aggregate across all gate reports. A sub-threshold score indicates systemic quality deficits across multiple dimensions, beyond any single gate failure.",
+      "fix": "Review self_critique_report.json for the lowest-scoring dimensions. Prioritize fixing the top 3 dimension deficits as they have the highest aggregate impact. Re-run affected gates after remediation.",
+      "prevention": "Run self_critique_gate after all other gates pass as a final pre-submission quality check. Use its dimension scores as a checklist for top-journal readiness.",
+      "category": "gate",
+      "severity": "WARNING",
+      "affected_files": ["scripts/self_critique_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "self_critique_gate"
+    },
+    {
+      "id": "ERR-031",
+      "code": "model_hmac_verification_failed",
+      "symptom": "security_audit_gate reports HMAC signature mismatch for a model artifact, indicating the file was modified after signing",
+      "root_cause": "The model file was overwritten, re-serialized, or corrupted after the HMAC signature was computed and stored in the attestation record",
+      "fix": "If modification was intentional (re-training): re-sign the new artifact using generate_execution_attestation.py --re-sign. If accidental: restore the originally signed version from backup.",
+      "prevention": "Treat signed model artifacts as immutable. Never overwrite a signed model file. If re-training is needed, increment the model version and create a new signed artifact.",
+      "category": "security",
+      "severity": "CRITICAL",
+      "affected_files": ["scripts/security_audit_gate.py", "scripts/generate_execution_attestation.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "security_audit_gate"
+    },
+    {
+      "id": "ERR-032",
+      "code": "manifest_artifact_hash_changed",
+      "symptom": "manifest_lock gate fails because the SHA-256 hash of one or more evidence artifacts has changed since the manifest was sealed",
+      "root_cause": "An evidence file (gate report JSON, model artifact, or evaluation output) was modified after the manifest was sealed, breaking the provenance chain",
+      "fix": "Identify which artifact changed using the manifest diff in the gate report. If the change was intentional, re-run the affected gate and re-seal the manifest. If accidental, restore from the sealed artifact.",
+      "prevention": "Seal the manifest as the absolute final step of the pipeline run. Do not modify any gate report files after pipeline completion. Use --allow-update only during active iterative development.",
+      "category": "attestation",
+      "severity": "ERROR",
+      "affected_files": ["scripts/manifest_lock.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "manifest_lock"
+    },
+    {
+      "id": "ERR-033",
+      "code": "tuning_leakage_via_validation_set",
+      "symptom": "tuning_leakage_gate detects that hyperparameter optimization used the held-out validation or test set directly or indirectly",
+      "root_cause": "Hyperparameter search used test set performance as the optimization objective, or early stopping was monitored on the test split, creating indirect leakage into model selection",
+      "fix": "Ensure all hyperparameter tuning uses cross-validation on the training set only. Never pass validation_data pointing to val/test split into any tuning loop. Verify with tuning_leakage_gate.py --check-cv-strategy.",
+      "prevention": "Use nested cross-validation for hyperparameter tuning. The test set must be touched exactly once for final evaluation. train_select_evaluate.py enforces this separation by design.",
+      "category": "leakage",
+      "severity": "CRITICAL",
+      "affected_files": ["scripts/tuning_leakage_gate.py", "scripts/train_select_evaluate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "tuning_leakage_gate"
+    },
+    {
+      "id": "ERR-034",
+      "code": "model_selection_candidate_pool_insufficient",
+      "symptom": "model_selection_audit_gate fails because fewer than 3 candidate models with valid CV scores exist, making one-SE rule application statistically invalid",
+      "root_cause": "Model training produced fewer than 3 successful candidates (others may have failed, timed out, or been filtered). The one-SE rule requires a sufficient candidate pool to estimate standard error meaningfully.",
+      "fix": "Increase --model-pool size, raise --max-trials-per-family, or install optional backends (xgboost, catboost, lightgbm). A minimum of 3 candidates is required; 5+ is recommended for robust one-SE rule application.",
+      "prevention": "Use the balanced or comprehensive preset to ensure at least 5+ model families. Run mlgg.py doctor to check available backends before starting training.",
+      "category": "model",
+      "severity": "ERROR",
+      "affected_files": ["scripts/model_selection_audit_gate.py", "scripts/train_select_evaluate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "model_selection_audit_gate"
+    },
+    {
+      "id": "ERR-035",
+      "code": "permutation_test_not_significant",
+      "symptom": "permutation_significance_gate reports p_value > 0.05, indicating model performance is not statistically distinguishable from random label permutation",
+      "root_cause": "The model fails to capture meaningful signal, typically caused by: insufficient sample size (low statistical power), severe class imbalance, or genuinely non-predictive features in the feature set",
+      "fix": "Check sample_size_gate output for EPV adequacy. If sample size is adequate, review feature quality and relevance. A non-significant result is a valid scientific finding — do not increase permutation iterations to force significance.",
+      "prevention": "Run sample_size_gate before training to confirm adequate statistical power. A non-significant permutation test should be reported as a finding, not suppressed.",
+      "category": "statistical",
+      "severity": "ERROR",
+      "affected_files": ["scripts/permutation_significance_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "permutation_significance_gate"
+    },
+    {
+      "id": "ERR-036",
+      "code": "bootstrap_ci_missing_or_nan",
+      "symptom": "ci_matrix_gate fails because pr_auc_ci_95, roc_auc_ci_95, or other required CI bounds are missing, null, or [NaN, NaN] in the evaluation report",
+      "root_cause": "Bootstrap CI computation failed silently (too few bootstrap samples, all samples identical, or numerical instability) and the result was stored as null/NaN instead of raising an error",
+      "fix": "Increase --bootstrap-iterations (minimum 1000 for publication). Check for degenerate bootstrap samples (all predictions identical). Ensure eval set has at least 30 positive events for stable CI estimation.",
+      "prevention": "Apply the isfinite guard to all CI values before writing evaluation_report.json. Fail loudly if CI computation yields NaN instead of silently storing it.",
+      "category": "statistical",
+      "severity": "ERROR",
+      "affected_files": ["scripts/train_select_evaluate.py", "scripts/ci_matrix_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "ci_matrix_gate"
+    },
+    {
+      "id": "ERR-037",
+      "code": "imbalance_policy_strategy_mismatch",
+      "symptom": "imbalance_policy_gate fails because the actual imbalance handling strategy used in training does not match the strategy declared in request.json",
+      "root_cause": "request.json specifies an imbalance strategy (e.g., class_weight_balanced) but training was run with a different or no strategy, creating a contract violation between declared methodology and actual execution",
+      "fix": "Ensure --imbalance-strategy in train_select_evaluate.py matches the imbalance_strategy field in request.json. Re-run training with the declared strategy.",
+      "prevention": "train_select_evaluate.py should read imbalance_strategy directly from request.json rather than accepting it as a separate CLI argument, eliminating the mismatch risk.",
+      "category": "config",
+      "severity": "ERROR",
+      "affected_files": ["scripts/train_select_evaluate.py", "scripts/imbalance_policy_gate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "imbalance_policy_gate"
+    },
+    {
+      "id": "ERR-038",
+      "code": "prediction_replay_mismatch",
+      "symptom": "prediction_replay_gate fails because re-running inference with the saved model on the saved test features produces predictions that differ from the stored prediction_report.json",
+      "root_cause": "Non-deterministic model inference (unseeded randomness in predict() path), or the stored model artifact was regenerated/modified after predictions were recorded",
+      "fix": "Ensure model artifact is the exact file used for the original predictions. Set all random seeds before inference. For stochastic models (e.g., MC dropout), disable dropout at inference time.",
+      "prevention": "Always call np.random.seed(seed) and torch.manual_seed(seed) / tf.random.set_seed(seed) before model.predict(). Treat prediction CSVs and model artifacts as an inseparable pair.",
+      "category": "attestation",
+      "severity": "ERROR",
+      "affected_files": ["scripts/prediction_replay_gate.py", "scripts/train_select_evaluate.py"],
+      "first_seen": "2026-03-15",
+      "resolved": true,
+      "gate": "prediction_replay_gate"
     }
   ],
   "agent_instructions": {
