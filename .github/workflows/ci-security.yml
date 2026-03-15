@@ -44,6 +44,9 @@ jobs:
       - name: Manifest lock tests
         run: python3 -m pytest tests/test_manifest_lock.py -v --tb=short
 
+      - name: Audit report unit tests (74 tests, no numpy required)
+        run: python3 -m pytest tests/test_generate_audit_report.py -v --tb=short
+
       - name: Audit report smoke test
         run: |
           python3 scripts/generate_audit_report.py --project-dir . --output-dir /tmp/audit-ci/ --format json

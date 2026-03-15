@@ -365,7 +365,11 @@ def assess_tripod_coverage(
             "gate_check": tripod_item.get("gate_check", "") if tripod_item else "",
         })
 
-    covered_count = sum(1 for s in item_status.values() if s == "covered")
+    # Count only required items that are covered (item_status may include extra gate items)
+    covered_count = sum(
+        1 for item_id in TRIPOD_REQUIRED_ITEMS
+        if item_status.get(item_id) == "covered"
+    )
     return {
         "reference": "Collins et al. BMJ 2024;385:e078378",
         "total_required": len(TRIPOD_REQUIRED_ITEMS),
