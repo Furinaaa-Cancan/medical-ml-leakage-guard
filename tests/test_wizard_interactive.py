@@ -19,6 +19,8 @@ import signal
 import sys
 import time
 
+import pytest
+
 SCRIPT = os.path.join(os.path.dirname(__file__), "..", "scripts", "mlgg_pixel.py")
 PYTHON = sys.executable
 
@@ -99,14 +101,33 @@ class PTYSession:
             self.send(k, delay)
 
     def close(self):
+        # Kill the entire process group (wizard + any spawned workers).
+        # Using killpg ensures multiprocessing children and subprocesses also
+        # receive SIGKILL, not just the direct pty child.
         try:
-            os.kill(self.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            os.waitpid(self.pid, 0)
-        except ChildProcessError:
-            pass
+            pgid = os.getpgid(self.pid)
+            os.killpg(pgid, signal.SIGKILL)
+        except OSError:
+            # Process already dead, or no permission — fall back to direct kill
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        # Reap the zombie in a daemon thread with a hard timeout.
+        # os.waitpid(pid, 0) can block indefinitely when the child is in
+        # D-state (uninterruptible I/O, e.g. network download), even after
+        # SIGKILL is delivered.  A bounded wait prevents suite hangs.
+        import threading
+        def _reap():
+            try:
+                os.waitpid(self.pid, 0)
+            except ChildProcessError:
+                pass
+        t = threading.Thread(target=_reap, daemon=True)
+        t.start()
+        t.join(timeout=3.0)  # give up after 3 s; leave reaping to OS on exit
+
         try:
             os.close(self.fd)
         except OSError:
@@ -226,6 +247,7 @@ def test_04_demo_flow():
             R.fail("T04 demo flow", f"No Step 8: {s.text()[-300:]}")
 
 
+@pytest.mark.slow
 def test_05_download_to_step5():
     """T05: English → Download → Heart → default name → reaches Step 5."""
     with PTYSession() as s:
@@ -245,6 +267,7 @@ def test_05_download_to_step5():
             R.fail("T05 download→step5", f"No Step 5: {s.text()[-300:]}")
 
 
+@pytest.mark.slow
 def test_06_ctrlc_at_project_name():
     """T06: Ctrl+C at project name input → BACK, not crash."""
     with PTYSession() as s:
@@ -275,6 +298,7 @@ def test_06_ctrlc_at_project_name():
                 R.fail("T06 ctrl+c", "Process died (crashed)")
 
 
+@pytest.mark.slow
 def test_07_multi_select():
     """T07: Model selection → Space toggle, A toggle-all, Enter confirm."""
     with PTYSession() as s:
@@ -307,6 +331,7 @@ def test_07_multi_select():
             R.fail("T07 multi-select", f"No Step 7: {s.text()[-200:]}")
 
 
+@pytest.mark.slow
 def test_08_sub_step_back():
     """T08: Tuning → calibration → q → back to tuning strategy (not Step 6)."""
     with PTYSession() as s:
@@ -345,6 +370,7 @@ def test_08_sub_step_back():
             R.fail("T08 sub-step back", f"Unexpected: {t[:200]}")
 
 
+@pytest.mark.slow
 def test_09_chinese_lang():
     """T09: Select Chinese → verify Chinese text."""
     with PTYSession(env_lang="zh_CN.UTF-8") as s:
@@ -363,6 +389,7 @@ def test_09_chinese_lang():
             R.fail("T09 chinese", f"No Step 2: {s.text()[-200:]}")
 
 
+@pytest.mark.slow
 def test_10_digit_shortcut():
     """T10: Press '2' to jump to option 2 (中文), Enter → Chinese UI."""
     with PTYSession() as s:
@@ -381,6 +408,7 @@ def test_10_digit_shortcut():
             R.fail("T10 digit shortcut", f"No Step 2: {s.text()[-200:]}")
 
 
+@pytest.mark.slow
 def test_11_esc_key():
     """T11: ESC key acts like q (goes back)."""
     with PTYSession() as s:
@@ -400,6 +428,7 @@ def test_11_esc_key():
             R.fail("T11 ESC key", f"No back: {s.text()[:200]}")
 
 
+@pytest.mark.slow
 def test_12_confirm_go_back():
     """T12: Demo → Confirm → Go Back → returns to Step 2."""
     with PTYSession() as s:
@@ -420,6 +449,7 @@ def test_12_confirm_go_back():
             R.fail("T12 confirm back", f"No Step 2: {s.text()[-200:]}")
 
 
+@pytest.mark.slow
 def test_13_csv_manual_input():
     """T13: English → CSV → Enter path manually → input examples/heart_disease.csv → reaches Step 4 or Step 5."""
     csv_path = os.path.join(os.path.dirname(__file__), "..", "examples", "heart_disease.csv")
@@ -458,6 +488,7 @@ def test_13_csv_manual_input():
             R.fail("T13 csv manual", f"Expected Step 4/5: {final[-300:]}")
 
 
+@pytest.mark.slow
 def test_14_column_count_error():
     """T14: Construct 1-column CSV → select it → verify error prompt, no crash."""
     import tempfile
@@ -505,6 +536,7 @@ def test_14_column_count_error():
             pass
 
 
+@pytest.mark.slow
 def test_15_step_split_complete():
     """T15: Download → Heart → default name → temporal → ratio → verify reaches Step 6."""
     with PTYSession() as s:
@@ -531,6 +563,7 @@ def test_15_step_split_complete():
             R.fail("T15 split flow", f"No Step 6: {s.text()[-200:]}")
 
 
+@pytest.mark.slow
 def test_16_step_confirm_info():
     """T16: Complete download flow to Step 8 → verify confirm box has key info."""
     with PTYSession() as s:
